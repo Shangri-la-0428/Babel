@@ -18,24 +18,22 @@ design/      Design tokens, components, Tailwind preset
 - Node.js 18+
 - An LLM API key (OpenAI, Anthropic, or any litellm-compatible provider)
 
-### One Command
+### Install
 
 ```bash
-./start.sh
+git clone https://github.com/Shangri-la-0428/babel.git
+cd babel
+./install.sh
 ```
 
-Open http://localhost:3000 → click **Settings** → fill in your API Key and Base URL → done.
-Settings are saved in your browser (localStorage) — only need to configure once.
-
-### Manual Start
+### Run
 
 ```bash
-# Terminal 1: Backend
-cd backend && source .venv/bin/activate && uvicorn babel.api:app --port 8000
-
-# Terminal 2: Frontend
-cd frontend && npm run dev
+babel
 ```
+
+Open http://localhost:3000 → click **Settings** → configure your API Key → done.
+Settings are saved in your browser — only need to configure once. `Ctrl+C` to stop.
 
 ### Docker
 
