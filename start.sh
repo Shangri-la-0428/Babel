@@ -30,14 +30,11 @@ npx next dev --port 3000 &
 FRONTEND_PID=$!
 cd ..
 
+sleep 3
+open http://localhost:3000 2>/dev/null || xdg-open http://localhost:3000 2>/dev/null || true
+
 echo ""
-echo "[BABEL] Ready"
-echo "  Frontend: http://localhost:3000"
-echo "  Backend:  http://localhost:8000/docs"
-echo ""
-echo "  First time? Click Settings in the UI to configure your LLM API key."
-echo "  Settings are saved in your browser — only need to set once."
-echo ""
+echo "[BABEL] Running at http://localhost:3000"
 echo "Press Ctrl+C to stop."
 
 trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null" EXIT
