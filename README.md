@@ -18,31 +18,24 @@ design/      Design tokens, components, Tailwind preset
 - Node.js 18+
 - An LLM API key (OpenAI, Anthropic, or any litellm-compatible provider)
 
-### Backend
+### One Command
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-
-# Set your LLM provider
-export BABEL_API_KEY="sk-..."
-export BABEL_MODEL="gpt-4o-mini"           # or claude-3-haiku, etc.
-# export BABEL_API_BASE="https://..."      # optional, for custom endpoints
-
-uvicorn babel.api:app --reload --port 8000
+./start.sh
 ```
 
-### Frontend
+Open http://localhost:3000 → click **Settings** → fill in your API Key and Base URL → done.
+Settings are saved in your browser (localStorage) — only need to configure once.
+
+### Manual Start
 
 ```bash
-cd frontend
-npm install
-npm run dev
-```
+# Terminal 1: Backend
+cd backend && source .venv/bin/activate && uvicorn babel.api:app --port 8000
 
-Open http://localhost:3000
+# Terminal 2: Frontend
+cd frontend && npm run dev
+```
 
 ### Docker
 
