@@ -9,7 +9,14 @@ import litellm
 from pydantic import ValidationError
 
 from .models import LLMResponse
-from .prompts import SYSTEM_PROMPT, build_user_prompt
+from .prompts import (
+    SYSTEM_PROMPT,
+    build_user_prompt,
+    CHAT_SYSTEM_PROMPT,
+    build_chat_prompt,
+    PERTURBATION_SYSTEM_PROMPT,
+    build_perturbation_prompt,
+)
 
 # Suppress litellm debug noise
 litellm.suppress_debug_info = True
@@ -116,3 +123,94 @@ async def get_agent_action(
                 raw["action"]["type"] = "wait"
             return LLMResponse(**raw)
         raise
+
+
+async def chat_with_agent(
+    agent_name: str,
+    agent_personality: str,
+    agent_goals: list[str],
+    agent_location: str,
+    agent_inventory: list[str],
+    agent_memory: list[str],
+    agent_description: str,
+    user_message: str,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> str:
+    """Have an agent reply to a user message in character."""
+    model = model or get_model()
+    api_key = api_key or get_api_key()
+    api_base = api_base or get_api_base()
+
+    user_prompt = build_chat_prompt(
+        agent_name=agent_name,
+        agent_personality=agent_personality,
+        agent_goals=agent_goals,
+        agent_location=agent_location,
+        agent_inventory=agent_inventory,
+        agent_memory=agent_memory,
+        agent_description=agent_description,
+        user_message=user_message,
+    )
+
+    kwargs: dict = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.9,
+        "max_tokens": 512,
+    }
+
+    if api_key:
+        kwargs["api_key"] = api_key
+    if api_base:
+        kwargs["api_base"] = api_base
+
+    response = await litellm.acompletion(**kwargs)
+    return response.choices[0].message.content.strip()
+
+
+async def generate_world_event(
+    world_description: str,
+    world_rules: list[str],
+    locations: list[str],
+    recent_events: list[str],
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> str:
+    """Use LLM to generate a world event for perturbation."""
+    model = model or get_model()
+    api_key = api_key or get_api_key()
+    api_base = api_base or get_api_base()
+
+    user_prompt = build_perturbation_prompt(
+        world_description=world_description,
+        world_rules=world_rules,
+        locations=locations,
+        recent_events=recent_events,
+    )
+
+    kwargs: dict = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": PERTURBATION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 1.0,
+        "max_tokens": 256,
+    }
+
+    if api_key:
+        kwargs["api_key"] = api_key
+    if api_base:
+        kwargs["api_base"] = api_base
+
+    response = await litellm.acompletion(**kwargs)
+    content = response.choices[0].message.content.strip()
+    # Strip any accidental quotes or markdown
+    content = content.strip('"\'`')
+    return content

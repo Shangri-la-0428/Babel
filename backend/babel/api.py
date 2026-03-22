@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from .db import init_db, save_session, save_event, load_events, list_sessions
 from .engine import Engine
+from .llm import chat_with_agent
 from .models import AgentSeed, Event, Session, WorldSeed
 
 
@@ -79,6 +80,18 @@ class RunRequest(BaseModel):
     api_key: str | None = None
     api_base: str | None = None
     tick_delay: float = 3.0
+
+
+class InjectEventRequest(BaseModel):
+    content: str
+
+
+class ChatRequest(BaseModel):
+    agent_id: str
+    message: str
+    model: str | None = None
+    api_key: str | None = None
+    api_base: str | None = None
 
 
 # ── WebSocket broadcast ───────────────────────────────
@@ -328,6 +341,115 @@ async def get_events(session_id: str, limit: int = 100, offset: int = 0) -> list
 @app.get("/api/sessions")
 async def get_sessions() -> list[dict]:
     return await list_sessions()
+
+
+# ── Feature 1: Inject world event ─────────────────────
+
+@app.post("/api/worlds/{session_id}/inject")
+async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
+    """Inject a user-authored world event into the session."""
+    engine = _engines.get(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    event = Event(
+        session_id=session_id,
+        tick=engine.session.tick,
+        agent_id=None,
+        agent_name=None,
+        action_type="world_event",
+        action={"content": req.content},
+        result=f"[WORLD] {req.content}",
+    )
+    engine.session.events.append(event)
+    await save_event(event)
+    await broadcast(session_id, "event", {
+        "id": event.id,
+        "tick": event.tick,
+        "agent_id": event.agent_id,
+        "agent_name": event.agent_name,
+        "action_type": "world_event",
+        "action": event.action,
+        "result": event.result,
+    })
+
+    return {
+        "id": event.id,
+        "tick": event.tick,
+        "result": event.result,
+    }
+
+
+# ── Feature 2: Chat with agent ────────────────────────
+
+@app.post("/api/worlds/{session_id}/chat")
+async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
+    """Have a direct conversation with an agent (does not affect simulation state)."""
+    engine = _engines.get(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    agent = engine.session.agents.get(req.agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent not found: {req.agent_id}")
+
+    reply = await chat_with_agent(
+        agent_name=agent.name,
+        agent_personality=agent.personality,
+        agent_goals=agent.goals,
+        agent_location=agent.location,
+        agent_inventory=agent.inventory,
+        agent_memory=agent.memory,
+        agent_description=agent.description,
+        user_message=req.message,
+        model=req.model,
+        api_key=req.api_key,
+        api_base=req.api_base,
+    )
+
+    return {
+        "agent_id": req.agent_id,
+        "agent_name": agent.name,
+        "reply": reply,
+    }
+
+
+# ── Feature 4: Session replay ─────────────────────────
+
+@app.get("/api/worlds/{session_id}/replay")
+async def get_replay(session_id: str, limit: int = 500, offset: int = 0) -> dict:
+    """Return full event history and initial state for session replay."""
+    engine = _engines.get(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    session = engine.session
+
+    # Load events from DB (ordered by tick ASC for replay)
+    all_events = await load_events(session_id, limit=limit, offset=offset)
+    # load_events returns DESC order; reverse for chronological replay
+    all_events.reverse()
+
+    # Build initial agent snapshot from the world seed
+    initial_agents = {}
+    for seed in session.world_seed.agents:
+        initial_agents[seed.id] = {
+            "id": seed.id,
+            "name": seed.name,
+            "description": seed.description,
+            "personality": seed.personality,
+            "goals": seed.goals,
+            "location": seed.location,
+            "inventory": seed.inventory,
+        }
+
+    return {
+        "world_name": session.world_seed.name,
+        "world_description": session.world_seed.description,
+        "total_ticks": session.tick,
+        "events": all_events,
+        "initial_agents": initial_agents,
+    }
 
 
 # ── WebSocket ──────────────────────────────────────────

@@ -194,6 +194,48 @@ export async function getSessions(): Promise<
   return res.json();
 }
 
+export async function injectEvent(
+  sessionId: string,
+  content: string
+): Promise<{ event_id: string }> {
+  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/inject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  return res.json();
+}
+
+export async function chatWithAgent(
+  sessionId: string,
+  agentId: string,
+  message: string,
+  opts: { model?: string; api_key?: string; api_base?: string } = {}
+): Promise<{ agent_id: string; agent_name: string; reply: string }> {
+  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      agent_id: agentId,
+      message,
+      model: opts.model ?? null,
+      api_key: opts.api_key ?? null,
+      api_base: opts.api_base ?? null,
+    }),
+  });
+  return res.json();
+}
+
+export async function getReplay(sessionId: string): Promise<{
+  world_name: string;
+  total_ticks: number;
+  events: EventData[];
+  initial_agents: Record<string, AgentData>;
+}> {
+  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/replay`);
+  return res.json();
+}
+
 export function createWebSocket(sessionId: string): WebSocket {
   const wsBase = API_BASE.replace(/^http/, "ws");
   return new WebSocket(`${wsBase}/ws/${sessionId}`);

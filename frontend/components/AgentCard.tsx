@@ -37,10 +37,12 @@ export default function AgentCard({
   agentId,
   agent,
   isActive,
+  onChat,
 }: {
   agentId: string;
   agent: AgentData;
   isActive?: boolean;
+  onChat?: () => void;
 }) {
   const isDead = agent.status === "dead";
   const borderCls = isActive
@@ -91,6 +93,16 @@ export default function AgentCard({
             <Badge key={i}>{item}</Badge>
           ))}
         </div>
+      )}
+
+      {/* Chat button */}
+      {onChat && !isDead && (
+        <button
+          onClick={onChat}
+          className="w-full h-8 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
+        >
+          Chat
+        </button>
       )}
     </div>
   );

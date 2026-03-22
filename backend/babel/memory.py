@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import random
 
 from .models import AgentState, Event, Session
+
+logger = logging.getLogger(__name__)
 
 MAX_MEMORY = 10
 
@@ -60,17 +63,20 @@ def get_recent_events(agent: AgentState, session: Session, limit: int = 8) -> li
 
 # ── Anti-loop: repetition detection + perturbation ──
 
-PERTURBATION_EVENTS = [
-    "A stranger walks into the bar, looking around nervously.",
-    "The lights flicker — power grid instability.",
-    "A loud explosion is heard in the distance.",
-    "An encrypted broadcast plays on all channels: 'They are watching.'",
-    "A drone crashes through the window, sparking on the floor.",
-    "Someone left a mysterious package at the entrance.",
-    "The rain outside intensifies, flooding the back alley.",
-    "A corporate patrol vehicle is spotted outside.",
-    "All communication devices emit a burst of static for 5 seconds.",
-    "A cat with cybernetic eyes wanders in from the alley.",
+# Generic perturbation templates — {location} is filled from the world seed
+_PERTURBATION_TEMPLATES = [
+    "A stranger arrives, looking around nervously.",
+    "A distant rumbling is heard — something is shifting.",
+    "An unexpected sound echoes through {location}.",
+    "Someone has left a mysterious object near the entrance.",
+    "The air grows tense — something is about to happen.",
+    "A messenger arrives with urgent but garbled news.",
+    "A loud crash is heard from the direction of {location}.",
+    "An old secret is whispered among the crowd: someone is not who they claim.",
+    "Supplies have gone missing — suspicion spreads.",
+    "A previously locked door is found ajar.",
+    "The weather shifts dramatically without warning.",
+    "A scream echoes from somewhere nearby, then silence.",
 ]
 
 
@@ -94,6 +100,47 @@ def detect_repetition(agent: AgentState, session: Session, threshold: int = 3) -
     return False
 
 
-def generate_perturbation() -> str:
-    """Generate a random world event to break repetition loops."""
-    return random.choice(PERTURBATION_EVENTS)
+def _template_perturbation(session: Session | None = None) -> str:
+    """Fallback: generate a perturbation from templates."""
+    template = random.choice(_PERTURBATION_TEMPLATES)
+    if session and session.world_seed.locations:
+        loc = random.choice(session.world_seed.locations)
+        return template.format(location=loc.name)
+    return template.replace(" {location}", "")
+
+
+async def generate_perturbation(
+    session: Session | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> str:
+    """Generate a world event to break repetition loops.
+
+    Tries LLM first; falls back to template selection on failure.
+    """
+    if session is None:
+        return _template_perturbation(session)
+
+    try:
+        from .llm import generate_world_event
+
+        recent = [
+            f"[Tick {e.tick}] {e.result}"
+            for e in session.events[-10:]
+        ]
+        result = await generate_world_event(
+            world_description=session.world_seed.description,
+            world_rules=session.world_seed.rules,
+            locations=session.location_names,
+            recent_events=recent,
+            model=model,
+            api_key=api_key,
+            api_base=api_base,
+        )
+        if result:
+            return result
+    except Exception as e:
+        logger.warning("LLM perturbation failed, using template fallback: %s", e)
+
+    return _template_perturbation(session)

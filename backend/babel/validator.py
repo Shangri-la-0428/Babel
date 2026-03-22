@@ -5,6 +5,24 @@ from __future__ import annotations
 from .models import ActionType, AgentState, LLMResponse, Session
 
 
+def _resolve_agent_target(target: str, agent: AgentState, session: Session) -> str | None:
+    """Resolve a target string to an agent_id. Handles id, name, or 'id (name)' formats."""
+    alive_ids = session.agent_ids
+    # Exact ID match
+    if target in alive_ids:
+        return target
+    # Try extracting ID from "id (name)" format
+    if "(" in target:
+        candidate = target.split("(")[0].strip()
+        if candidate in alive_ids:
+            return candidate
+    # Try matching by name
+    for aid in alive_ids:
+        if session.agents[aid].name == target:
+            return aid
+    return None
+
+
 def validate_action(
     response: LLMResponse,
     agent: AgentState,
@@ -27,16 +45,21 @@ def validate_action(
 
     # Speak / Trade — target agent must exist and be alive
     if action.type in (ActionType.SPEAK, ActionType.TRADE):
-        if action.target and action.target not in alive_ids:
-            valid_targets = [
-                f"{aid} ({session.agents[aid].name})"
-                for aid in alive_ids
-                if aid != agent.agent_id
-            ]
-            errors.append(
-                f"Agent '{action.target}' not found or dead. "
-                f"Valid targets: {valid_targets}"
-            )
+        if action.target:
+            resolved = _resolve_agent_target(action.target, agent, session)
+            if resolved:
+                # Normalize target to the canonical agent_id
+                action.target = resolved
+            else:
+                valid_targets = [
+                    f"{aid} ({session.agents[aid].name})"
+                    for aid in alive_ids
+                    if aid != agent.agent_id
+                ]
+                errors.append(
+                    f"Agent '{action.target}' not found or dead. "
+                    f"Valid targets: {valid_targets}"
+                )
 
     # Use item — item must be in inventory
     if action.type == ActionType.USE_ITEM:

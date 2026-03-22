@@ -103,7 +103,12 @@ class Engine:
 
             # Check for repetition — inject perturbation if needed
             if detect_repetition(agent, self.session):
-                perturbation = generate_perturbation()
+                perturbation = await generate_perturbation(
+                    self.session,
+                    model=self.model,
+                    api_key=self.api_key,
+                    api_base=self.api_base,
+                )
                 world_event = Event(
                     session_id=self.session.id,
                     tick=self.session.tick,

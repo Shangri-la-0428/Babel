@@ -1,0 +1,24 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - BABEL_API_KEY=${BABEL_API_KEY}
+      - BABEL_MODEL=${BABEL_MODEL:-gpt-5.4}
+      - BABEL_API_BASE=${BABEL_API_BASE}
+      - BABEL_DB_PATH=/app/data/babel.db
+    volumes:
+      - babel-data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  babel-data:

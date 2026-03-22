@@ -18,6 +18,8 @@ import AgentCard from "@/components/AgentCard";
 import WorldStatePanel from "@/components/WorldState";
 import ControlBar from "@/components/ControlBar";
 import Settings from "@/components/Settings";
+import InjectEvent from "@/components/InjectEvent";
+import AgentChat from "@/components/AgentChat";
 
 const MAX_EVENTS = 500;
 
@@ -35,6 +37,7 @@ function SimContent() {
   const [settings, setSettings] = useState<BabelSettings>(loadSettings);
   const [error, setError] = useState<string | null>(null);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
+  const [chatAgent, setChatAgent] = useState<{ id: string; name: string } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -315,6 +318,7 @@ function SimContent() {
               <EventFeed events={events} newEventIds={newEventIds} />
             )}
           </div>
+          <InjectEvent sessionId={sessionId} disabled={status === "running"} />
         </section>
 
         {/* Sidebar */}
@@ -336,6 +340,7 @@ function SimContent() {
                   agentId={id}
                   agent={agent}
                   isActive={id === activeAgentId}
+                  onChat={() => setChatAgent({ id, name: agent.name })}
                 />
               ))}
             </div>
@@ -354,6 +359,17 @@ function SimContent() {
           </section>
         </aside>
       </div>
+
+      {/* Agent Chat Modal */}
+      {chatAgent && (
+        <AgentChat
+          sessionId={sessionId}
+          agentId={chatAgent.id}
+          agentName={chatAgent.name}
+          settings={settings}
+          onClose={() => setChatAgent(null)}
+        />
+      )}
 
       {/* Control Bar */}
       <ControlBar

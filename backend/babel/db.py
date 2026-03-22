@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import aiosqlite
 
-DB_PATH = Path(__file__).parent.parent / "babel.db"
+DB_PATH = Path(os.environ.get("BABEL_DB_PATH", Path(__file__).parent.parent / "babel.db"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (

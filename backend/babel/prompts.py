@@ -65,7 +65,7 @@ def build_user_prompt(
     if visible_agents:
         lines = []
         for a in visible_agents:
-            lines.append(f"- {a['name']} (at {a['location']})")
+            lines.append(f"- {a['id']}: {a['name']} (at {a['location']})")
         agents_text = "\n".join(lines)
 
     events_text = "(nothing has happened yet)"
@@ -100,3 +100,98 @@ Recent events:
 
 [Instruction]
 Output {agent_name}'s action as JSON. Only JSON, nothing else."""
+
+
+# ── Chat Prompt (user ↔ agent conversation) ──────────
+
+CHAT_SYSTEM_PROMPT = """\
+You are role-playing as a character in a simulated world. Stay in character at all times.
+
+Rules:
+- Respond ONLY as this character. Do not break character.
+- Your response should reflect the character's personality, goals, knowledge, and current emotional state.
+- You only know what your character has experienced (their memory). Do not reference events you haven't witnessed.
+- Keep responses concise and natural — 1-4 sentences unless a longer reply is warranted.
+- Do not output JSON. Respond in plain text, as the character would speak.\
+"""
+
+
+def build_chat_prompt(
+    agent_name: str,
+    agent_personality: str,
+    agent_goals: list[str],
+    agent_location: str,
+    agent_inventory: list[str],
+    agent_memory: list[str],
+    agent_description: str,
+    user_message: str,
+) -> str:
+    goals_text = "\n".join(f"- {g}" for g in agent_goals) if agent_goals else "(none)"
+    inv_text = ", ".join(agent_inventory) if agent_inventory else "(empty)"
+    memory_text = "(no memories yet)"
+    if agent_memory:
+        memory_text = "\n".join(f"- {m}" for m in agent_memory[-10:])
+
+    return f"""\
+[Your Character]
+Name: {agent_name}
+Description: {agent_description}
+Personality: {agent_personality}
+Goals:
+{goals_text}
+Location: {agent_location}
+Inventory: {inv_text}
+
+[Your Memory — what you have experienced]
+{memory_text}
+
+[User speaks to you]
+"{user_message}"
+
+[Instruction]
+Respond in character as {agent_name}. Plain text only, no JSON."""
+
+
+# ── Perturbation Prompt (LLM-driven world events) ────
+
+PERTURBATION_SYSTEM_PROMPT = """\
+You are a world event generator for a simulated world. Your job is to create a single unexpected event that breaks routine and creates new narrative possibilities.
+
+Rules:
+- Output ONLY the event description as plain text. No JSON, no markdown, no quotation marks.
+- The event must be consistent with the world's setting and rules.
+- The event should be surprising but plausible within the world.
+- Keep it to 1-2 sentences.
+- The event should affect the world in a way that forces characters to react differently.
+- Do NOT mention specific character names — use vague references like "someone", "a stranger", "a figure".
+- Do NOT repeat events that have already happened.\
+"""
+
+
+def build_perturbation_prompt(
+    world_description: str,
+    world_rules: list[str],
+    locations: list[str],
+    recent_events: list[str],
+) -> str:
+    rules_text = "\n".join(f"- {r}" for r in world_rules) if world_rules else "(no rules)"
+    locs_text = ", ".join(locations) if locations else "(no locations)"
+    events_text = "(nothing has happened yet)"
+    if recent_events:
+        events_text = "\n".join(f"- {e}" for e in recent_events[-10:])
+
+    return f"""\
+[World]
+{world_description}
+
+[World Rules]
+{rules_text}
+
+[Locations]
+{locs_text}
+
+[Recent Events]
+{events_text}
+
+[Instruction]
+Generate one unexpected world event that would disrupt the current routine. Plain text only, 1-2 sentences."""
