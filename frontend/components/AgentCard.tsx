@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AgentData, extractSeed } from "@/lib/api";
+import { useLocale } from "@/lib/locale-context";
 
 function StatusDot({ status }: { status: string }) {
   const cls =
@@ -13,22 +14,9 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${cls}`} />;
 }
 
-function Badge({
-  children,
-  variant = "muted",
-}: {
-  children: React.ReactNode;
-  variant?: "primary" | "danger" | "muted";
-}) {
-  const styles = {
-    primary: "text-primary border-primary",
-    danger: "text-danger border-danger",
-    muted: "text-t-muted border-b-DEFAULT",
-  };
+function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-2.5 py-[2px] text-micro font-medium tracking-wider border leading-none ${styles[variant]}`}
-    >
+    <span className="inline-flex items-center gap-1 px-2.5 py-[2px] text-micro font-medium tracking-wider border leading-none text-t-muted border-b-DEFAULT">
       {children}
     </span>
   );
@@ -47,22 +35,21 @@ export default function AgentCard({
   sessionId?: string;
   onChat?: () => void;
 }) {
-  const [extracting, setExtracting] = useState<string | null>(null);
-  const [extracted, setExtracted] = useState<string | null>(null);
+  const [extractState, setExtractState] = useState<"idle" | "saving" | "saved">("idle");
+  const { t } = useLocale();
 
-  async function handleExtract(type: "agent" | "item", targetId: string) {
-    if (!sessionId || extracting) return;
-    setExtracting(targetId);
+  async function handleExtract() {
+    if (!sessionId || extractState !== "idle") return;
+    setExtractState("saving");
     try {
-      await extractSeed(type, sessionId, targetId);
-      setExtracted(targetId);
-      setTimeout(() => setExtracted(null), 2000);
+      await extractSeed("agent", sessionId, agentId);
+      setExtractState("saved");
+      setTimeout(() => setExtractState("idle"), 2000);
     } catch {
-      // silent
-    } finally {
-      setExtracting(null);
+      setExtractState("idle");
     }
   }
+
   const isDead = agent.status === "dead";
   const borderCls = isActive
     ? "border-primary shadow-[0_0_0_1px_var(--color-primary)]"
@@ -70,8 +57,10 @@ export default function AgentCard({
     ? "border-danger opacity-40"
     : "border-b-DEFAULT hover:border-b-hover";
 
+  const statusVariant = isActive ? "text-primary border-primary" : isDead ? "text-danger border-danger" : "text-t-muted border-b-DEFAULT";
+
   return (
-    <div className={`bg-surface-1 border p-4 flex flex-col gap-3 transition-colors ${borderCls}`}>
+    <div className={`bg-surface-1 border p-4 flex flex-col gap-3 transition-colors group ${borderCls}`}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -81,9 +70,25 @@ export default function AgentCard({
           </div>
           <div className="text-micro text-t-dim tracking-wider">{agentId}</div>
         </div>
-        <Badge variant={isActive ? "primary" : isDead ? "danger" : "muted"}>
-          {agent.status}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {sessionId && (
+            <button
+              onClick={handleExtract}
+              disabled={extractState !== "idle"}
+              className={`text-micro tracking-wider transition-colors ${
+                extractState === "saved"
+                  ? "text-primary"
+                  : "text-t-dim opacity-0 group-hover:opacity-100 hover:text-info"
+              }`}
+              title={t("extract")}
+            >
+              {extractState === "saved" ? t("saved") : extractState === "saving" ? "..." : t("extract")}
+            </button>
+          )}
+          <span className={`inline-flex items-center gap-1 px-2.5 py-[2px] text-micro font-medium tracking-wider border leading-none ${statusVariant}`}>
+            {agent.status}
+          </span>
+        </div>
       </div>
 
       {/* Description */}
@@ -96,11 +101,11 @@ export default function AgentCard({
       {/* Stats */}
       <div className="grid grid-cols-2 gap-px bg-b-DEFAULT">
         <div className="bg-surface-2 p-2 px-3">
-          <div className="text-micro text-t-muted tracking-widest">Location</div>
+          <div className="text-micro text-t-muted tracking-widest">{t("location")}</div>
           <div className="text-detail mt-1">{agent.location || "—"}</div>
         </div>
         <div className="bg-surface-2 p-2 px-3">
-          <div className="text-micro text-t-muted tracking-widest">Goal</div>
+          <div className="text-micro text-t-muted tracking-widest">{t("goal")}</div>
           <div className="text-detail mt-1 truncate">{agent.goals[0] || "—"}</div>
         </div>
       </div>
@@ -109,41 +114,20 @@ export default function AgentCard({
       {agent.inventory.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {agent.inventory.map((item, i) => (
-            <button
-              key={i}
-              onClick={() => handleExtract("item", item)}
-              disabled={!!extracting}
-              className="group/item relative"
-              title="Extract item seed"
-            >
-              <Badge>
-                {extracted === item ? "Saved" : item}
-              </Badge>
-            </button>
+            <Badge key={i}>{item}</Badge>
           ))}
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="flex gap-2">
-        {onChat && !isDead && (
-          <button
-            onClick={onChat}
-            className="flex-1 h-8 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
-          >
-            Chat
-          </button>
-        )}
-        {sessionId && (
-          <button
-            onClick={() => handleExtract("agent", agentId)}
-            disabled={!!extracting}
-            className="flex-1 h-8 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-info hover:text-info transition-colors disabled:opacity-30"
-          >
-            {extracted === agentId ? "Saved" : extracting === agentId ? "..." : "Extract"}
-          </button>
-        )}
-      </div>
+      {/* Chat button */}
+      {onChat && !isDead && (
+        <button
+          onClick={onChat}
+          className="w-full h-8 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
+        >
+          {t("chat")}
+        </button>
+      )}
     </div>
   );
 }

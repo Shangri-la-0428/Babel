@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { injectEvent, stepWorld, BabelSettings } from "@/lib/api";
+import { useLocale } from "@/lib/locale-context";
 
 interface InjectEventProps {
   sessionId: string;
@@ -12,6 +13,7 @@ interface InjectEventProps {
 export default function InjectEvent({ sessionId, settings, disabled }: InjectEventProps) {
   const [content, setContent] = useState("");
   const [sending, setSending] = useState(false);
+  const { t } = useLocale();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,7 +42,7 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
         type="text"
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        placeholder="注入事件后自动推演一轮..."
+        placeholder={t("inject_placeholder")}
         disabled={disabled || sending}
         className="flex-1 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-white normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-30"
       />
@@ -49,7 +51,7 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
         disabled={disabled || sending || !content.trim()}
         className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
       >
-        {sending ? "..." : "Inject"}
+        {sending ? "..." : t("inject")}
       </button>
     </form>
   );

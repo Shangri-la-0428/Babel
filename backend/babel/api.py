@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from .db import init_db, save_session, save_event, load_events, list_sessions, load_session, save_seed, list_seeds, get_seed, delete_seed
 from .engine import Engine
 from .llm import chat_with_agent
+from .memory import update_agent_memory
 from .models import AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedType, Session, SessionStatus, WorldSeed
 
 
@@ -436,6 +437,13 @@ async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
     )
     engine.session.events.append(event)
     await save_event(event)
+
+    # Write into ALL alive agents' memory so they react to it
+    for aid in engine.session.agent_ids:
+        agent = engine.session.agents[aid]
+        update_agent_memory(agent, event.result)
+    await save_session(engine.session)
+
     await broadcast(session_id, "event", {
         "id": event.id,
         "tick": event.tick,

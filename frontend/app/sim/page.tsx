@@ -14,6 +14,7 @@ import {
   loadSettings,
   extractSeed,
 } from "@/lib/api";
+import { useLocale } from "@/lib/locale-context";
 import EventFeed from "@/components/EventFeed";
 import AgentCard from "@/components/AgentCard";
 import WorldStatePanel from "@/components/WorldState";
@@ -40,6 +41,7 @@ function SimContent() {
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [chatAgent, setChatAgent] = useState<{ id: string; name: string } | null>(null);
   const [worldExtracted, setWorldExtracted] = useState(false);
+  const { locale, toggle, t } = useLocale();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -156,7 +158,7 @@ function SimContent() {
 
   function checkSettings(): boolean {
     if (!settings.apiKey) {
-      setError("请先在右上角 Settings 中配置 API Key");
+      setError(t("api_key_required"));
       setShowSettings(true);
       return false;
     }
@@ -177,7 +179,7 @@ function SimContent() {
         tick_delay: settings.tickDelay,
       });
     } catch {
-      setError("启动失败，请检查后端和 LLM 设置");
+      setError(t("run_failed"));
       setLoading(false);
       setStatus("paused");
     }
@@ -190,7 +192,7 @@ function SimContent() {
       setStatus("paused");
       setLoading(false);
     } catch {
-      setError("暂停失败");
+      setError(t("pause_failed"));
     }
   }, [sessionId]);
 
@@ -205,7 +207,7 @@ function SimContent() {
         api_base: settings.apiBase || undefined,
       });
     } catch {
-      setError("单步执行失败，请检查 LLM 设置");
+      setError(t("step_failed"));
     } finally {
       setLoading(false);
     }
@@ -235,14 +237,14 @@ function SimContent() {
             href="/"
             className="text-micro text-t-muted tracking-widest hover:text-white transition-colors"
           >
-            Home
+            {t("home")}
           </a>
-          <span className="text-micro text-primary tracking-widest" aria-current="page">Simulate</span>
+          <span className="text-micro text-primary tracking-widest" aria-current="page">{t("simulate")}</span>
           <a
             href="/assets"
             className="text-micro text-t-muted tracking-widest hover:text-white transition-colors"
           >
-            Assets
+            {t("assets")}
           </a>
           <button
             onClick={() => setShowSettings(!showSettings)}
@@ -252,7 +254,13 @@ function SimContent() {
               showSettings ? "text-primary" : "text-t-muted hover:text-white"
             }`}
           >
-            Settings
+            {t("settings")}
+          </button>
+          <button
+            onClick={toggle}
+            className="text-micro text-t-dim tracking-wider border border-surface-3 px-2 py-[2px] hover:text-white hover:border-b-hover transition-colors"
+          >
+            {locale === "cn" ? "EN" : "中"}
           </button>
         </div>
         <div className="flex items-center gap-4">
@@ -289,7 +297,7 @@ function SimContent() {
           </span>
           {/* WebSocket indicator */}
           {wsStatus === "disconnected" && (
-            <span className="text-micro text-danger tracking-wider">disconnected</span>
+            <span className="text-micro text-danger tracking-wider">{t("disconnected")}</span>
           )}
         </div>
       </nav>
@@ -320,16 +328,16 @@ function SimContent() {
         <section className="flex flex-col border-r border-b-DEFAULT overflow-hidden" aria-label="Event feed">
           <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 flex justify-between items-center shrink-0">
             <span className="text-micro text-t-muted tracking-widest">
-              Event Feed
+              {t("event_feed")}
             </span>
             <span className="text-micro text-t-muted tracking-wider">
-              {events.length} Events
+              {events.length} {t("events_count")}
             </span>
           </div>
           <div className="flex-1 overflow-y-auto">
             {events.length === 0 ? (
               <div className="flex items-center justify-center h-full text-detail text-t-dim">
-                No events yet. Press Run or Step to start.
+                {t("no_events")}
               </div>
             ) : (
               <EventFeed events={events} newEventIds={newEventIds} sessionId={sessionId} />
@@ -344,10 +352,10 @@ function SimContent() {
           <section className="border-b border-b-DEFAULT shrink-0" aria-label="Agents">
             <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 flex justify-between items-center">
               <span className="text-micro text-t-muted tracking-widest">
-                Agents
+                {t("agents")}
               </span>
               <span className="text-micro text-t-muted tracking-wider">
-                {Object.keys(agents).length} Total
+                {Object.keys(agents).length} {t("total")}
               </span>
             </div>
             <div className="p-3 flex flex-col gap-3 max-h-[50vh] overflow-y-auto">
@@ -368,7 +376,7 @@ function SimContent() {
           <section className="flex-1 flex flex-col overflow-hidden" aria-label="World state">
             <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 shrink-0 flex justify-between items-center">
               <span className="text-micro text-t-muted tracking-widest">
-                World State
+                {t("world_state")}
               </span>
               <button
                 onClick={async () => {
@@ -382,7 +390,7 @@ function SimContent() {
                   worldExtracted ? "text-primary" : "text-t-dim hover:text-primary"
                 }`}
               >
-                {worldExtracted ? "Saved" : "Extract World"}
+                {worldExtracted ? t("saved") : t("extract_world")}
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
