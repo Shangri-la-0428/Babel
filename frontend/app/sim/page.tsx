@@ -327,7 +327,7 @@ function SimContent() {
               <EventFeed events={events} newEventIds={newEventIds} />
             )}
           </div>
-          <InjectEvent sessionId={sessionId} disabled={status === "running"} />
+          <InjectEvent sessionId={sessionId} settings={settings} disabled={status === "running"} />
         </section>
 
         {/* Sidebar */}
