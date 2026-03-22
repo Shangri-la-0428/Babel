@@ -22,6 +22,14 @@ class ActionType(str, Enum):
     WAIT = "wait"
 
 
+class SeedType(str, Enum):
+    WORLD = "world"
+    AGENT = "agent"
+    ITEM = "item"
+    LOCATION = "location"
+    EVENT = "event"
+
+
 class SessionStatus(str, Enum):
     RUNNING = "running"
     PAUSED = "paused"
@@ -40,11 +48,24 @@ class AgentStatus(str, Enum):
 class LocationSeed(BaseModel):
     name: str
     description: str = ""
+    tags: list[str] = Field(default_factory=list)
 
 
 class ResourceSeed(BaseModel):
     name: str
     description: str = ""
+
+
+class ItemSeed(BaseModel):
+    name: str
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+class EventSeed(BaseModel):
+    content: str
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
 
 
 class AgentSeed(BaseModel):
@@ -155,3 +176,18 @@ class Session(BaseModel):
             aid for aid, a in self.agents.items()
             if a.status not in (AgentStatus.DEAD, AgentStatus.GONE)
         ]
+
+
+# ── Saved Seed (Asset Library) ───────────────────────
+
+class SavedSeed(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
+    type: SeedType
+    name: str
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+    data: dict[str, Any] = Field(default_factory=dict)
+    source_world: str = ""
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )

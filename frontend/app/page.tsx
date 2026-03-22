@@ -2,12 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fetchSeeds, createFromSeed, SeedInfo } from "@/lib/api";
+import { fetchSeeds, createFromSeed, getSessions, SeedInfo } from "@/lib/api";
 import Nav from "@/components/Nav";
+
+interface SessionRecord {
+  id: string;
+  world_seed: string;
+  tick: number;
+  status: string;
+  created_at: string;
+}
 
 export default function Home() {
   const router = useRouter();
   const [seeds, setSeeds] = useState<SeedInfo[]>([]);
+  const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [seedsLoading, setSeedsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -17,6 +26,19 @@ export default function Home() {
       .then(setSeeds)
       .catch(() => setError("Failed to load worlds. Is the backend running?"))
       .finally(() => setSeedsLoading(false));
+    getSessions()
+      .then((rows) => {
+        const parsed = rows.map((r) => {
+          let worldName = "Unknown";
+          try {
+            const ws = JSON.parse(r.world_seed);
+            worldName = ws.name || worldName;
+          } catch {}
+          return { ...r, world_name: worldName };
+        });
+        setSessions(parsed);
+      })
+      .catch(() => {});
   }, []);
 
   async function handleLaunch(filename: string) {
@@ -107,6 +129,44 @@ export default function Home() {
           >
             + Create Custom World
           </a>
+
+          {/* Previous sessions */}
+          {sessions.length > 0 && (
+            <div className="mt-10">
+              <div className="text-micro text-t-muted tracking-widest mb-4">
+                Previous Sessions
+              </div>
+              <div className="flex flex-col gap-px bg-b-DEFAULT">
+                {sessions.map((s) => {
+                  let worldName = "Unknown";
+                  try {
+                    worldName = JSON.parse(s.world_seed).name || worldName;
+                  } catch {}
+                  return (
+                    <a
+                      key={s.id}
+                      href={`/sim?id=${s.id}`}
+                      className="bg-void px-6 py-4 hover:bg-surface-1 transition-colors flex items-center justify-between group"
+                    >
+                      <div>
+                        <span className="text-body font-semibold group-hover:text-primary transition-colors">
+                          {worldName}
+                        </span>
+                        <div className="flex gap-4 mt-1 text-micro text-t-dim tracking-wider">
+                          <span>Tick {s.tick}</span>
+                          <span>{s.status}</span>
+                          <span>{s.id}</span>
+                        </div>
+                      </div>
+                      <span className="text-micro text-t-dim tracking-wider">
+                        Resume
+                      </span>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

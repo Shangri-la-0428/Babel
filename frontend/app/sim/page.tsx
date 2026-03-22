@@ -12,6 +12,7 @@ import {
   stepWorld,
   createWebSocket,
   loadSettings,
+  extractSeed,
 } from "@/lib/api";
 import EventFeed from "@/components/EventFeed";
 import AgentCard from "@/components/AgentCard";
@@ -38,6 +39,7 @@ function SimContent() {
   const [error, setError] = useState<string | null>(null);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [chatAgent, setChatAgent] = useState<{ id: string; name: string } | null>(null);
+  const [worldExtracted, setWorldExtracted] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -236,6 +238,12 @@ function SimContent() {
             Home
           </a>
           <span className="text-micro text-primary tracking-widest" aria-current="page">Simulate</span>
+          <a
+            href="/assets"
+            className="text-micro text-t-muted tracking-widest hover:text-white transition-colors"
+          >
+            Assets
+          </a>
           <button
             onClick={() => setShowSettings(!showSettings)}
             aria-expanded={showSettings}
@@ -324,7 +332,7 @@ function SimContent() {
                 No events yet. Press Run or Step to start.
               </div>
             ) : (
-              <EventFeed events={events} newEventIds={newEventIds} />
+              <EventFeed events={events} newEventIds={newEventIds} sessionId={sessionId} />
             )}
           </div>
           <InjectEvent sessionId={sessionId} settings={settings} disabled={status === "running"} />
@@ -349,6 +357,7 @@ function SimContent() {
                   agentId={id}
                   agent={agent}
                   isActive={id === activeAgentId}
+                  sessionId={sessionId}
                   onChat={() => setChatAgent({ id, name: agent.name })}
                 />
               ))}
@@ -357,10 +366,24 @@ function SimContent() {
 
           {/* World State */}
           <section className="flex-1 flex flex-col overflow-hidden" aria-label="World state">
-            <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 shrink-0">
+            <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 shrink-0 flex justify-between items-center">
               <span className="text-micro text-t-muted tracking-widest">
                 World State
               </span>
+              <button
+                onClick={async () => {
+                  try {
+                    await extractSeed("world", sessionId);
+                    setWorldExtracted(true);
+                    setTimeout(() => setWorldExtracted(false), 2000);
+                  } catch {}
+                }}
+                className={`text-micro tracking-wider transition-colors ${
+                  worldExtracted ? "text-primary" : "text-t-dim hover:text-primary"
+                }`}
+              >
+                {worldExtracted ? "Saved" : "Extract World"}
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto">
               <WorldStatePanel state={state} />

@@ -1,6 +1,7 @@
 "use client";
 
-import { AgentData } from "@/lib/api";
+import { useState } from "react";
+import { AgentData, extractSeed } from "@/lib/api";
 
 function StatusDot({ status }: { status: string }) {
   const cls =
@@ -37,13 +38,31 @@ export default function AgentCard({
   agentId,
   agent,
   isActive,
+  sessionId,
   onChat,
 }: {
   agentId: string;
   agent: AgentData;
   isActive?: boolean;
+  sessionId?: string;
   onChat?: () => void;
 }) {
+  const [extracting, setExtracting] = useState<string | null>(null);
+  const [extracted, setExtracted] = useState<string | null>(null);
+
+  async function handleExtract(type: "agent" | "item", targetId: string) {
+    if (!sessionId || extracting) return;
+    setExtracting(targetId);
+    try {
+      await extractSeed(type, sessionId, targetId);
+      setExtracted(targetId);
+      setTimeout(() => setExtracted(null), 2000);
+    } catch {
+      // silent
+    } finally {
+      setExtracting(null);
+    }
+  }
   const isDead = agent.status === "dead";
   const borderCls = isActive
     ? "border-primary shadow-[0_0_0_1px_var(--color-primary)]"
@@ -90,20 +109,41 @@ export default function AgentCard({
       {agent.inventory.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {agent.inventory.map((item, i) => (
-            <Badge key={i}>{item}</Badge>
+            <button
+              key={i}
+              onClick={() => handleExtract("item", item)}
+              disabled={!!extracting}
+              className="group/item relative"
+              title="Extract item seed"
+            >
+              <Badge>
+                {extracted === item ? "Saved" : item}
+              </Badge>
+            </button>
           ))}
         </div>
       )}
 
-      {/* Chat button */}
-      {onChat && !isDead && (
-        <button
-          onClick={onChat}
-          className="w-full h-8 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
-        >
-          Chat
-        </button>
-      )}
+      {/* Action buttons */}
+      <div className="flex gap-2">
+        {onChat && !isDead && (
+          <button
+            onClick={onChat}
+            className="flex-1 h-8 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
+          >
+            Chat
+          </button>
+        )}
+        {sessionId && (
+          <button
+            onClick={() => handleExtract("agent", agentId)}
+            disabled={!!extracting}
+            className="flex-1 h-8 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-info hover:text-info transition-colors disabled:opacity-30"
+          >
+            {extracted === agentId ? "Saved" : extracting === agentId ? "..." : "Extract"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

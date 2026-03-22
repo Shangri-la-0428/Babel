@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createWorld } from "@/lib/api";
+import { createWorld, fetchAssets, SavedSeedData } from "@/lib/api";
 import Nav from "@/components/Nav";
 
 interface AgentForm {
@@ -40,6 +40,38 @@ export default function CreatePage() {
   });
 
   const [agents, setAgents] = useState<AgentForm[]>([emptyAgent()]);
+  const [savedAgents, setSavedAgents] = useState<SavedSeedData[]>([]);
+  const [savedEvents, setSavedEvents] = useState<SavedSeedData[]>([]);
+  const [showImport, setShowImport] = useState(false);
+
+  useEffect(() => {
+    fetchAssets("agent").then(setSavedAgents).catch(() => {});
+    fetchAssets("event").then(setSavedEvents).catch(() => {});
+  }, []);
+
+  function importAgent(seed: SavedSeedData) {
+    const d = seed.data;
+    const a: AgentForm = {
+      id: (d.id as string) || `agent_${Date.now()}_${++agentCounter}`,
+      name: (d.name as string) || seed.name,
+      description: (d.description as string) || "",
+      personality: (d.personality as string) || "",
+      goals: ((d.goals as string[]) || []).join("\n"),
+      inventory: ((d.inventory as string[]) || []).join(", "),
+      location: (d.location as string) || "",
+    };
+    setAgents((prev) => [...prev, a]);
+  }
+
+  function importEvent(seed: SavedSeedData) {
+    const content = (seed.data.content as string) || seed.name;
+    setWorld((prev) => ({
+      ...prev,
+      initial_events: prev.initial_events
+        ? prev.initial_events + "\n" + content
+        : content,
+    }));
+  }
 
   function addAgent() {
     setAgents([...agents, emptyAgent()]);
@@ -118,6 +150,58 @@ export default function CreatePage() {
             <button onClick={() => setError(null)} className="text-micro text-danger hover:text-white transition-colors ml-4" aria-label="Dismiss error">
               Dismiss
             </button>
+          </div>
+        )}
+
+        {/* Import from Assets */}
+        {(savedAgents.length > 0 || savedEvents.length > 0) && (
+          <div className="mb-8">
+            <button
+              onClick={() => setShowImport(!showImport)}
+              className="text-micro text-t-muted tracking-widest hover:text-primary transition-colors mb-3"
+            >
+              {showImport ? "- Hide Assets" : "+ Import from Assets"}
+            </button>
+            {showImport && (
+              <div className="border border-b-DEFAULT p-4 flex flex-col gap-4 bg-surface-1 animate-[slide-up_200ms_ease]">
+                {savedAgents.length > 0 && (
+                  <div>
+                    <div className="text-micro text-t-muted tracking-widest mb-2">
+                      Agent Seeds ({savedAgents.length})
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {savedAgents.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => importAgent(s)}
+                          className="px-3 py-1.5 text-detail text-info border border-info hover:bg-info/10 transition-colors normal-case tracking-normal"
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {savedEvents.length > 0 && (
+                  <div>
+                    <div className="text-micro text-t-muted tracking-widest mb-2">
+                      Event Seeds ({savedEvents.length})
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {savedEvents.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => importEvent(s)}
+                          className="px-3 py-1.5 text-detail text-danger border border-danger hover:bg-danger/10 transition-colors normal-case tracking-normal truncate max-w-[200px]"
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

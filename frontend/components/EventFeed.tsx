@@ -1,7 +1,7 @@
 "use client";
 
-import { EventData } from "@/lib/api";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { EventData, extractSeed } from "@/lib/api";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const TYPE_STYLES: Record<string, string> = {
   speak:       "text-info border-info",
@@ -13,13 +13,24 @@ const TYPE_STYLES: Record<string, string> = {
   world_event: "text-danger border-danger",
 };
 
-const EventItem = memo(function EventItem({ event, isNew }: { event: EventData; isNew?: boolean }) {
+const EventItem = memo(function EventItem({
+  event,
+  isNew,
+  onExtract,
+  extractedId,
+}: {
+  event: EventData;
+  isNew?: boolean;
+  onExtract?: (eventId: string) => void;
+  extractedId?: string | null;
+}) {
   const isWorld = event.action_type === "world_event";
   const style = TYPE_STYLES[event.action_type] || "text-t-muted border-surface-3";
+  const isExtracted = extractedId === event.id;
 
   return (
     <div
-      className={`grid grid-cols-[56px_80px_1fr_auto] gap-3 items-baseline px-4 py-3 border-b border-b-DEFAULT hover:bg-surface-1 transition-colors ${
+      className={`grid grid-cols-[56px_80px_1fr_auto_auto] gap-3 items-baseline px-4 py-3 border-b border-b-DEFAULT hover:bg-surface-1 transition-colors group ${
         isNew
           ? isWorld
             ? "animate-[event-flash-danger_1.2s_ease]"
@@ -45,6 +56,19 @@ const EventItem = memo(function EventItem({ event, isNew }: { event: EventData; 
       >
         {event.action_type}
       </span>
+      {onExtract && (
+        <button
+          onClick={() => onExtract(event.id)}
+          className={`text-micro tracking-wider transition-colors ${
+            isExtracted
+              ? "text-primary"
+              : "text-t-dim opacity-0 group-hover:opacity-100 hover:text-primary"
+          }`}
+          title="Extract as event seed"
+        >
+          {isExtracted ? "Saved" : "Seed"}
+        </button>
+      )}
     </div>
   );
 });
@@ -60,15 +84,32 @@ function TickDivider({ tick }: { tick: number }) {
 export default function EventFeed({
   events,
   newEventIds,
+  sessionId,
 }: {
   events: EventData[];
   newEventIds?: Set<string>;
+  sessionId?: string;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [extractedId, setExtractedId] = useState<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events.length]);
+
+  const handleExtract = useCallback(
+    async (eventId: string) => {
+      if (!sessionId) return;
+      try {
+        await extractSeed("event", sessionId, eventId);
+        setExtractedId(eventId);
+        setTimeout(() => setExtractedId(null), 2000);
+      } catch {
+        // silent
+      }
+    },
+    [sessionId]
+  );
 
   const grouped = useMemo(() => {
     const result: { tick: number; events: EventData[] }[] = [];
@@ -94,6 +135,8 @@ export default function EventFeed({
               key={event.id}
               event={event}
               isNew={newEventIds?.has(event.id)}
+              onExtract={sessionId ? handleExtract : undefined}
+              extractedId={extractedId}
             />
           ))}
         </div>

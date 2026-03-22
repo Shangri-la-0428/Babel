@@ -1,16 +1,17 @@
 "use client";
 
 const LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/create", label: "Create" },
+  { href: "/", label: "Home", key: "home" },
+  { href: "/create", label: "Create", key: "create" },
+  { href: "/assets", label: "Assets", key: "assets" },
 ] as const;
 
 interface NavProps {
-  activePage: "home" | "create";
+  activePage: "home" | "create" | "assets";
 }
 
 export default function Nav({ activePage }: NavProps) {
-  const activeHref = activePage === "home" ? "/" : "/create";
+  const activeKey = activePage;
 
   return (
     <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
@@ -21,12 +22,12 @@ export default function Nav({ activePage }: NavProps) {
       )}
       <div className="flex items-center gap-6">
         {LINKS.map((link) =>
-          link.href === activeHref ? (
-            <span key={link.href} className="text-micro text-primary tracking-widest" aria-current="page">
+          link.key === activeKey ? (
+            <span key={link.key} className="text-micro text-primary tracking-widest" aria-current="page">
               {link.label}
             </span>
           ) : (
-            <a key={link.href} href={link.href} className="text-micro text-t-muted tracking-widest hover:text-white transition-colors">
+            <a key={link.key} href={link.href} className="text-micro text-t-muted tracking-widest hover:text-white transition-colors">
               {link.label}
             </a>
           )

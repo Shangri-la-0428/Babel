@@ -47,8 +47,20 @@ CREATE TABLE IF NOT EXISTS events (
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
+CREATE TABLE IF NOT EXISTS saved_seeds (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    data TEXT NOT NULL DEFAULT '{}',
+    source_world TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, tick);
 CREATE INDEX IF NOT EXISTS idx_agent_states_session ON agent_states(session_id);
+CREATE INDEX IF NOT EXISTS idx_seeds_type ON saved_seeds(type);
 """
 
 
@@ -158,3 +170,130 @@ async def list_sessions() -> list[dict]:
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+async def load_session(session_id: str) -> dict | None:
+    """Load a full session (with agents and recent events) from DB.
+
+    Returns a dict with keys: id, world_seed, tick, status, created_at,
+    agents (list of dicts), events (list of dicts, last 50 by tick ASC).
+    """
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Session row
+        cursor = await db.execute(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        session = dict(row)
+        session["world_seed"] = json.loads(session["world_seed"])
+
+        # Agent states
+        cursor = await db.execute(
+            "SELECT * FROM agent_states WHERE session_id = ?", (session_id,)
+        )
+        agents = []
+        for r in await cursor.fetchall():
+            a = dict(r)
+            a["goals"] = json.loads(a["goals"])
+            a["inventory"] = json.loads(a["inventory"])
+            a["memory"] = json.loads(a["memory"])
+            agents.append(a)
+        session["agents"] = agents
+
+        # Recent events (last 50, chronological)
+        cursor = await db.execute(
+            """SELECT * FROM events WHERE session_id = ?
+               ORDER BY tick DESC, rowid DESC LIMIT 50""",
+            (session_id,),
+        )
+        events = []
+        for r in await cursor.fetchall():
+            e = dict(r)
+            e["action"] = json.loads(e["action"])
+            events.append(e)
+        events.reverse()  # chronological
+        session["events"] = events
+
+        return session
+
+
+# ── Saved Seeds (Asset Library) ──
+
+
+async def save_seed(seed) -> None:
+    """Save a seed to the asset library."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        await db.execute(
+            """INSERT INTO saved_seeds (id, type, name, description, tags, data, source_world)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                name=?, description=?, tags=?, data=?""",
+            (
+                seed.id,
+                seed.type.value if hasattr(seed.type, "value") else seed.type,
+                seed.name,
+                seed.description,
+                json.dumps(seed.tags, ensure_ascii=False),
+                json.dumps(seed.data, ensure_ascii=False),
+                seed.source_world,
+                # ON CONFLICT updates:
+                seed.name,
+                seed.description,
+                json.dumps(seed.tags, ensure_ascii=False),
+                json.dumps(seed.data, ensure_ascii=False),
+            ),
+        )
+        await db.commit()
+
+
+async def list_seeds(seed_type: str | None = None) -> list[dict]:
+    """List saved seeds, optionally filtered by type."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        if seed_type:
+            cursor = await db.execute(
+                "SELECT * FROM saved_seeds WHERE type = ? ORDER BY created_at DESC",
+                (seed_type,),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM saved_seeds ORDER BY created_at DESC"
+            )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            d["tags"] = json.loads(d["tags"])
+            d["data"] = json.loads(d["data"])
+            results.append(d)
+        return results
+
+
+async def get_seed(seed_id: str) -> dict | None:
+    """Get a single saved seed."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM saved_seeds WHERE id = ?", (seed_id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["tags"] = json.loads(d["tags"])
+        d["data"] = json.loads(d["data"])
+        return d
+
+
+async def delete_seed(seed_id: str) -> bool:
+    """Delete a saved seed. Returns True if deleted."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        cursor = await db.execute(
+            "DELETE FROM saved_seeds WHERE id = ?", (seed_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0

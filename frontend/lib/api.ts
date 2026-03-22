@@ -240,3 +240,64 @@ export function createWebSocket(sessionId: string): WebSocket {
   const wsBase = API_BASE.replace(/^http/, "ws");
   return new WebSocket(`${wsBase}/ws/${sessionId}`);
 }
+
+// ── Asset Library (Seeds) ──
+
+export type SeedTypeValue = "world" | "agent" | "item" | "location" | "event";
+
+export interface SavedSeedData {
+  id: string;
+  type: SeedTypeValue;
+  name: string;
+  description: string;
+  tags: string[];
+  data: Record<string, unknown>;
+  source_world: string;
+  created_at: string;
+}
+
+export async function fetchAssets(type?: SeedTypeValue): Promise<SavedSeedData[]> {
+  const url = type
+    ? `${API_BASE}/api/assets?type=${type}`
+    : `${API_BASE}/api/assets`;
+  const res = await fetch(url);
+  return res.json();
+}
+
+export async function getAsset(id: string): Promise<SavedSeedData> {
+  const res = await fetch(`${API_BASE}/api/assets/${id}`);
+  return res.json();
+}
+
+export async function saveAsset(data: {
+  type: SeedTypeValue;
+  name: string;
+  description?: string;
+  tags?: string[];
+  data?: Record<string, unknown>;
+  source_world?: string;
+}): Promise<{ id: string; name: string; type: string }> {
+  const res = await fetch(`${API_BASE}/api/assets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function deleteAsset(id: string): Promise<void> {
+  await fetch(`${API_BASE}/api/assets/${id}`, { method: "DELETE" });
+}
+
+export async function extractSeed(
+  seedType: SeedTypeValue,
+  sessionId: string,
+  targetId: string = ""
+): Promise<{ id: string; name: string; type: string }> {
+  const res = await fetch(`${API_BASE}/api/assets/extract/${seedType}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, target_id: targetId }),
+  });
+  return res.json();
+}

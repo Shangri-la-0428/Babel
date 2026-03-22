@@ -12,10 +12,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .db import init_db, save_session, save_event, load_events, list_sessions
+from .db import init_db, save_session, save_event, load_events, list_sessions, load_session, save_seed, list_seeds, get_seed, delete_seed
 from .engine import Engine
 from .llm import chat_with_agent
-from .models import AgentSeed, Event, Session, WorldSeed
+from .models import AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedType, Session, SessionStatus, WorldSeed
 
 
 # ── State ──────────────────────────────────────────────
@@ -97,6 +97,20 @@ class ChatRequest(BaseModel):
     api_base: str | None = None
 
 
+class SaveSeedRequest(BaseModel):
+    type: str
+    name: str
+    description: str = ""
+    tags: list[str] = []
+    data: dict[str, Any] = {}
+    source_world: str = ""
+
+
+class ExtractSeedRequest(BaseModel):
+    session_id: str
+    target_id: str = ""  # agent_id, item name, location name, or event_id
+
+
 # ── WebSocket broadcast ───────────────────────────────
 
 async def broadcast(session_id: str, msg_type: str, data: Any) -> None:
@@ -126,6 +140,62 @@ def make_event_callback(session_id: str):
             "result": event.result,
         })
     return on_event
+
+
+# ── Engine recovery from DB ───────────────────────────
+
+async def _get_engine(session_id: str) -> Engine | None:
+    """Get engine from memory, or restore from DB if the server restarted."""
+    if session_id in _engines:
+        return _engines[session_id]
+
+    # Try to restore from DB
+    data = await load_session(session_id)
+    if not data:
+        return None
+
+    # Reconstruct Session
+    world_seed = WorldSeed(**data["world_seed"])
+    session = Session(
+        id=data["id"],
+        world_seed=world_seed,
+        tick=data["tick"],
+        status=SessionStatus(data["status"]) if data["status"] != "running" else SessionStatus.PAUSED,
+    )
+
+    # Reconstruct agent states
+    for a in data["agents"]:
+        session.agents[a["agent_id"]] = AgentState(
+            agent_id=a["agent_id"],
+            name=a["name"],
+            description=a["description"],
+            personality=a["personality"],
+            goals=a["goals"],
+            location=a["location"],
+            inventory=a["inventory"],
+            status=AgentStatus(a["status"]) if a["status"] != "acting" else AgentStatus.IDLE,
+            memory=a["memory"],
+        )
+
+    # Reconstruct recent events (for context)
+    for e in data["events"]:
+        session.events.append(Event(
+            id=e["id"],
+            session_id=e["session_id"],
+            tick=e["tick"],
+            agent_id=e["agent_id"],
+            agent_name=e["agent_name"],
+            action_type=e["action_type"],
+            action=e["action"],
+            result=e["result"],
+        ))
+
+    engine = Engine(
+        session=session,
+        on_event=make_event_callback(session_id),
+    )
+    _engines[session_id] = engine
+    return engine
 
 
 # ── API Routes ─────────────────────────────────────────
@@ -217,7 +287,7 @@ async def create_from_seed(filename: str) -> dict:
 @app.post("/api/worlds/{session_id}/agents")
 async def add_agent(session_id: str, req: AddAgentRequest) -> dict:
     """Add an agent to an existing world."""
-    engine = _engines.get(session_id)
+    engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
     if engine.is_running:
@@ -235,7 +305,7 @@ async def add_agent(session_id: str, req: AddAgentRequest) -> dict:
 @app.post("/api/worlds/{session_id}/run")
 async def run_world(session_id: str, req: RunRequest) -> dict:
     """Start or resume the simulation."""
-    engine = _engines.get(session_id)
+    engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
     if engine.is_running:
@@ -289,7 +359,7 @@ async def _run_and_save(engine: Engine, max_ticks: int) -> None:
 @app.post("/api/worlds/{session_id}/step")
 async def step_world(session_id: str, req: RunRequest | None = None) -> dict:
     """Execute a single tick."""
-    engine = _engines.get(session_id)
+    engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
     if engine.is_running:
@@ -321,7 +391,7 @@ async def step_world(session_id: str, req: RunRequest | None = None) -> dict:
 
 @app.post("/api/worlds/{session_id}/pause")
 async def pause_world(session_id: str) -> dict:
-    engine = _engines.get(session_id)
+    engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
     engine.pause()
@@ -330,7 +400,7 @@ async def pause_world(session_id: str) -> dict:
 
 @app.get("/api/worlds/{session_id}/state")
 async def get_world_state(session_id: str) -> dict:
-    engine = _engines.get(session_id)
+    engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
     return _serialize_state(engine)
@@ -351,7 +421,7 @@ async def get_sessions() -> list[dict]:
 @app.post("/api/worlds/{session_id}/inject")
 async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
     """Inject a user-authored world event into the session."""
-    engine = _engines.get(session_id)
+    engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
 
@@ -388,7 +458,7 @@ async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
 @app.post("/api/worlds/{session_id}/chat")
 async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
     """Have a direct conversation with an agent (does not affect simulation state)."""
-    engine = _engines.get(session_id)
+    engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
 
@@ -422,7 +492,7 @@ async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
 @app.get("/api/worlds/{session_id}/replay")
 async def get_replay(session_id: str, limit: int = 500, offset: int = 0) -> dict:
     """Return full event history and initial state for session replay."""
-    engine = _engines.get(session_id)
+    engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
 
@@ -455,6 +525,186 @@ async def get_replay(session_id: str, limit: int = 500, offset: int = 0) -> dict
     }
 
 
+# ── Feature 5: Asset Library (Seeds) ─────────────────
+
+@app.get("/api/assets")
+async def get_assets(type: str | None = None) -> list[dict]:
+    """List saved seeds, optionally filtered by type."""
+    return await list_seeds(seed_type=type)
+
+
+@app.get("/api/assets/{seed_id}")
+async def get_asset(seed_id: str) -> dict:
+    """Get a single saved seed."""
+    seed = await get_seed(seed_id)
+    if not seed:
+        raise HTTPException(404, "Seed not found")
+    return seed
+
+
+@app.post("/api/assets")
+async def create_asset(req: SaveSeedRequest) -> dict:
+    """Save a new seed to the asset library."""
+    seed = SavedSeed(
+        type=SeedType(req.type),
+        name=req.name,
+        description=req.description,
+        tags=req.tags,
+        data=req.data,
+        source_world=req.source_world,
+    )
+    await save_seed(seed)
+    return {"id": seed.id, "name": seed.name, "type": seed.type.value}
+
+
+@app.delete("/api/assets/{seed_id}")
+async def delete_asset(seed_id: str) -> dict:
+    """Delete a saved seed."""
+    deleted = await delete_seed(seed_id)
+    if not deleted:
+        raise HTTPException(404, "Seed not found")
+    return {"deleted": True}
+
+
+@app.post("/api/assets/extract/agent")
+async def extract_agent_seed(req: ExtractSeedRequest) -> dict:
+    """Extract an agent from a running session as a reusable seed."""
+    engine = _engines.get(req.session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+    agent = engine.session.agents.get(req.target_id)
+    if not agent:
+        raise HTTPException(404, f"Agent not found: {req.target_id}")
+
+    seed = SavedSeed(
+        type=SeedType.AGENT,
+        name=agent.name,
+        description=agent.description,
+        tags=[],
+        data={
+            "id": agent.agent_id,
+            "name": agent.name,
+            "description": agent.description,
+            "personality": agent.personality,
+            "goals": agent.goals,
+            "inventory": agent.inventory,
+            "location": agent.location,
+        },
+        source_world=engine.session.world_seed.name,
+    )
+    await save_seed(seed)
+    return {"id": seed.id, "name": seed.name, "type": "agent"}
+
+
+@app.post("/api/assets/extract/item")
+async def extract_item_seed(req: ExtractSeedRequest) -> dict:
+    """Extract an item from a running session as a reusable seed."""
+    engine = _engines.get(req.session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    # Find item across all agents' inventories
+    item_name = req.target_id
+    found = False
+    for agent in engine.session.agents.values():
+        if item_name in agent.inventory:
+            found = True
+            break
+
+    if not found:
+        raise HTTPException(404, f"Item not found: {item_name}")
+
+    seed = SavedSeed(
+        type=SeedType.ITEM,
+        name=item_name,
+        description="",
+        tags=[],
+        data={"name": item_name},
+        source_world=engine.session.world_seed.name,
+    )
+    await save_seed(seed)
+    return {"id": seed.id, "name": seed.name, "type": "item"}
+
+
+@app.post("/api/assets/extract/location")
+async def extract_location_seed(req: ExtractSeedRequest) -> dict:
+    """Extract a location from a running session as a reusable seed."""
+    engine = _engines.get(req.session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    loc = None
+    for l in engine.session.world_seed.locations:
+        if l.name == req.target_id:
+            loc = l
+            break
+
+    if not loc:
+        raise HTTPException(404, f"Location not found: {req.target_id}")
+
+    seed = SavedSeed(
+        type=SeedType.LOCATION,
+        name=loc.name,
+        description=loc.description,
+        tags=getattr(loc, "tags", []),
+        data={"name": loc.name, "description": loc.description},
+        source_world=engine.session.world_seed.name,
+    )
+    await save_seed(seed)
+    return {"id": seed.id, "name": seed.name, "type": "location"}
+
+
+@app.post("/api/assets/extract/event")
+async def extract_event_seed(req: ExtractSeedRequest) -> dict:
+    """Extract an event from a running session as a reusable event seed."""
+    engine = _engines.get(req.session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    event = None
+    for e in engine.session.events:
+        if e.id == req.target_id:
+            event = e
+            break
+
+    if not event:
+        raise HTTPException(404, f"Event not found: {req.target_id}")
+
+    seed = SavedSeed(
+        type=SeedType.EVENT,
+        name=event.result[:60] if event.result else "Event",
+        description="",
+        tags=[event.action_type if isinstance(event.action_type, str) else event.action_type.value],
+        data={
+            "content": event.result,
+            "action_type": event.action_type if isinstance(event.action_type, str) else event.action_type.value,
+        },
+        source_world=engine.session.world_seed.name,
+    )
+    await save_seed(seed)
+    return {"id": seed.id, "name": seed.name, "type": "event"}
+
+
+@app.post("/api/assets/extract/world")
+async def extract_world_seed(req: ExtractSeedRequest) -> dict:
+    """Extract the entire world seed from a running session."""
+    engine = _engines.get(req.session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    ws = engine.session.world_seed
+    seed = SavedSeed(
+        type=SeedType.WORLD,
+        name=ws.name,
+        description=ws.description,
+        tags=[],
+        data=ws.model_dump(),
+        source_world=ws.name,
+    )
+    await save_seed(seed)
+    return {"id": seed.id, "name": seed.name, "type": "world"}
+
+
 # ── WebSocket ──────────────────────────────────────────
 
 @app.websocket("/ws/{session_id}")
@@ -467,7 +717,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
     try:
         # Send current state on connect
-        engine = _engines.get(session_id)
+        engine = await _get_engine(session_id)
         if engine:
             await websocket.send_text(json.dumps({
                 "type": "connected",
