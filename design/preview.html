@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BABEL — Design System</title>
+  <link rel="stylesheet" href="babel.css">
+  <style>
+    /* Preview-only layout styles */
+    .preview {
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+
+    .section {
+      padding: var(--space-16) var(--space-6);
+      border-bottom: var(--border-1) solid var(--color-border);
+    }
+
+    .section-label {
+      font-size: var(--text-micro);
+      color: var(--color-text-dim);
+      letter-spacing: var(--tracking-widest);
+      margin-bottom: var(--space-8);
+    }
+
+    .section-title {
+      font-family: var(--font-sans);
+      font-size: var(--text-heading);
+      font-weight: var(--weight-semibold);
+      margin-bottom: var(--space-2);
+    }
+
+    .section-desc {
+      font-size: var(--text-detail);
+      color: var(--color-text-muted);
+      text-transform: none;
+      letter-spacing: var(--tracking-normal);
+      margin-bottom: var(--space-8);
+      max-width: 600px;
+      line-height: var(--leading-relaxed);
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-4);
+      align-items: flex-start;
+    }
+
+    .row-tight {
+      gap: var(--space-2);
+    }
+
+    .col {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+    }
+
+    .subsection {
+      margin-bottom: var(--space-10);
+    }
+
+    .subsection-title {
+      font-size: var(--text-detail);
+      color: var(--color-text-muted);
+      letter-spacing: var(--tracking-widest);
+      margin-bottom: var(--space-4);
+      padding-bottom: var(--space-2);
+      border-bottom: var(--border-1) solid var(--color-border);
+    }
+
+    /* Color swatches */
+    .swatch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 1px;
+      background: var(--color-border);
+    }
+
+    .swatch {
+      background: var(--color-void);
+      padding: var(--space-4);
+    }
+
+    .swatch-color {
+      width: 100%;
+      height: 64px;
+      margin-bottom: var(--space-3);
+      border: var(--border-1) solid var(--color-border);
+    }
+
+    .swatch-name {
+      font-size: var(--text-micro);
+      color: var(--color-text);
+      letter-spacing: var(--tracking-wider);
+    }
+
+    .swatch-value {
+      font-size: var(--text-micro);
+      color: var(--color-text-muted);
+      margin-top: var(--space-1);
+      text-transform: none;
+    }
+
+    /* Type scale demo */
+    .type-row {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-6);
+      padding: var(--space-4) 0;
+      border-bottom: var(--border-1) solid var(--color-border);
+    }
+
+    .type-label {
+      font-size: var(--text-micro);
+      color: var(--color-text-dim);
+      letter-spacing: var(--tracking-wider);
+      min-width: 120px;
+      flex-shrink: 0;
+    }
+
+    .type-size {
+      font-size: var(--text-micro);
+      color: var(--color-text-muted);
+      font-variant-numeric: tabular-nums;
+      min-width: 60px;
+      flex-shrink: 0;
+    }
+
+    /* Component showcase boxes */
+    .showcase {
+      padding: var(--space-6);
+      background: var(--color-surface-1);
+      border: var(--border-1) solid var(--color-border);
+    }
+
+    .showcase-dark {
+      background: var(--color-void);
+    }
+
+    /* Dashboard mock */
+    .dashboard-mock {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      grid-template-rows: auto 1fr auto;
+      height: 700px;
+      border: var(--border-1) solid var(--color-border);
+      overflow: hidden;
+    }
+
+    .dashboard-nav {
+      grid-column: 1 / -1;
+    }
+
+    .dashboard-feed {
+      overflow-y: auto;
+      border-right: var(--border-1) solid var(--color-border);
+    }
+
+    .dashboard-sidebar {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .dashboard-sidebar-section {
+      border-bottom: var(--border-1) solid var(--color-border);
+    }
+
+    .dashboard-controls {
+      grid-column: 1 / -1;
+    }
+
+    /* Scan line overlay */
+    .scan-overlay {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .scan-overlay::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        transparent 50%,
+        rgba(192, 254, 4, 0.02) 50%
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========== HERO ========== -->
+  <section class="section" style="padding: var(--space-24) var(--space-6); text-align: center; position: relative; overflow: hidden;">
+    <div style="position: relative; z-index: 1;">
+      <div class="section-label" style="margin-bottom: var(--space-6);">Design System v1.0</div>
+      <h1 class="text-display anim-fade-in" style="margin-bottom: var(--space-6);">BABEL</h1>
+      <p style="
+        font-size: var(--text-subheading);
+        color: var(--color-text-muted);
+        text-transform: none;
+        letter-spacing: var(--tracking-normal);
+        max-width: 500px;
+        margin: 0 auto var(--space-8);
+        line-height: var(--leading-relaxed);
+      ">
+        Seed + AI Runtime = World State Machine
+      </p>
+      <div class="row" style="justify-content: center;">
+        <span class="badge badge-primary">Sci-Fi Industrial</span>
+        <span class="badge badge-muted">Marathon-Inspired</span>
+        <span class="badge badge-muted">Zero Radius</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== MARQUEE ========== -->
+  <div class="marquee-bar">
+    <div class="marquee-inner">
+      <span class="marquee-item"><span class="marquee-dot"></span>World State Machine</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Seed-Driven Simulation</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>AI Runtime Engine</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Emergent Behavior</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Structured Actions</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Event Sourcing</span>
+      <!-- Duplicate for seamless loop -->
+      <span class="marquee-item"><span class="marquee-dot"></span>World State Machine</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Seed-Driven Simulation</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>AI Runtime Engine</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Emergent Behavior</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Structured Actions</span>
+      <span class="marquee-item"><span class="marquee-dot"></span>Event Sourcing</span>
+    </div>
+  </div>
+
+  <div class="preview">
+
+    <!-- ========== COLORS ========== -->
+    <section class="section">
+      <div class="section-label">01 / Tokens</div>
+      <h2 class="section-title">Color Palette</h2>
+      <p class="section-desc">
+        Pure black void with electric lime accent. Minimal surface elevation through near-black grays. Red-orange for danger states.
+      </p>
+
+      <div class="subsection">
+        <div class="subsection-title">Base</div>
+        <div class="swatch-grid">
+          <div class="swatch">
+            <div class="swatch-color" style="background: #000000;"></div>
+            <div class="swatch-name">Void</div>
+            <div class="swatch-value">#000000</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #0A0A0A;"></div>
+            <div class="swatch-name">Surface 1</div>
+            <div class="swatch-value">#0A0A0A</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #111111;"></div>
+            <div class="swatch-name">Surface 2</div>
+            <div class="swatch-value">#111111</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #1C1C1C;"></div>
+            <div class="swatch-name">Surface 3</div>
+            <div class="swatch-value">#1C1C1C</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #252525;"></div>
+            <div class="swatch-name">Surface 4</div>
+            <div class="swatch-value">#252525</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title">Text</div>
+        <div class="swatch-grid">
+          <div class="swatch">
+            <div class="swatch-color" style="background: #FFFFFF;"></div>
+            <div class="swatch-name">Primary</div>
+            <div class="swatch-value">#FFFFFF</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #A0A0A0;"></div>
+            <div class="swatch-name">Secondary</div>
+            <div class="swatch-value">#A0A0A0</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #717171;"></div>
+            <div class="swatch-name">Muted</div>
+            <div class="swatch-value">#717171</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #3A3A3A;"></div>
+            <div class="swatch-name">Dim</div>
+            <div class="swatch-value">#3A3A3A</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title">Accent & Semantic</div>
+        <div class="swatch-grid">
+          <div class="swatch">
+            <div class="swatch-color" style="background: #C0FE04;"></div>
+            <div class="swatch-name">Primary</div>
+            <div class="swatch-value">#C0FE04</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #8AB503;"></div>
+            <div class="swatch-name">Primary Dim</div>
+            <div class="swatch-value">#8AB503</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #F24723;"></div>
+            <div class="swatch-name">Danger</div>
+            <div class="swatch-value">#F24723</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #FFB800;"></div>
+            <div class="swatch-name">Warning</div>
+            <div class="swatch-value">#FFB800</div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-color" style="background: #0EA5E9;"></div>
+            <div class="swatch-name">Info</div>
+            <div class="swatch-value">#0EA5E9</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== TYPOGRAPHY ========== -->
+    <section class="section">
+      <div class="section-label">02 / Typography</div>
+      <h2 class="section-title">Type Scale</h2>
+      <p class="section-desc">
+        Monospace-first (JetBrains Mono) for all UI. Inter for display headings. All uppercase by default. Aggressive size hierarchy from 96px hero to 11px micro labels.
+      </p>
+
+      <div class="type-row">
+        <span class="type-label">Display</span>
+        <span class="type-size">96px</span>
+        <span class="text-display" style="font-size: clamp(2.5rem, 8vw, 6rem);">BABEL</span>
+      </div>
+      <div class="type-row">
+        <span class="type-label">Display SM</span>
+        <span class="type-size">64px</span>
+        <span class="text-display-sm" style="font-size: clamp(2rem, 5vw, 4rem);">World Engine</span>
+      </div>
+      <div class="type-row">
+        <span class="type-label">Title</span>
+        <span class="type-size">48px</span>
+        <span class="text-title">Simulation</span>
+      </div>
+      <div class="type-row">
+        <span class="type-label">Heading</span>
+        <span class="type-size">32px</span>
+        <span class="text-heading">Agent Status</span>
+      </div>
+      <div class="type-row">
+        <span class="type-label">Subheading</span>
+        <span class="type-size">20px</span>
+        <span class="text-subheading">Event Feed</span>
+      </div>
+      <div class="type-row">
+        <span class="type-label">Body</span>
+        <span class="type-size">15px</span>
+        <span class="text-body">The hacker began probing the corporate network firewall</span>
+      </div>
+      <div class="type-row">
+        <span class="type-label">Detail</span>
+        <span class="type-size">13px</span>
+        <span class="text-detail">Location: VIP Room &bull; Status: Active</span>
+      </div>
+      <div class="type-row">
+        <span class="type-label">Micro</span>
+        <span class="type-size">11px</span>
+        <span class="text-micro">Tick 042 &bull; 3 Agents &bull; Running</span>
+      </div>
+
+      <div style="margin-top: var(--space-10);">
+        <div class="subsection-title">Font Families</div>
+        <div class="type-row">
+          <span class="type-label">Mono</span>
+          <span style="font-family: var(--font-mono); font-size: var(--text-body);">JetBrains Mono — 0123456789 ABCDEF</span>
+        </div>
+        <div class="type-row">
+          <span class="type-label">Sans</span>
+          <span style="font-family: var(--font-sans); font-size: var(--text-body);">Inter — 0123456789 ABCDEF</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== BUTTONS ========== -->
+    <section class="section">
+      <div class="section-label">03 / Components</div>
+      <h2 class="section-title">Buttons</h2>
+      <p class="section-desc">
+        Sharp, zero-radius. Primary inverts on hover. All buttons use mono font with wide tracking.
+      </p>
+
+      <div class="subsection">
+        <div class="subsection-title">Variants</div>
+        <div class="row">
+          <button class="btn btn-primary">Run World</button>
+          <button class="btn btn-ghost">Pause</button>
+          <button class="btn btn-danger">Terminate</button>
+          <button class="btn btn-minimal">Reset</button>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title">Sizes</div>
+        <div class="row" style="align-items: center;">
+          <button class="btn btn-primary btn-lg">Large</button>
+          <button class="btn btn-primary">Default</button>
+          <button class="btn btn-primary btn-sm">Small</button>
+          <button class="btn btn-ghost btn-icon" title="Settings">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="10" cy="10" r="3"/>
+              <path d="M10 1v3M10 16v3M1 10h3M16 10h3M3.5 3.5l2 2M14.5 14.5l2 2M3.5 16.5l2-2M14.5 5.5l2-2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title">States</div>
+        <div class="row">
+          <button class="btn btn-primary" disabled>Disabled</button>
+          <button class="btn btn-ghost" disabled>Disabled</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== INPUTS ========== -->
+    <section class="section">
+      <h2 class="section-title">Inputs</h2>
+      <p class="section-desc">
+        Dark surface background, single-pixel border. Lime focus ring. Placeholder text in muted uppercase.
+      </p>
+
+      <div style="max-width: 480px;">
+        <div class="subsection">
+          <div class="form-group">
+            <label class="label">World Name</label>
+            <input class="input" type="text" placeholder="Enter world name">
+          </div>
+        </div>
+
+        <div class="subsection">
+          <div class="form-group">
+            <label class="label">World Description</label>
+            <textarea class="textarea" placeholder="Describe the world rules and setting..."></textarea>
+          </div>
+        </div>
+
+        <div class="subsection">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="label">Agent Name</label>
+              <input class="input" type="text" placeholder="Name">
+            </div>
+            <div class="form-group">
+              <label class="label">Personality</label>
+              <input class="input" type="text" placeholder="Traits">
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== BADGES & STATUS ========== -->
+    <section class="section">
+      <h2 class="section-title">Badges & Status</h2>
+
+      <div class="subsection">
+        <div class="subsection-title">Badges</div>
+        <div class="row row-tight">
+          <span class="badge badge-primary">Active</span>
+          <span class="badge badge-danger">Dead</span>
+          <span class="badge badge-warning">Wanted</span>
+          <span class="badge badge-info">Speaking</span>
+          <span class="badge badge-muted">Idle</span>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title">Status Indicators</div>
+        <div class="row" style="align-items: center; gap: var(--space-6);">
+          <span style="display: flex; align-items: center; gap: var(--space-2);">
+            <span class="status-dot status-dot-active"></span>
+            <span class="text-detail" style="color: var(--color-text);">Running</span>
+          </span>
+          <span style="display: flex; align-items: center; gap: var(--space-2);">
+            <span class="status-dot status-dot-danger"></span>
+            <span class="text-detail" style="color: var(--color-text);">Error</span>
+          </span>
+          <span style="display: flex; align-items: center; gap: var(--space-2);">
+            <span class="status-dot status-dot-warning"></span>
+            <span class="text-detail" style="color: var(--color-text);">Warning</span>
+          </span>
+          <span style="display: flex; align-items: center; gap: var(--space-2);">
+            <span class="status-dot status-dot-idle"></span>
+            <span class="text-detail" style="color: var(--color-text);">Idle</span>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== CARDS & PANELS ========== -->
+    <section class="section">
+      <h2 class="section-title">Cards & Panels</h2>
+
+      <div class="subsection">
+        <div class="subsection-title">Card</div>
+        <div style="max-width: 400px;">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">World Seed</span>
+              <span class="badge badge-primary">Active</span>
+            </div>
+            <div style="font-size: var(--text-detail); color: var(--color-text-secondary); text-transform: none; letter-spacing: var(--tracking-normal); line-height: var(--leading-relaxed);">
+              A cyberpunk bar in Neo-Tokyo, 2077. Neon lights flicker, rain never stops. Everyone has a secret.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title">Panel</div>
+        <div style="max-width: 400px; height: 240px;">
+          <div class="panel" style="height: 100%;">
+            <div class="panel-header">
+              <span class="panel-label">World State</span>
+              <span class="panel-value">Tick 042</span>
+            </div>
+            <div class="panel-body">
+              <div class="json-view">{
+  <span class="json-key">"time"</span>: <span class="json-string">"Day 3, Night"</span>,
+  <span class="json-key">"agents"</span>: <span class="json-number">4</span>,
+  <span class="json-key">"locations"</span>: <span class="json-number">3</span>,
+  <span class="json-key">"tension"</span>: <span class="json-string">"high"</span>,
+  <span class="json-key">"active"</span>: <span class="json-boolean">true</span>
+}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title">Data Grid (1px Gap)</div>
+        <div class="data-grid data-grid-4">
+          <div>
+            <div class="text-micro" style="margin-bottom: var(--space-1);">Agents</div>
+            <div class="text-heading color-primary" style="font-family: var(--font-mono);">04</div>
+          </div>
+          <div>
+            <div class="text-micro" style="margin-bottom: var(--space-1);">Events</div>
+            <div class="text-heading" style="font-family: var(--font-mono);">127</div>
+          </div>
+          <div>
+            <div class="text-micro" style="margin-bottom: var(--space-1);">Ticks</div>
+            <div class="text-heading" style="font-family: var(--font-mono);">042</div>
+          </div>
+          <div>
+            <div class="text-micro" style="margin-bottom: var(--space-1);">Status</div>
+            <div class="text-heading color-primary" style="font-family: var(--font-mono);">RUN</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== AGENT CARD ========== -->
+    <section class="section">
+      <h2 class="section-title">Agent Cards</h2>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-4);">
+        <!-- Active agent -->
+        <div class="agent-card agent-card-active">
+          <div class="agent-card-header">
+            <div>
+              <div class="agent-name">
+                <span class="status-dot status-dot-active" style="margin-right: var(--space-2);"></span>
+                Mama Chen
+              </div>
+              <div class="agent-id">mama_chen</div>
+            </div>
+            <span class="badge badge-primary">Acting</span>
+          </div>
+          <div class="agent-desc">Bar owner, 60 years old, cybernetic right arm, seen everything.</div>
+          <div class="agent-stats">
+            <div class="agent-stat">
+              <div class="agent-stat-label">Location</div>
+              <div class="agent-stat-value">Bar Counter</div>
+            </div>
+            <div class="agent-stat">
+              <div class="agent-stat-label">Goal</div>
+              <div class="agent-stat-value">Find Daughter</div>
+            </div>
+          </div>
+          <div class="agent-inventory">
+            <span class="badge badge-muted">Bar Keys</span>
+            <span class="badge badge-muted">Old Photo</span>
+            <span class="badge badge-muted">500 Eddies</span>
+          </div>
+        </div>
+
+        <!-- Idle agent -->
+        <div class="agent-card">
+          <div class="agent-card-header">
+            <div>
+              <div class="agent-name">
+                <span class="status-dot status-dot-idle" style="margin-right: var(--space-2);"></span>
+                Ghost
+              </div>
+              <div class="agent-id">ghost</div>
+            </div>
+            <span class="badge badge-muted">Idle</span>
+          </div>
+          <div class="agent-desc">Info broker. Nobody knows the real identity. Trades secrets for eddies.</div>
+          <div class="agent-stats">
+            <div class="agent-stat">
+              <div class="agent-stat-label">Location</div>
+              <div class="agent-stat-value">VIP Room</div>
+            </div>
+            <div class="agent-stat">
+              <div class="agent-stat-label">Goal</div>
+              <div class="agent-stat-value">Sell Intel</div>
+            </div>
+          </div>
+          <div class="agent-inventory">
+            <span class="badge badge-muted">Encrypted Comm</span>
+            <span class="badge badge-muted">1200 Eddies</span>
+          </div>
+        </div>
+
+        <!-- Dead agent -->
+        <div class="agent-card agent-card-dead">
+          <div class="agent-card-header">
+            <div>
+              <div class="agent-name">
+                <span class="status-dot status-dot-danger" style="margin-right: var(--space-2);"></span>
+                Razor
+              </div>
+              <div class="agent-id">razor</div>
+            </div>
+            <span class="badge badge-danger">Dead</span>
+          </div>
+          <div class="agent-desc">Corpo enforcer, terminated during the bar incident on Day 2.</div>
+          <div class="agent-stats">
+            <div class="agent-stat">
+              <div class="agent-stat-label">Location</div>
+              <div class="agent-stat-value">Back Alley</div>
+            </div>
+            <div class="agent-stat">
+              <div class="agent-stat-label">Cause</div>
+              <div class="agent-stat-value">Ambush</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== EVENT FEED ========== -->
+    <section class="section">
+      <h2 class="section-title">Event Feed</h2>
+      <p class="section-desc">
+        Append-only event log. Each event shows tick, agent, content, and action type. World events highlighted in red.
+      </p>
+
+      <div class="panel" style="max-width: 800px; max-height: 500px;">
+        <div class="panel-header">
+          <span class="panel-label">Event Log</span>
+          <span class="panel-value">127 Events</span>
+        </div>
+        <div class="panel-body-flush" style="overflow-y: auto;">
+          <div class="event-feed">
+            <div class="event-tick-divider">Tick 042</div>
+
+            <div class="event-item event-item-new">
+              <span class="event-tick">042</span>
+              <span class="event-agent">Mama Chen</span>
+              <span class="event-content">Noticed Ghost sitting alone in VIP, walked over with a bottle of synthetic sake</span>
+              <span class="event-type event-type-move">Move</span>
+            </div>
+
+            <div class="event-item">
+              <span class="event-tick">042</span>
+              <span class="event-agent">Ghost</span>
+              <span class="event-content">Checked encrypted communicator for incoming messages from the corpo contact</span>
+              <span class="event-type event-type-observe">Observe</span>
+            </div>
+
+            <div class="event-tick-divider">Tick 041</div>
+
+            <div class="event-item">
+              <span class="event-tick">041</span>
+              <span class="event-agent">Mama Chen</span>
+              <span class="event-content">"The usual? Or something new tonight?" — spoke to the stranger at the counter</span>
+              <span class="event-type event-type-speak">Speak</span>
+            </div>
+
+            <div class="event-item">
+              <span class="event-tick">041</span>
+              <span class="event-agent">Ghost</span>
+              <span class="event-content">Traded network access codes to Fixer for 300 eddies</span>
+              <span class="event-type event-type-trade">Trade</span>
+            </div>
+
+            <div class="event-tick-divider">Tick 040</div>
+
+            <div class="event-item event-item-world">
+              <span class="event-tick">040</span>
+              <span class="event-agent event-agent-world">System</span>
+              <span class="event-content">Power grid fluctuation — bar lights flickered for 30 seconds. Tension increased.</span>
+              <span class="event-type event-type-world">World</span>
+            </div>
+
+            <div class="event-item">
+              <span class="event-tick">040</span>
+              <span class="event-agent">Mama Chen</span>
+              <span class="event-content">Reached under the counter and gripped the stun baton, scanning the room</span>
+              <span class="event-type event-type-use">Use</span>
+            </div>
+
+            <div class="event-tick-divider">Tick 039</div>
+
+            <div class="event-item">
+              <span class="event-tick">039</span>
+              <span class="event-agent">Ghost</span>
+              <span class="event-content">Waited in the VIP room, monitoring all comm channels</span>
+              <span class="event-type event-type-wait">Wait</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== CONTROL BAR ========== -->
+    <section class="section">
+      <h2 class="section-title">Control Bar</h2>
+
+      <div style="max-width: 800px;">
+        <div class="control-bar">
+          <button class="btn btn-primary btn-sm">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><polygon points="3,1 12,7 3,13"/></svg>
+            Run
+          </button>
+          <button class="btn btn-ghost btn-sm">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="2" y="1" width="3.5" height="12"/><rect x="8.5" y="1" width="3.5" height="12"/></svg>
+            Pause
+          </button>
+          <button class="btn btn-ghost btn-sm" style="min-width: unset;">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><polygon points="1,1 8,7 1,13"/><rect x="9" y="1" width="3" height="12"/></svg>
+            Step
+          </button>
+
+          <div class="control-divider"></div>
+
+          <div class="tick-counter">
+            <span class="tick-label">Tick</span>
+            <span class="tick-value">042</span>
+          </div>
+
+          <div class="control-divider"></div>
+
+          <div class="speed-control">
+            <span class="speed-label">Speed</span>
+            <div class="speed-bar">
+              <div class="speed-segment speed-segment-active"></div>
+              <div class="speed-segment speed-segment-active"></div>
+              <div class="speed-segment speed-segment-active"></div>
+              <div class="speed-segment speed-segment-active"></div>
+              <div class="speed-segment"></div>
+              <div class="speed-segment"></div>
+            </div>
+          </div>
+
+          <div style="flex: 1;"></div>
+
+          <div style="display: flex; align-items: center; gap: var(--space-2);">
+            <span class="status-dot status-dot-active"></span>
+            <span class="text-micro" style="color: var(--color-primary);">Running</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== TOASTS ========== -->
+    <section class="section">
+      <h2 class="section-title">Notifications</h2>
+
+      <div class="col" style="max-width: 480px; gap: var(--space-3);">
+        <div class="toast toast-success">
+          <span class="status-dot status-dot-active"></span>
+          <span>World simulation started — 4 agents loaded</span>
+        </div>
+        <div class="toast toast-error">
+          <span class="status-dot status-dot-danger"></span>
+          <span>LLM parse error — Agent "Ghost" fallback to WAIT</span>
+        </div>
+        <div class="toast toast-warning">
+          <span class="status-dot status-dot-warning"></span>
+          <span>Repetition detected — injecting world event</span>
+        </div>
+        <div class="toast toast-info">
+          <span class="status-dot" style="background: var(--color-info);"></span>
+          <span>Session saved to babel.db</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== ANIMATIONS ========== -->
+    <section class="section">
+      <h2 class="section-title">Animations</h2>
+      <p class="section-desc">
+        Minimal, purposeful motion. Clip-path reveals for entrances. Glow pulse for active states. No gratuitous transitions.
+      </p>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-4);">
+        <div class="showcase showcase-dark" style="text-align: center; padding: var(--space-8) var(--space-4);">
+          <div class="text-micro" style="margin-bottom: var(--space-4);">Pulse Glow</div>
+          <div class="anim-pulse-glow" style="width: 48px; height: 48px; background: var(--color-primary); margin: 0 auto;"></div>
+        </div>
+
+        <div class="showcase showcase-dark" style="text-align: center; padding: var(--space-8) var(--space-4);">
+          <div class="text-micro" style="margin-bottom: var(--space-4);">Blink</div>
+          <div class="anim-blink" style="font-size: var(--text-heading); color: var(--color-primary); font-weight: var(--weight-bold);">_</div>
+        </div>
+
+        <div class="showcase showcase-dark" style="text-align: center; padding: var(--space-8) var(--space-4); overflow: hidden;">
+          <div class="text-micro" style="margin-bottom: var(--space-4);">Shimmer</div>
+          <div class="anim-shimmer" style="height: 48px;"></div>
+        </div>
+
+        <div class="showcase showcase-dark" style="text-align: center; padding: var(--space-8) var(--space-4);">
+          <div class="text-micro" style="margin-bottom: var(--space-4);">Tick Bump</div>
+          <div id="tick-demo" style="font-size: var(--text-heading); color: var(--color-primary); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; cursor: pointer;" title="Click to animate">042</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== LOADING / SKELETON ========== -->
+    <section class="section">
+      <h2 class="section-title">Loading States</h2>
+
+      <div style="max-width: 400px;">
+        <div class="agent-card" style="gap: var(--space-3);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div class="skeleton skeleton-heading" style="width: 120px; margin: 0;"></div>
+            <div class="skeleton" style="width: 60px; height: 20px;"></div>
+          </div>
+          <div class="skeleton skeleton-text" style="width: 90%;"></div>
+          <div class="skeleton skeleton-text" style="width: 70%;"></div>
+          <div class="skeleton skeleton-block"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== FULL DASHBOARD MOCK ========== -->
+    <section class="section" style="padding-left: 0; padding-right: 0;">
+      <div style="padding: 0 var(--space-6);">
+        <div class="section-label">Full Prototype</div>
+        <h2 class="section-title">Dashboard Layout</h2>
+        <p class="section-desc">
+          Complete simulation interface. Event feed on the left, agent cards and world state on the right, controls at the bottom.
+        </p>
+      </div>
+
+      <div class="dashboard-mock scan-overlay" style="margin-top: var(--space-8);">
+
+        <!-- Nav -->
+        <nav class="nav dashboard-nav">
+          <span class="nav-brand">BABEL</span>
+          <div class="nav-links">
+            <a class="nav-link nav-link-active" href="#">Simulate</a>
+            <a class="nav-link" href="#">History</a>
+            <a class="nav-link" href="#">Seeds</a>
+          </div>
+          <div class="nav-right">
+            <div class="tick-counter">
+              <span class="tick-label">Tick</span>
+              <span class="tick-value" style="font-size: var(--text-subheading);">042</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: var(--space-2);">
+              <span class="status-dot status-dot-active"></span>
+              <span class="text-micro" style="color: var(--color-primary);">Running</span>
+            </div>
+          </div>
+        </nav>
+
+        <!-- Event Feed (Left) -->
+        <div class="dashboard-feed">
+          <div style="padding: var(--space-3) var(--space-4); border-bottom: var(--border-1) solid var(--color-border); background: var(--color-surface-1);">
+            <span class="panel-label">Event Feed</span>
+          </div>
+          <div class="event-feed">
+            <div class="event-tick-divider">Tick 042</div>
+            <div class="event-item event-item-new">
+              <span class="event-tick">042</span>
+              <span class="event-agent">Mama Chen</span>
+              <span class="event-content">Walked to VIP room carrying synthetic sake</span>
+              <span class="event-type event-type-move">Move</span>
+            </div>
+            <div class="event-item">
+              <span class="event-tick">042</span>
+              <span class="event-agent">Ghost</span>
+              <span class="event-content">Checked encrypted comm for messages</span>
+              <span class="event-type event-type-observe">Observe</span>
+            </div>
+            <div class="event-tick-divider">Tick 041</div>
+            <div class="event-item">
+              <span class="event-tick">041</span>
+              <span class="event-agent">Mama Chen</span>
+              <span class="event-content">"The usual tonight?" — spoke to stranger</span>
+              <span class="event-type event-type-speak">Speak</span>
+            </div>
+            <div class="event-item">
+              <span class="event-tick">041</span>
+              <span class="event-agent">Ghost</span>
+              <span class="event-content">Traded access codes for 300 eddies</span>
+              <span class="event-type event-type-trade">Trade</span>
+            </div>
+            <div class="event-tick-divider">Tick 040</div>
+            <div class="event-item event-item-world">
+              <span class="event-tick">040</span>
+              <span class="event-agent event-agent-world">System</span>
+              <span class="event-content">Power grid fluctuation — lights flickered</span>
+              <span class="event-type event-type-world">World</span>
+            </div>
+            <div class="event-item">
+              <span class="event-tick">040</span>
+              <span class="event-agent">Mama Chen</span>
+              <span class="event-content">Gripped stun baton under counter</span>
+              <span class="event-type event-type-use">Use</span>
+            </div>
+            <div class="event-tick-divider">Tick 039</div>
+            <div class="event-item">
+              <span class="event-tick">039</span>
+              <span class="event-agent">Ghost</span>
+              <span class="event-content">Waited, monitoring all channels</span>
+              <span class="event-type event-type-wait">Wait</span>
+            </div>
+            <div class="event-item">
+              <span class="event-tick">039</span>
+              <span class="event-agent">Mama Chen</span>
+              <span class="event-content">Wiped the bar counter, watching the door</span>
+              <span class="event-type event-type-observe">Observe</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar (Right) -->
+        <div class="dashboard-sidebar">
+          <!-- Agents section -->
+          <div class="dashboard-sidebar-section">
+            <div style="padding: var(--space-3) var(--space-4); border-bottom: var(--border-1) solid var(--color-border); background: var(--color-surface-1); display: flex; justify-content: space-between; align-items: center;">
+              <span class="panel-label">Agents</span>
+              <span class="text-micro" style="color: var(--color-text-muted);">2 Active</span>
+            </div>
+            <div style="padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3);">
+              <!-- Mini agent cards for dashboard -->
+              <div style="padding: var(--space-3); border: var(--border-1) solid var(--color-primary); background: var(--color-surface-1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2);">
+                  <span style="display: flex; align-items: center; gap: var(--space-2);">
+                    <span class="status-dot status-dot-active"></span>
+                    <span style="font-weight: var(--weight-semibold); font-size: var(--text-detail);">Mama Chen</span>
+                  </span>
+                  <span class="badge badge-primary" style="padding: 1px var(--space-2);">Acting</span>
+                </div>
+                <div style="display: flex; gap: var(--space-4); font-size: var(--text-micro); color: var(--color-text-muted);">
+                  <span>Bar Counter</span>
+                  <span>3 Items</span>
+                </div>
+              </div>
+              <div style="padding: var(--space-3); border: var(--border-1) solid var(--color-border); background: var(--color-surface-1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2);">
+                  <span style="display: flex; align-items: center; gap: var(--space-2);">
+                    <span class="status-dot status-dot-idle"></span>
+                    <span style="font-weight: var(--weight-semibold); font-size: var(--text-detail);">Ghost</span>
+                  </span>
+                  <span class="badge badge-muted" style="padding: 1px var(--space-2);">Idle</span>
+                </div>
+                <div style="display: flex; gap: var(--space-4); font-size: var(--text-micro); color: var(--color-text-muted);">
+                  <span>VIP Room</span>
+                  <span>2 Items</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- World State section -->
+          <div style="flex: 1; display: flex; flex-direction: column;">
+            <div style="padding: var(--space-3) var(--space-4); border-bottom: var(--border-1) solid var(--color-border); background: var(--color-surface-1);">
+              <span class="panel-label">World State</span>
+            </div>
+            <div style="padding: var(--space-4); flex: 1;">
+              <div class="json-view">{
+  <span class="json-key">"name"</span>: <span class="json-string">"Cyber Bar"</span>,
+  <span class="json-key">"time"</span>: <span class="json-string">"Day 3, Night"</span>,
+  <span class="json-key">"locations"</span>: [
+    <span class="json-string">"Bar Counter"</span>,
+    <span class="json-string">"VIP Room"</span>,
+    <span class="json-string">"Back Alley"</span>
+  ],
+  <span class="json-key">"tension"</span>: <span class="json-string">"high"</span>,
+  <span class="json-key">"events_count"</span>: <span class="json-number">127</span>
+}</div>
+            </div>
+          </div>
+
+          <!-- Quick stats -->
+          <div class="data-grid data-grid-3" style="border-top: var(--border-1) solid var(--color-border);">
+            <div style="text-align: center; padding: var(--space-3);">
+              <div class="text-micro">Agents</div>
+              <div style="font-size: var(--text-subheading); font-weight: var(--weight-bold); color: var(--color-primary);">02</div>
+            </div>
+            <div style="text-align: center; padding: var(--space-3);">
+              <div class="text-micro">Events</div>
+              <div style="font-size: var(--text-subheading); font-weight: var(--weight-bold);">127</div>
+            </div>
+            <div style="text-align: center; padding: var(--space-3);">
+              <div class="text-micro">Locations</div>
+              <div style="font-size: var(--text-subheading); font-weight: var(--weight-bold);">03</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Control Bar (Bottom) -->
+        <div class="control-bar dashboard-controls" style="border-top: var(--border-1) solid var(--color-border);">
+          <button class="btn btn-primary btn-sm">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor"><polygon points="3,1 12,7 3,13"/></svg>
+            Run
+          </button>
+          <button class="btn btn-ghost btn-sm">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor"><rect x="2" y="1" width="3.5" height="12"/><rect x="8.5" y="1" width="3.5" height="12"/></svg>
+            Pause
+          </button>
+          <button class="btn btn-ghost btn-sm" style="min-width: unset;">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor"><polygon points="1,1 8,7 1,13"/><rect x="9" y="1" width="3" height="12"/></svg>
+            Step
+          </button>
+          <div class="control-divider"></div>
+          <div class="speed-control">
+            <span class="speed-label">Speed</span>
+            <div class="speed-bar">
+              <div class="speed-segment speed-segment-active"></div>
+              <div class="speed-segment speed-segment-active"></div>
+              <div class="speed-segment speed-segment-active"></div>
+              <div class="speed-segment speed-segment-active"></div>
+              <div class="speed-segment"></div>
+              <div class="speed-segment"></div>
+            </div>
+          </div>
+          <div style="flex: 1;"></div>
+          <span class="text-micro" style="color: var(--color-text-muted);">
+            World: Cyber Bar &bull; Session: a3f8c1
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== FOOTER ========== -->
+    <section style="padding: var(--space-12) var(--space-6); text-align: center;">
+      <div class="text-micro" style="color: var(--color-text-dim); margin-bottom: var(--space-2);">
+        BABEL Design System v1.0
+      </div>
+      <div class="text-micro" style="color: var(--color-text-dim);">
+        Seed + AI Runtime = World State Machine
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Tick bump demo interaction -->
+  <script>
+    document.getElementById('tick-demo')?.addEventListener('click', function() {
+      this.style.animation = 'none';
+      this.offsetHeight; // trigger reflow
+      this.style.animation = 'tick-bump 300ms cubic-bezier(0, 0, 0.2, 1)';
+      const current = parseInt(this.textContent);
+      this.textContent = String(current + 1).padStart(3, '0');
+    });
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,184 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  BabelSettings,
+  loadSettings,
+  saveSettings,
+  fetchModels,
+} from "@/lib/api";
+
+interface SettingsProps {
+  onClose: () => void;
+  onSave: (settings: BabelSettings) => void;
+}
+
+export default function Settings({ onClose, onSave }: SettingsProps) {
+  const [settings, setSettings] = useState<BabelSettings>(loadSettings);
+  const [models, setModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [testStatus, setTestStatus] = useState<"idle" | "ok" | "error">("idle");
+
+  // Load models on mount if key + base exist
+  useEffect(() => {
+    if (settings.apiKey && settings.apiBase) {
+      handleFetchModels();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleFetchModels() {
+    if (!settings.apiKey || !settings.apiBase) return;
+    setLoadingModels(true);
+    setTestStatus("idle");
+    const result = await fetchModels(settings.apiBase, settings.apiKey);
+    setModels(result);
+    setTestStatus(result.length > 0 ? "ok" : "error");
+    setLoadingModels(false);
+  }
+
+  function handleSave() {
+    saveSettings(settings);
+    onSave(settings);
+    onClose();
+  }
+
+  function update(patch: Partial<BabelSettings>) {
+    setSettings((prev) => ({ ...prev, ...patch }));
+  }
+
+  const inputCls =
+    "w-full h-10 px-3 bg-void border border-b-DEFAULT text-detail text-white focus:border-primary focus:outline-none hover:border-b-hover transition-colors normal-case tracking-normal";
+  const labelCls =
+    "text-micro text-t-muted tracking-widest block mb-1.5";
+
+  return (
+    <div className="border-b border-b-DEFAULT bg-surface-1 animate-[slide-up_0.15s_ease] overflow-hidden">
+      <div className="max-w-4xl mx-auto px-6 py-5">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <span className="text-micro text-t-muted tracking-widest">
+            LLM Configuration
+          </span>
+          <div className="flex items-center gap-2" aria-live="polite">
+            {testStatus === "ok" && (
+              <span className="text-micro text-primary tracking-wider flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" aria-hidden="true" />
+                Connected · {models.length} models
+              </span>
+            )}
+            {testStatus === "error" && (
+              <span className="text-micro text-danger tracking-wider">
+                Connection failed
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Fields */}
+        <div className="grid grid-cols-[1fr_1fr_200px] gap-4 mb-4">
+          <div>
+            <label htmlFor="settings-api-base" className={labelCls}>API Base URL</label>
+            <input
+              id="settings-api-base"
+              className={inputCls}
+              placeholder="https://api.openai.com/v1"
+              value={settings.apiBase}
+              onChange={(e) => update({ apiBase: e.target.value })}
+            />
+          </div>
+          <div>
+            <label htmlFor="settings-api-key" className={labelCls}>API Key</label>
+            <input
+              id="settings-api-key"
+              type="password"
+              className={inputCls}
+              placeholder="sk-..."
+              value={settings.apiKey}
+              onChange={(e) => update({ apiKey: e.target.value })}
+            />
+          </div>
+          <div>
+            <label htmlFor="settings-tick-delay" className={labelCls}>Tick Delay (sec)</label>
+            <input
+              id="settings-tick-delay"
+              type="number"
+              min={0.5}
+              max={30}
+              step={0.5}
+              className={inputCls}
+              value={settings.tickDelay}
+              onChange={(e) =>
+                update({ tickDelay: parseFloat(e.target.value) || 3 })
+              }
+            />
+          </div>
+        </div>
+
+        {/* Model selector row */}
+        <div className="flex gap-4 items-end mb-5">
+          <div className="flex-1">
+            <label htmlFor="settings-model" className={labelCls}>Model</label>
+            {models.length > 0 ? (
+              <div className="relative">
+                <select
+                  id="settings-model"
+                  className={`${inputCls} appearance-none cursor-pointer pr-8`}
+                  value={settings.model}
+                  onChange={(e) => update({ model: e.target.value })}
+                >
+                  {!models.includes(settings.model) && (
+                    <option value={settings.model}>{settings.model}</option>
+                  )}
+                  {models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <svg className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-t-muted" width="10" height="6" viewBox="0 0 10 6" fill="currentColor" aria-hidden="true">
+                  <path d="M0 0l5 6 5-6z" />
+                </svg>
+              </div>
+            ) : (
+              <input
+                id="settings-model"
+                className={inputCls}
+                placeholder="gpt-5.4"
+                value={settings.model}
+                onChange={(e) => update({ model: e.target.value })}
+              />
+            )}
+          </div>
+          <button
+            onClick={handleFetchModels}
+            disabled={loadingModels || !settings.apiKey || !settings.apiBase}
+            className="h-10 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-white hover:text-white disabled:opacity-30 transition-colors whitespace-nowrap"
+          >
+            {loadingModels ? "Loading..." : "Fetch Models"}
+          </button>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-3 pt-4 border-t border-b-DEFAULT">
+          <button
+            onClick={handleSave}
+            className="h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary transition-colors"
+          >
+            Save
+          </button>
+          <button
+            onClick={onClose}
+            className="h-9 px-4 text-micro tracking-wider text-t-muted hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+          <div className="flex-1" />
+          <span className="text-micro text-t-dim tracking-wider normal-case">
+            Settings saved to localStorage
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,16 @@
+[project]
+name = "babel"
+version = "0.1.0"
+description = "AI-driven World State Machine"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "litellm>=1.50.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "aiosqlite>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = ["httpx", "pytest", "pytest-asyncio"]

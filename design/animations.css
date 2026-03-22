@@ -1,0 +1,174 @@
+/* ============================================================
+   BABEL Design System — Animations
+   Marathon-inspired motion language
+   ============================================================ */
+
+/* ── Keyframes ── */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Marathon-style clip-path reveals */
+@keyframes reveal-right {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes reveal-left {
+  from { clip-path: inset(0 0 0 100%); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes reveal-up {
+  from { clip-path: inset(100% 0 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes reveal-down {
+  from { clip-path: inset(0 0 100% 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+
+/* Accent stripe — Marathon green-square-slide equivalent */
+@keyframes accent-swipe {
+  0%   { transform: translateX(-100%); opacity: 1; }
+  70%  { transform: translateX(0); opacity: 1; }
+  100% { transform: translateX(0); opacity: 0; }
+}
+
+/* Glow / pulse */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--color-primary-glow); }
+  50%      { box-shadow: 0 0 20px 4px var(--color-primary-glow); }
+}
+
+@keyframes pulse-glow-text {
+  0%, 100% { text-shadow: 0 0 0 var(--color-primary-glow); }
+  50%      { text-shadow: 0 0 12px var(--color-primary-glow-strong); }
+}
+
+/* Blink — Marathon CTA style */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+@keyframes cursor-blink {
+  0%, 49%  { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* Event feed — new item flash */
+@keyframes event-flash {
+  0%   { background: var(--color-primary-glow); }
+  100% { background: transparent; }
+}
+
+@keyframes event-flash-danger {
+  0%   { background: rgba(242, 71, 35, 0.15); }
+  100% { background: transparent; }
+}
+
+/* Marquee — continuous scroll */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* Scan line — HUD effect */
+@keyframes scan-line {
+  0%   { transform: translateY(-100%); opacity: 0.5; }
+  50%  { opacity: 0.15; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+/* Tick counter bump */
+@keyframes tick-bump {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* Data loading shimmer */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Spin (for loading indicators) */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Typewriter cursor */
+@keyframes type-cursor {
+  0%, 100% { border-right-color: var(--color-primary); }
+  50%      { border-right-color: transparent; }
+}
+
+/* ── Animation Utilities ── */
+
+.anim-fade-in      { animation: fade-in var(--duration-slow) var(--ease-default) both; }
+.anim-slide-up     { animation: slide-up var(--duration-slow) var(--ease-out) both; }
+.anim-slide-down   { animation: slide-down var(--duration-slow) var(--ease-out) both; }
+.anim-slide-right  { animation: slide-in-right var(--duration-slow) var(--ease-out) both; }
+.anim-reveal-right { animation: reveal-right var(--duration-reveal) var(--ease-out) both; }
+.anim-reveal-up    { animation: reveal-up var(--duration-reveal) var(--ease-out) both; }
+.anim-pulse-glow   { animation: pulse-glow 2s var(--ease-default) infinite; }
+.anim-blink        { animation: blink 1s step-end infinite; }
+.anim-marquee      { animation: marquee 16s linear infinite; }
+.anim-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-2) 25%,
+    var(--color-surface-3) 50%,
+    var(--color-surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s var(--ease-default) infinite;
+}
+
+/* Stagger delays */
+.delay-1 { animation-delay: 0.05s; }
+.delay-2 { animation-delay: 0.10s; }
+.delay-3 { animation-delay: 0.15s; }
+.delay-4 { animation-delay: 0.20s; }
+.delay-5 { animation-delay: 0.25s; }
+.delay-6 { animation-delay: 0.30s; }
+.delay-7 { animation-delay: 0.35s; }
+.delay-8 { animation-delay: 0.40s; }
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

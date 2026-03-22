@@ -1,0 +1,14 @@
+/* ============================================================
+   BABEL Design System — Master Import
+
+   Usage:
+     <link rel="stylesheet" href="design/babel.css">
+
+   Or in JS/Next.js:
+     import './design/babel.css'
+   ============================================================ */
+
+@import 'tokens.css';
+@import 'base.css';
+@import 'animations.css';
+@import 'components.css';

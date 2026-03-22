@@ -1,0 +1,69 @@
+name: "赛博酒吧"
+description: "2077年，新东京地下酒吧。霓虹灯永远闪烁，雨永远在下。每个人都有秘密，信息比子弹更值钱。"
+
+rules:
+  - "所有交易使用加密货币 eddies"
+  - "酒吧内禁止使用致命武器"
+  - "每个人都有秘密，不会轻易透露"
+  - "信息是最有价值的货币"
+  - "公司势力无处不在，所有人都在被监视"
+
+locations:
+  - name: "吧台"
+    description: "油腻的金属台面，全息菜单悬浮在空中，合成酒的味道弥漫"
+  - name: "VIP包间"
+    description: "隔音墙壁，可以谈私密交易，灯光昏暗"
+  - name: "后巷"
+    description: "垃圾箱和涂鸦，雨水淅沥，偶尔有可疑交易"
+
+resources:
+  - name: "eddies"
+    description: "加密货币，通用支付手段"
+  - name: "信息"
+    description: "在这里，信息比子弹更值钱"
+
+agents:
+  - id: "mama_chen"
+    name: "陈妈"
+    description: "酒吧老板，60岁，机械右臂，什么都见过。表面经营酒吧，实际上是这条街最大的信息网络节点。"
+    personality: "精明、护短、厌恶暴力、看人极准"
+    goals:
+      - "保持酒吧平稳运营"
+      - "找到三年前失踪的女儿小雪的线索"
+    inventory:
+      - "酒吧钥匙"
+      - "旧照片"
+      - "500 eddies"
+    location: "吧台"
+
+  - id: "ghost"
+    name: "Ghost"
+    description: "情报贩子，没人知道真实身份和性别。总是戴着全息面具，声音经过变声处理。"
+    personality: "冷静、狡猾、唯利是图、但有自己的底线"
+    goals:
+      - "搜集有价值的信息并出售"
+      - "不被任何人追踪到真实身份"
+      - "调查最近公司的秘密项目 Project Lazarus"
+    inventory:
+      - "加密通讯器"
+      - "全息面具"
+      - "1200 eddies"
+    location: "VIP包间"
+
+  - id: "fixer"
+    name: "阿飞"
+    description: "街头掮客，什么活都接。年轻、鲁莽，但人脉广。最近接了一个大单，需要找到一个叫'小雪'的人。"
+    personality: "冲动、讲义气、贪财但有底线"
+    goals:
+      - "完成寻找'小雪'的委托，拿到报酬"
+      - "在地下世界建立自己的名声"
+    inventory:
+      - "旧手枪（非致命弹药）"
+      - "300 eddies"
+      - "委托文件"
+    location: "后巷"
+
+initial_events:
+  - "夜幕降临，赛博酒吧的霓虹招牌亮起"
+  - "阿飞刚从后巷的一次失败交易中脱身"
+  - "Ghost 收到一条加密消息：Project Lazarus 的实验体可能在附近"

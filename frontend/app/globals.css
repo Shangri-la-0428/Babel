@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * CSS custom properties for use in arbitrary Tailwind values
+ * (e.g. shadow-[0_0_8px_var(--color-primary-glow-strong)])
+ * and global styles. Must stay in sync with design/tailwind.preset.js.
+ */
+:root {
+  --color-primary: #C0FE04;
+  --color-primary-glow: rgba(192, 254, 4, 0.15);
+  --color-primary-glow-strong: rgba(192, 254, 4, 0.3);
+}
+
+/* ── Global Reset ── */
+* {
+  border-radius: 0;
+}
+
+body {
+  background: #000000;
+  color: #FFFFFF;
+  font-family: var(--font-jetbrains), 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-primary);
+  color: #000000;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #000; }
+::-webkit-scrollbar-thumb { background: #1C1C1C; }
+::-webkit-scrollbar-thumb:hover { background: #7A7A7A; }
+
+/* ── Focus Indicators ── */
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Keyframes ── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes event-flash {
+  0% { background: var(--color-primary-glow); }
+  100% { background: transparent; }
+}
+
+@keyframes event-flash-danger {
+  0% { background: rgba(242, 71, 35, 0.15); }
+  100% { background: transparent; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--color-primary-glow); }
+  50% { box-shadow: 0 0 16px 4px var(--color-primary-glow); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
