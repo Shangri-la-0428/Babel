@@ -152,8 +152,17 @@ function SimContent() {
     };
   }, [sessionId]);
 
+  function checkSettings(): boolean {
+    if (!settings.apiKey) {
+      setError("请先在右上角 Settings 中配置 API Key");
+      setShowSettings(true);
+      return false;
+    }
+    return true;
+  }
+
   const handleRun = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId || !checkSettings()) return;
     setLoading(true);
     setStatus("running");
     setError(null);
@@ -166,7 +175,7 @@ function SimContent() {
         tick_delay: settings.tickDelay,
       });
     } catch {
-      setError("Failed to start simulation. Check backend & LLM settings.");
+      setError("启动失败，请检查后端和 LLM 设置");
       setLoading(false);
       setStatus("paused");
     }
@@ -179,12 +188,12 @@ function SimContent() {
       setStatus("paused");
       setLoading(false);
     } catch {
-      setError("Failed to pause simulation.");
+      setError("暂停失败");
     }
   }, [sessionId]);
 
   const handleStep = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId || !checkSettings()) return;
     setLoading(true);
     setError(null);
     try {
@@ -194,7 +203,7 @@ function SimContent() {
         api_base: settings.apiBase || undefined,
       });
     } catch {
-      setError("Step failed. Check backend & LLM settings.");
+      setError("单步执行失败，请检查 LLM 设置");
     } finally {
       setLoading(false);
     }

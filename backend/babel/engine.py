@@ -212,6 +212,9 @@ class Engine:
                 return self._make_wait_event(agent, f"LLM error: {last_error}")
 
             except Exception as e:
+                err_str = str(e)
+                if "AuthenticationError" in err_str or "API key" in err_str:
+                    return self._make_wait_event(agent, "API Key 无效或未配置，请在 Settings 中检查")
                 return self._make_wait_event(agent, f"Unexpected error: {e}")
 
         return self._make_wait_event(agent, "Max retries exceeded")
