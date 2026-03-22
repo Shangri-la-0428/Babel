@@ -6,6 +6,10 @@ set -e
 
 cd "$(dirname "$0")"
 
+# Kill previous instances
+lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+
 # Backend
 echo "[BABEL] Starting backend..."
 cd backend

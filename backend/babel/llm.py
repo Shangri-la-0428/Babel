@@ -22,6 +22,14 @@ from .prompts import (
 litellm.suppress_debug_info = True
 
 
+def _ensure_provider_prefix(model: str, api_base: str | None) -> str:
+    """Add 'openai/' prefix when using a custom api_base with a model name
+    that litellm would route to OpenAI directly, bypassing api_base."""
+    if api_base and "/" not in model:
+        return f"openai/{model}"
+    return model
+
+
 def get_model() -> str:
     return os.environ.get("BABEL_MODEL", "gpt-5.4")
 
@@ -45,6 +53,7 @@ async def call_llm(
     model = model or get_model()
     api_key = api_key or get_api_key()
     api_base = api_base or get_api_base()
+    model = _ensure_provider_prefix(model, api_base)
 
     kwargs: dict = {
         "model": model,
@@ -142,6 +151,7 @@ async def chat_with_agent(
     model = model or get_model()
     api_key = api_key or get_api_key()
     api_base = api_base or get_api_base()
+    model = _ensure_provider_prefix(model, api_base)
 
     user_prompt = build_chat_prompt(
         agent_name=agent_name,
@@ -186,6 +196,7 @@ async def generate_world_event(
     model = model or get_model()
     api_key = api_key or get_api_key()
     api_base = api_base or get_api_base()
+    model = _ensure_provider_prefix(model, api_base)
 
     user_prompt = build_perturbation_prompt(
         world_description=world_description,
