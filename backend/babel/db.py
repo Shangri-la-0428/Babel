@@ -192,6 +192,46 @@ async def _migrate_v5(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+async def _migrate_v6(db: aiosqlite.Connection) -> None:
+    """Add relations column to sessions table if missing."""
+    cursor = await db.execute("PRAGMA table_info(sessions)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "relations" not in columns:
+        await db.execute(
+            "ALTER TABLE sessions ADD COLUMN relations TEXT DEFAULT '[]'"
+        )
+        await db.commit()
+
+
+async def _migrate_v7(db: aiosqlite.Connection) -> None:
+    """Add active_goal column to agent_states table."""
+    cursor = await db.execute("PRAGMA table_info(agent_states)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "active_goal" not in columns:
+        await db.execute(
+            "ALTER TABLE agent_states ADD COLUMN active_goal TEXT DEFAULT NULL"
+        )
+        await db.commit()
+
+
+async def _migrate_v8(db: aiosqlite.Connection) -> None:
+    """Add structured field to events and semantic field to agent_memories."""
+    cursor = await db.execute("PRAGMA table_info(events)")
+    event_cols = {row[1] for row in await cursor.fetchall()}
+    if "structured" not in event_cols:
+        await db.execute(
+            "ALTER TABLE events ADD COLUMN structured TEXT DEFAULT '{}'"
+        )
+
+    cursor = await db.execute("PRAGMA table_info(agent_memories)")
+    mem_cols = {row[1] for row in await cursor.fetchall()}
+    if "semantic" not in mem_cols:
+        await db.execute(
+            "ALTER TABLE agent_memories ADD COLUMN semantic TEXT DEFAULT '{}'"
+        )
+    await db.commit()
+
+
 async def init_db(db_path: str | Path | None = None) -> None:
     path = str(db_path or DB_PATH)
     async with aiosqlite.connect(path) as db:
@@ -201,37 +241,53 @@ async def init_db(db_path: str | Path | None = None) -> None:
         await _migrate_v3(db)
         await _migrate_v4(db)
         await _migrate_v5(db)
+        await _migrate_v6(db)
+        await _migrate_v7(db)
+        await _migrate_v8(db)
         await db.commit()
 
 
 async def save_session(session) -> None:
     """Save/update a session and its agent states."""
+    # Serialize relations
+    relations_json = json.dumps(
+        [r.model_dump() for r in session.relations],
+        ensure_ascii=False,
+    ) if hasattr(session, "relations") else "[]"
+
     async with aiosqlite.connect(str(DB_PATH)) as db:
-        # Upsert session
+        # Upsert session (with relations)
         await db.execute(
-            """INSERT INTO sessions (id, world_seed, tick, status)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET tick=?, status=?""",
+            """INSERT INTO sessions (id, world_seed, tick, status, relations)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET tick=?, status=?, relations=?""",
             (
                 session.id,
                 session.world_seed.model_dump_json(),
                 session.tick,
                 session.status.value,
+                relations_json,
                 session.tick,
                 session.status.value,
+                relations_json,
             ),
         )
 
         # Upsert agent states
         for aid, agent in session.agents.items():
             role_val = agent.role.value if hasattr(agent.role, "value") else agent.role
+            active_goal_json = (
+                json.dumps(agent.active_goal.model_dump(), ensure_ascii=False)
+                if agent.active_goal else None
+            )
             await db.execute(
                 """INSERT INTO agent_states
                    (session_id, agent_id, name, description, personality, goals,
-                    location, inventory, status, memory, role)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    location, inventory, status, memory, role, active_goal)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(session_id, agent_id) DO UPDATE SET
-                    location=?, inventory=?, status=?, memory=?, role=?""",
+                    location=?, inventory=?, status=?, memory=?, role=?,
+                    active_goal=?""",
                 (
                     session.id,
                     aid,
@@ -244,12 +300,14 @@ async def save_session(session) -> None:
                     agent.status.value,
                     json.dumps(agent.memory, ensure_ascii=False),
                     role_val,
+                    active_goal_json,
                     # ON CONFLICT updates:
                     agent.location,
                     json.dumps(agent.inventory, ensure_ascii=False),
                     agent.status.value,
                     json.dumps(agent.memory, ensure_ascii=False),
                     role_val,
+                    active_goal_json,
                 ),
             )
 
@@ -257,14 +315,18 @@ async def save_session(session) -> None:
 
 
 async def save_event(event) -> None:
-    """Save a single event (with V2 fields)."""
+    """Save a single event (with V2 fields + structured)."""
     async with aiosqlite.connect(str(DB_PATH)) as db:
         at = event.action_type if isinstance(event.action_type, str) else event.action_type.value
+        structured_json = json.dumps(
+            event.structured if hasattr(event, "structured") else {},
+            ensure_ascii=False,
+        )
         await db.execute(
             """INSERT OR IGNORE INTO events
                (id, session_id, tick, agent_id, agent_name, action_type,
-                action, result, location, involved_agents, importance, node_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                action, result, structured, location, involved_agents, importance, node_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event.id,
                 event.session_id,
@@ -274,6 +336,7 @@ async def save_event(event) -> None:
                 at,
                 json.dumps(event.action, ensure_ascii=False),
                 event.result,
+                structured_json,
                 event.location,
                 json.dumps(event.involved_agents, ensure_ascii=False),
                 event.importance,
@@ -396,6 +459,11 @@ async def load_session(session_id: str) -> dict | None:
             return None
         session = dict(row)
         session["world_seed"] = json.loads(session["world_seed"])
+        # Deserialize relations (V6+)
+        if session.get("relations"):
+            session["relations"] = json.loads(session["relations"])
+        else:
+            session["relations"] = []
 
         cursor = await db.execute(
             "SELECT * FROM agent_states WHERE session_id = ?", (session_id,)
@@ -406,6 +474,10 @@ async def load_session(session_id: str) -> dict | None:
             a["goals"] = json.loads(a["goals"])
             a["inventory"] = json.loads(a["inventory"])
             a["memory"] = json.loads(a["memory"])
+            if a.get("active_goal"):
+                a["active_goal"] = json.loads(a["active_goal"])
+            else:
+                a["active_goal"] = None
             agents.append(a)
         session["agents"] = agents
 
@@ -506,19 +578,24 @@ async def delete_seed(seed_id: str) -> bool:
 
 
 async def save_memory(mem) -> None:
-    """Save a structured memory entry."""
+    """Save a structured memory entry (with semantic field)."""
+    semantic_json = json.dumps(
+        mem.semantic if hasattr(mem, "semantic") else {},
+        ensure_ascii=False,
+    )
     async with aiosqlite.connect(str(DB_PATH)) as db:
         await db.execute(
             """INSERT OR IGNORE INTO agent_memories
-               (id, session_id, agent_id, tick, content, category,
+               (id, session_id, agent_id, tick, content, semantic, category,
                 importance, tags, source_event_id, access_count, last_accessed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 mem.id,
                 mem.session_id,
                 mem.agent_id,
                 mem.tick,
                 mem.content,
+                semantic_json,
                 mem.category,
                 mem.importance,
                 json.dumps(mem.tags, ensure_ascii=False),
@@ -558,6 +635,10 @@ async def query_memories(
         for row in rows:
             d = dict(row)
             d["tags"] = json.loads(d["tags"])
+            if "semantic" in d and isinstance(d["semantic"], str):
+                d["semantic"] = json.loads(d["semantic"])
+            elif "semantic" not in d:
+                d["semantic"] = {}
             results.append(d)
         return results
 

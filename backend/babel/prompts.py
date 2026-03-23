@@ -72,11 +72,22 @@ def build_user_prompt(
     urgent_events: list[str] | None = None,
     world_time_display: str = "",
     world_time_period: str = "",
+    agent_relations: list[dict] | None = None,
+    reachable_locations: list[str] | None = None,
+    agent_beliefs: list[str] | None = None,
+    active_goal: dict | None = None,
 ) -> str:
     rules_text = "\n".join(f"- {r}" for r in world_rules)
     goals_text = "\n".join(f"- {g}" for g in agent_goals)
     inv_text = ", ".join(agent_inventory) if agent_inventory else "(empty)"
-    locs_text = ", ".join(available_locations)
+
+    # Show reachable locations if topology is defined, otherwise all
+    if reachable_locations:
+        locs_text = ", ".join(reachable_locations)
+        locs_label = "Reachable Locations (from your current position)"
+    else:
+        locs_text = ", ".join(available_locations)
+        locs_label = "Available Locations"
 
     memory_text = "(no memories yet)"
     if agent_memory:
@@ -94,21 +105,53 @@ def build_user_prompt(
     if recent_events:
         events_text = "\n".join(f"- {e}" for e in recent_events[-8:])
 
+    # Relations section
+    relations_section = ""
+    if agent_relations:
+        rel_lines = []
+        for r in agent_relations:
+            rel_lines.append(
+                f"- {r['name']}: {r['type']} (strength: {r['strength']:.1f})"
+            )
+        relations_section = f"""
+[Your Relationships]
+{chr(10).join(rel_lines)}
+"""
+
+    # Beliefs section
+    beliefs_section = ""
+    if agent_beliefs:
+        beliefs_lines = "\n".join(f"- {b}" for b in agent_beliefs)
+        beliefs_section = f"""
+[Your Beliefs — What You Have Concluded]
+{beliefs_lines}
+"""
+
+    # Goals section — with active goal tracking
+    if active_goal:
+        progress_pct = int(active_goal.get("progress", 0) * 100)
+        stall = active_goal.get("stall_count", 0)
+        stall_info = f", stalled {stall} ticks" if stall > 0 else ""
+        goals_section = f"Core Goals:\n{goals_text}\n\nActive Goal (your current focus):\n\"{active_goal['text']}\" — progress: {progress_pct}%{stall_info}"
+    else:
+        goals_section = f"Goals:\n{goals_text}"
+
+    goal_instruction = " Consider: what is the single best action to advance your active goal?" if active_goal else ""
+
     return f"""\
 [World Rules]
 {rules_text}
 
-[Available Locations]
+[{locs_label}]
 {locs_text}
 
 [Your Character]
 Name: {agent_name}
 Personality: {agent_personality}
-Goals:
-{goals_text}
+{goals_section}
 Location: {agent_location}
 Inventory: {inv_text}
-
+{relations_section}{beliefs_section}
 [Your Memory — What You Know]
 {memory_text}
 
@@ -121,7 +164,7 @@ Recent events near you:
 {events_text}
 {_build_urgent_section(urgent_events)}
 [Instruction]
-Output {agent_name}'s action as JSON. Only JSON, nothing else."""
+Output {agent_name}'s action as JSON.{goal_instruction} Only JSON, nothing else."""
 
 
 # ── Chat Prompt (user ↔ agent conversation) ──────────
@@ -452,3 +495,85 @@ Name: {world_name}
 
 [Instruction]
 Respond as ORACLE. You see all, know all. Help the user understand and co-author this world."""
+
+
+# ── Oracle Creative Mode (World Seed Generation) ───────
+
+ORACLE_CREATIVE_SYSTEM = """\
+You are ORACLE in CREATIVE MODE — a world architect's assistant for BABEL, \
+an AI-driven world simulation engine.
+
+Your job: help the user turn a vague idea into a fully structured WorldSeed JSON \
+that can be directly loaded into the BABEL engine.
+
+Rules:
+- Output ONLY valid JSON matching the WorldSeed schema below. No other text.
+- All fields must be populated — do not leave arrays empty unless appropriate.
+- locations MUST have bidirectional connections (if A connects to B, B connects to A).
+- Each agent needs: id (lowercase_snake_case), name, description, personality, goals (1-3), inventory, location.
+- Agent locations MUST reference valid location names.
+- rules should be 3-6 world-governing rules that the simulation engine enforces.
+- initial_events should be 1-3 scene-setting events that kick off the narrative.
+- The world should feel alive, with built-in tension and asymmetric agent goals.
+
+WorldSeed JSON schema:
+{
+  "name": "World name (concise)",
+  "description": "2-4 sentence world description",
+  "rules": ["rule1", "rule2", ...],
+  "locations": [
+    {"name": "Location Name", "description": "Brief desc", "tags": [], "connections": ["Other Location"]}
+  ],
+  "resources": [
+    {"name": "Resource Name", "description": "Brief desc"}
+  ],
+  "agents": [
+    {
+      "id": "snake_case_id",
+      "name": "Display Name",
+      "description": "Physical appearance and role (1-2 sentences)",
+      "personality": "Core personality traits (1-2 sentences)",
+      "goals": ["goal1", "goal2"],
+      "inventory": ["item1", "item2"],
+      "location": "Starting Location Name"
+    }
+  ],
+  "initial_events": ["Event description 1", "Event description 2"],
+  "time": {
+    "unit": "hour",
+    "ticks_per_unit": 1,
+    "start": "",
+    "day_cycle": false,
+    "day_length": 24,
+    "periods": []
+  },
+  "narrator": {
+    "persona": "Brief narrator personality",
+    "auto_commentary": false,
+    "commentary_interval": 5
+  }
+}\
+"""
+
+
+def build_creative_prompt(
+    user_message: str,
+    conversation_history: list[dict[str, str]] | None = None,
+) -> str:
+    """Build the user prompt for Oracle creative mode (seed generation)."""
+    conv_text = ""
+    if conversation_history:
+        lines = []
+        for msg in conversation_history[-10:]:
+            role = "USER" if msg.get("role") == "user" else "ORACLE"
+            lines.append(f"{role}: {msg.get('content', '')}")
+        conv_text = "\n[Conversation History]\n" + "\n".join(lines) + "\n"
+
+    return f"""\
+{conv_text}[User's World Idea]
+"{user_message}"
+
+[Instruction]
+Generate a complete WorldSeed JSON from this idea. \
+Ensure all connections are bidirectional, all agent locations are valid, \
+and the world has built-in narrative tension. Only JSON, nothing else."""

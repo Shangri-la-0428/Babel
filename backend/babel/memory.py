@@ -13,7 +13,7 @@ from .db import (
     save_memory,
     update_memory_access,
 )
-from .models import AgentState, Event, MemoryEntry, Session
+from .models import ActionType, AgentState, Event, MemoryEntry, Session
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 MAX_MEMORY_LEGACY = 10  # backwards-compat sliding window size
 SNAPSHOT_INTERVAL = 10
 EPOCH_INTERVAL = 5
+BELIEF_INTERVAL = 10  # extract beliefs every N ticks
 
 IMPORTANCE_MAP = {
     "speak": 0.6,
@@ -46,7 +47,9 @@ def update_agent_memory(agent: AgentState, event_summary: str) -> None:
 # ── Structured Memory: Create ──
 
 
-def _compute_importance(event: Event, agent: AgentState) -> float:
+def _compute_importance(
+    event: Event, agent: AgentState, session: Session | None = None
+) -> float:
     """Compute importance score for a memory based on event type and context."""
     at = event.action_type if isinstance(event.action_type, str) else event.action_type.value
     base = IMPORTANCE_MAP.get(at, 0.5)
@@ -54,9 +57,27 @@ def _compute_importance(event: Event, agent: AgentState) -> float:
     # Boost if event involves an agent mentioned in this agent's goals
     goals_text = " ".join(agent.goals).lower()
     if event.agent_name and event.agent_name.lower() in goals_text:
-        base = min(base + 0.2, 1.0)
+        base += 0.2
 
-    return base
+    # Self-involvement: own actions are more important
+    if event.agent_id == agent.agent_id:
+        base += 0.15
+
+    # Being a target / involved party
+    if agent.agent_id in event.involved_agents and event.agent_id != agent.agent_id:
+        base += 0.1
+
+    # Resource changes are significant
+    if at == "trade":
+        base += 0.1
+
+    # Relation-aware: events involving close relations matter more
+    if session and event.agent_id and event.agent_id != agent.agent_id:
+        rel = session.get_relation(agent.agent_id, event.agent_id)
+        if rel and rel.strength > 0.7:
+            base += 0.15
+
+    return min(base, 1.0)
 
 
 def _extract_tags(event: Event, agent: AgentState) -> list[str]:
@@ -98,19 +119,65 @@ def _categorize_event(event: Event) -> str:
     return "episodic"
 
 
+def _derive_semantic(event: Event, agent: AgentState) -> dict:
+    """Derive semantic metadata for a memory from the event's structured field.
+
+    Rule-driven — no LLM. Maps structured event verbs to semantic types.
+    """
+    structured = event.structured
+    if not structured:
+        return {}
+
+    verb = structured.get("verb", "")
+    semantic: dict = {}
+
+    # Map verb to semantic type
+    type_map = {
+        "spoke_to": "social_interaction",
+        "traded_with": "resource_exchange",
+        "moved_to": "movement",
+        "used_item": "item_usage",
+        "observed": "observation",
+        "waited": "idle",
+    }
+    semantic["type"] = type_map.get(verb, "unknown")
+
+    # Who was involved
+    obj = structured.get("object")
+    if obj:
+        semantic["with"] = obj
+
+    # Sentiment heuristic based on verb
+    if verb in ("spoke_to", "traded_with"):
+        semantic["sentiment"] = "positive"
+    elif verb == "waited":
+        semantic["sentiment"] = "neutral"
+    else:
+        semantic["sentiment"] = "neutral"
+
+    # Topic from content key
+    content_key = structured.get("content_key", "")
+    if content_key:
+        semantic["topic"] = content_key[:80]
+
+    return semantic
+
+
 async def create_memory_from_event(
     agent: AgentState, event: Event, session: Session
 ) -> MemoryEntry:
     """Create a structured memory from an event and persist it."""
-    importance = _compute_importance(event, agent)
+    importance = _compute_importance(event, agent, session)
     tags = _extract_tags(event, agent)
     category = _categorize_event(event)
+    semantic = _derive_semantic(event, agent)
 
     mem = MemoryEntry(
         session_id=session.id,
         agent_id=agent.agent_id,
         tick=event.tick,
         content=event.result,
+        semantic=semantic,
         category=category,
         importance=importance,
         tags=tags,
@@ -202,11 +269,19 @@ async def retrieve_relevant_memories(
 # ── Structured Memory: Consolidation ──
 
 
-async def consolidate_memories(session: Session, agent_id: str) -> None:
+async def consolidate_memories(
+    session: Session,
+    agent_id: str,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> None:
     """Consolidate episodic memories into semantic memories.
 
-    Groups episodic memories by shared tags, and if 3+ share a pattern,
-    merges them into one semantic memory with highest importance.
+    Improvements over v1:
+    - High-importance memories (>= 0.8) are protected — never compressed.
+    - Uses LLM summarization for semantic compression (falls back to concat).
+    - Groups by agent tag for coherent summaries.
     """
     episodic = await query_memories(
         session.id, agent_id, category="episodic", limit=100
@@ -214,9 +289,14 @@ async def consolidate_memories(session: Session, agent_id: str) -> None:
     if len(episodic) < 6:
         return
 
+    # Protect high-importance memories from compression
+    compressible = [m for m in episodic if m.get("importance", 0.5) < 0.8]
+    if len(compressible) < 5:
+        return
+
     # Group by agent tag
     agent_groups: dict[str, list[dict]] = {}
-    for mem in episodic:
+    for mem in compressible:
         tags = mem.get("tags", [])
         for tag in tags:
             if tag.startswith("agent:") or tag.startswith("name:"):
@@ -226,20 +306,31 @@ async def consolidate_memories(session: Session, agent_id: str) -> None:
         if len(mems) < 3:
             continue
 
-        # Take oldest 3+ memories about this agent
+        # Take oldest memories about this agent
         mems.sort(key=lambda m: m["tick"])
-        to_merge = mems[:3]
+        to_merge = mems[:5]  # up to 5 for richer summaries
         max_importance = max(m.get("importance", 0.5) for m in to_merge)
-
-        # Create semantic summary
         contents = [m["content"] for m in to_merge]
-        entity = tag.split(":", 1)[1] if ":" in tag else tag
-        summary = f"[Summary about {entity}] " + " | ".join(
-            c[:80] for c in contents
-        )
+
+        # Try LLM summarization, fall back to string concat
+        try:
+            from .llm import summarize_memories
+            summary = await summarize_memories(
+                contents,
+                world_desc=session.world_seed.description,
+                model=model,
+                api_key=api_key,
+                api_base=api_base,
+            )
+        except Exception:
+            # Fallback: original concat approach
+            entity = tag.split(":", 1)[1] if ":" in tag else tag
+            summary = f"[Summary about {entity}] " + " | ".join(
+                c[:80] for c in contents
+            )
 
         # Collect all tags from merged memories
-        all_tags = set()
+        all_tags: set[str] = set()
         for m in to_merge:
             all_tags.update(m.get("tags", []))
 
@@ -257,6 +348,160 @@ async def consolidate_memories(session: Session, agent_id: str) -> None:
         # Delete merged episodic memories
         ids_to_delete = [m["id"] for m in to_merge]
         await delete_memories(ids_to_delete)
+
+
+# ── Belief Extraction (rule-driven, zero LLM cost) ──
+
+
+async def extract_beliefs(agent_id: str, session: Session) -> list[MemoryEntry]:
+    """Extract beliefs from recent memories and relations. Rule-driven, no LLM.
+
+    Belief patterns:
+    1. Hostile relation → "{name} is dangerous / untrustworthy"
+    2. Ally/trust relation → "{name} is a reliable ally"
+    3. Repeated trade success with same agent → "{name} is a good trade partner"
+    4. World events at a location → "{location} is unstable"
+    5. Repeated successful actions at a location → "{location} is resourceful"
+    """
+    agent = session.agents.get(agent_id)
+    if not agent:
+        return []
+
+    # Load existing beliefs to avoid duplicates
+    existing_beliefs = await query_memories(
+        session.id, agent_id, category="belief", limit=50
+    )
+    existing_subjects = set()
+    existing_ids_by_subject: dict[str, str] = {}
+    for b in existing_beliefs:
+        # Extract subject from content like "Belief: {subject} — ..."
+        content = b.get("content", "")
+        if " — " in content:
+            subj = content.split(" — ")[0].replace("Belief: ", "")
+            existing_subjects.add(subj)
+            existing_ids_by_subject[subj] = b["id"]
+
+    new_beliefs: list[MemoryEntry] = []
+
+    # ── Pattern 1 & 2: Relation-derived beliefs ──
+    for rel in session.relations:
+        if rel.source != agent_id:
+            continue
+        target = session.agents.get(rel.target)
+        if not target or target.status.value in ("dead", "gone"):
+            continue
+
+        subject = target.name
+        if rel.type == "hostile" and rel.strength <= 0.2:
+            belief_text = f"Belief: {subject} — dangerous and untrustworthy"
+        elif rel.type == "rival" and rel.strength <= 0.35:
+            belief_text = f"Belief: {subject} — rival, approach with caution"
+        elif rel.type == "ally" and rel.strength >= 0.8:
+            belief_text = f"Belief: {subject} — trusted ally"
+        elif rel.type == "trust" and rel.strength >= 0.6:
+            belief_text = f"Belief: {subject} — reliable, can be trusted"
+        else:
+            continue
+
+        if subject in existing_subjects:
+            # Update existing belief if relation changed
+            old_id = existing_ids_by_subject.get(subject)
+            if old_id:
+                await delete_memories([old_id])
+        existing_subjects.add(subject)
+
+        mem = MemoryEntry(
+            session_id=session.id,
+            agent_id=agent_id,
+            tick=session.tick,
+            content=belief_text,
+            category="belief",
+            importance=0.7,
+            tags=[f"belief:agent", f"target:{rel.target}", f"name:{subject}"],
+        )
+        await save_memory(mem)
+        new_beliefs.append(mem)
+
+    # ── Pattern 3: Trade-derived beliefs (from social memories) ──
+    social = await query_memories(session.id, agent_id, category="social", limit=30)
+    trade_mems = [
+        m for m in await query_memories(session.id, agent_id, category="episodic", limit=50)
+        if any(t.startswith("action:trade") for t in m.get("tags", []))
+    ]
+
+    # Count trades per target agent
+    trade_counts: dict[str, int] = {}
+    for m in trade_mems:
+        for tag in m.get("tags", []):
+            if tag.startswith("target:"):
+                target_id = tag.split(":", 1)[1]
+                trade_counts[target_id] = trade_counts.get(target_id, 0) + 1
+
+    for target_id, count in trade_counts.items():
+        if count < 3:
+            continue
+        target = session.agents.get(target_id)
+        if not target:
+            continue
+        subject = f"{target.name} (trade)"
+        if subject in existing_subjects:
+            continue
+        existing_subjects.add(subject)
+
+        mem = MemoryEntry(
+            session_id=session.id,
+            agent_id=agent_id,
+            tick=session.tick,
+            content=f"Belief: {target.name} — frequent trade partner",
+            category="belief",
+            importance=0.6,
+            tags=[f"belief:trade", f"target:{target_id}", f"name:{target.name}"],
+        )
+        await save_memory(mem)
+        new_beliefs.append(mem)
+
+    # ── Pattern 4: Location instability (world_events at specific locations) ──
+    episodic = await query_memories(session.id, agent_id, category="episodic", limit=50)
+    loc_events: dict[str, int] = {}
+    for m in episodic:
+        tags = m.get("tags", [])
+        is_world_event = any(t == "action:world_event" for t in tags)
+        if not is_world_event:
+            continue
+        for tag in tags:
+            if tag.startswith("location:"):
+                loc_name = tag.split(":", 1)[1]
+                loc_events[loc_name] = loc_events.get(loc_name, 0) + 1
+
+    for loc_name, count in loc_events.items():
+        if count < 2:
+            continue
+        subject = f"{loc_name} (stability)"
+        if subject in existing_subjects:
+            continue
+        existing_subjects.add(subject)
+
+        mem = MemoryEntry(
+            session_id=session.id,
+            agent_id=agent_id,
+            tick=session.tick,
+            content=f"Belief: {loc_name} — unstable, frequent disturbances",
+            category="belief",
+            importance=0.6,
+            tags=[f"belief:location", f"location:{loc_name}"],
+        )
+        await save_memory(mem)
+        new_beliefs.append(mem)
+
+    return new_beliefs
+
+
+async def get_agent_beliefs(
+    session_id: str, agent_id: str, limit: int = 5
+) -> list[str]:
+    """Retrieve belief content strings for prompt injection."""
+    beliefs = await query_memories(session_id, agent_id, category="belief", limit=limit)
+    return [b["content"] for b in beliefs]
 
 
 # ── Event Retrieval (location-filtered, replaces get_recent_events) ──

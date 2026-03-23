@@ -54,6 +54,7 @@ class LocationSeed(BaseModel):
     name: str
     description: str = ""
     tags: list[str] = Field(default_factory=list)
+    connections: list[str] = Field(default_factory=list)  # adjacent location names
 
 
 class ResourceSeed(BaseModel):
@@ -107,6 +108,22 @@ class WorldSeed(BaseModel):
 
 # ── LLM Output Schema ─────────────────────────────────
 
+class Resource(BaseModel):
+    """Quantified inventory item."""
+    name: str
+    quantity: int = 1
+    type: str = "item"  # item | currency | consumable
+
+
+class Relation(BaseModel):
+    """Directional relationship between two agents."""
+    source: str           # agent_id
+    target: str           # agent_id
+    type: str = "neutral" # ally | hostile | neutral | rival | trust
+    strength: float = 0.5 # 0.0-1.0
+    last_tick: int = 0    # tick when last updated
+
+
 class ActionOutput(BaseModel):
     type: ActionType
     target: str | None = None
@@ -127,6 +144,15 @@ class LLMResponse(BaseModel):
 
 # ── Runtime State ──────────────────────────────────────
 
+class GoalState(BaseModel):
+    """Trackable goal with progress and stall detection."""
+    text: str
+    status: str = "active"   # active | completed | failed | stalled
+    started_tick: int = 0
+    progress: float = 0.0    # 0.0-1.0
+    stall_count: int = 0     # consecutive ticks without progress
+
+
 class AgentState(BaseModel):
     agent_id: str
     name: str
@@ -138,10 +164,12 @@ class AgentState(BaseModel):
     status: AgentStatus = AgentStatus.IDLE
     memory: list[str] = Field(default_factory=list)
     role: AgentRole = AgentRole.MAIN
+    active_goal: GoalState | None = None
+    immediate_intent: str = ""
 
     @classmethod
     def from_seed(cls, seed: AgentSeed) -> AgentState:
-        return cls(
+        state = cls(
             agent_id=seed.id,
             name=seed.name,
             description=seed.description,
@@ -150,6 +178,9 @@ class AgentState(BaseModel):
             location=seed.location,
             inventory=list(seed.inventory),
         )
+        if seed.goals:
+            state.active_goal = GoalState(text=seed.goals[0], started_tick=0)
+        return state
 
 
 class Event(BaseModel):
@@ -161,6 +192,7 @@ class Event(BaseModel):
     action_type: ActionType | str = ActionType.WAIT
     action: dict[str, Any] = Field(default_factory=dict)
     result: str = ""
+    structured: dict[str, Any] = Field(default_factory=dict)
     location: str = ""
     involved_agents: list[str] = Field(default_factory=list)
     importance: float = 0.5
@@ -179,6 +211,8 @@ class Session(BaseModel):
     status: SessionStatus = SessionStatus.PAUSED
     # Transient: injected events that agents must react to on next tick
     urgent_events: list[str] = Field(default_factory=list)
+    # Structured agent-to-agent relationships
+    relations: list[Relation] = Field(default_factory=list)
 
     def init_agents(self) -> None:
         for seed in self.world_seed.agents:
@@ -194,6 +228,43 @@ class Session(BaseModel):
             aid for aid, a in self.agents.items()
             if a.status not in (AgentStatus.DEAD, AgentStatus.GONE)
         ]
+
+    def get_relation(self, source: str, target: str) -> Relation | None:
+        """Find a relation from source to target."""
+        for r in self.relations:
+            if r.source == source and r.target == target:
+                return r
+        return None
+
+    def update_relation(
+        self, source: str, target: str, delta: float, tick: int
+    ) -> Relation:
+        """Update (or create) a relation's strength by delta. Returns the relation."""
+        rel = self.get_relation(source, target)
+        if rel is None:
+            rel = Relation(source=source, target=target, strength=0.5, last_tick=tick)
+            self.relations.append(rel)
+        rel.strength = max(0.0, min(1.0, rel.strength + delta))
+        rel.last_tick = tick
+        # Auto-classify type based on strength
+        if rel.strength >= 0.8:
+            rel.type = "ally"
+        elif rel.strength >= 0.6:
+            rel.type = "trust"
+        elif rel.strength <= 0.2:
+            rel.type = "hostile"
+        elif rel.strength <= 0.35:
+            rel.type = "rival"
+        else:
+            rel.type = "neutral"
+        return rel
+
+    def location_connections(self, location_name: str) -> list[str]:
+        """Get connected locations for a given location. Empty = all allowed."""
+        for loc in self.world_seed.locations:
+            if loc.name == location_name:
+                return loc.connections
+        return []
 
 
 # ── Saved Seed (Asset Library) ───────────────────────
@@ -219,6 +290,7 @@ class MemoryEntry(BaseModel):
     agent_id: str = ""
     tick: int = 0
     content: str = ""
+    semantic: dict[str, Any] = Field(default_factory=dict)
     category: str = "episodic"  # episodic | semantic | goal | social
     importance: float = 0.5
     tags: list[str] = Field(default_factory=list)

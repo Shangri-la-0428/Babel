@@ -23,12 +23,16 @@ rules:
 locations:
   - name: "铁王座大殿"
     description: "千柄利剑熔铸的王座矗立在高台之上，空荡荡的大殿回响着每一声低语"
+    connections: ["御前会议厅", "神木林"]
   - name: "御前会议厅"
     description: "狭长的橡木桌，烛火摇曳，墙上挂着大陆舆图，此处决定万民命运"
+    connections: ["铁王座大殿", "地牢"]
   - name: "地牢"
     description: "红堡最深处，潮湿阴冷，铁链锈迹斑斑，关押着知道太多秘密的人"
+    connections: ["御前会议厅", "神木林"]
   - name: "神木林"
     description: "红堡中唯一的净土，古老鱼梁木下可以密谈，传说在此地说的谎言会遭到诅咒"
+    connections: ["铁王座大殿", "地牢"]
 
 resources:
   - name: "金龙"

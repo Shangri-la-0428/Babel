@@ -22,6 +22,8 @@ from .prompts import (
     build_enrichment_prompt,
     ORACLE_SYSTEM_PROMPT,
     build_oracle_prompt,
+    ORACLE_CREATIVE_SYSTEM,
+    build_creative_prompt,
 )
 
 # Suppress litellm debug noise
@@ -127,6 +129,10 @@ async def get_agent_action(
     urgent_events: list[str] | None = None,
     world_time_display: str = "",
     world_time_period: str = "",
+    agent_relations: list[dict] | None = None,
+    reachable_locations: list[str] | None = None,
+    agent_beliefs: list[str] | None = None,
+    active_goal: dict | None = None,
 ) -> LLMResponse:
     """Get a validated agent action from the LLM."""
     user_prompt = build_user_prompt(
@@ -144,6 +150,10 @@ async def get_agent_action(
         urgent_events=urgent_events,
         world_time_display=world_time_display,
         world_time_period=world_time_period,
+        agent_relations=agent_relations,
+        reachable_locations=reachable_locations,
+        agent_beliefs=agent_beliefs,
+        active_goal=active_goal,
     )
 
     raw = await _complete_json(
@@ -291,6 +301,89 @@ async def chat_with_oracle(
     )
 
 
+MEMORY_SUMMARIZE_SYSTEM = """\
+You are a memory consolidation engine for an AI agent in a simulated world. \
+Your job is to compress multiple episodic memories into a concise semantic summary.
+
+Rules:
+- Output 1-2 sentences ONLY. No markdown, no bullet points.
+- Preserve: key facts, names, relationships, outcomes, emotional impact.
+- Discard: timestamps, repeated details, filler.
+- Write from the agent's perspective (third person is fine).
+- Output plain text, nothing else.\
+"""
+
+
+async def summarize_memories(
+    memories: list[str],
+    world_desc: str = "",
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> str:
+    """Compress 3-5 episodic memories into a 1-2 sentence semantic summary."""
+    items = "\n".join(f"- {m}" for m in memories)
+    user = f"[World]\n{world_desc}\n\n[Memories to consolidate]\n{items}"
+
+    return await _complete(
+        MEMORY_SUMMARIZE_SYSTEM, user,
+        model=model, api_key=api_key, api_base=api_base,
+        temperature=0.3, max_tokens=128,
+    )
+
+
+GOAL_REPLAN_SYSTEM = """\
+You are a goal replanning engine for an AI agent in a simulated world. \
+An agent's current goal has stalled (no progress for several turns). Suggest a new, more achievable sub-goal.
+
+Rules:
+- Output 1 sentence ONLY — the new goal text.
+- The new goal should be more specific and actionable than the stalled one.
+- It should still relate to the agent's core personality and motivations.
+- Consider what actions are actually available (speak, move, use_item, trade, observe, wait).
+- Output plain text, nothing else.\
+"""
+
+
+async def replan_goal(
+    agent_name: str,
+    agent_personality: str,
+    current_goals: list[str],
+    stalled_goal: str,
+    agent_memory: list[str],
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> str:
+    """Suggest a new sub-goal when current goal is stalled."""
+    goals_text = "\n".join(f"- {g}" for g in current_goals) if current_goals else "(none)"
+    memory_text = "\n".join(f"- {m}" for m in agent_memory[-5:]) if agent_memory else "(no memories)"
+
+    user = f"""\
+[Agent]
+Name: {agent_name}
+Personality: {agent_personality}
+
+[Core Goals]
+{goals_text}
+
+[Stalled Goal]
+"{stalled_goal}"
+
+[Recent Memory]
+{memory_text}
+
+[Instruction]
+This goal has stalled. Suggest a new, more achievable sub-goal in 1 sentence."""
+
+    content = await _complete(
+        GOAL_REPLAN_SYSTEM, user,
+        model=model, api_key=api_key, api_base=api_base,
+        temperature=0.7, max_tokens=128,
+    )
+    return content.strip('"\'`')
+
+
 async def enrich_entity(
     entity_type: str,
     entity_name: str,
@@ -321,3 +414,53 @@ async def enrich_entity(
         )
     except Exception:
         return current_details or {}
+
+
+async def generate_seed_draft(
+    user_message: str,
+    conversation_history: list[dict] | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> dict:
+    """Generate a WorldSeed JSON draft from a user's world idea.
+
+    Output is validated against WorldSeed.model_validate() before returning.
+    Raises ValueError if the LLM output cannot be parsed into a valid WorldSeed.
+    """
+    from .models import WorldSeed
+
+    user_prompt = build_creative_prompt(
+        user_message=user_message,
+        conversation_history=conversation_history,
+    )
+
+    raw = await _complete_json(
+        ORACLE_CREATIVE_SYSTEM, user_prompt,
+        model=model, api_key=api_key, api_base=api_base,
+        temperature=0.85, max_tokens=2048,
+    )
+
+    # Validate: must parse into a valid WorldSeed
+    try:
+        seed = WorldSeed.model_validate(raw)
+    except Exception as e:
+        raise ValueError(f"Generated seed failed validation: {e}") from e
+
+    # Verify bidirectional connections
+    location_names = {loc.name for loc in seed.locations}
+    for loc in seed.locations:
+        for conn in loc.connections:
+            if conn not in location_names:
+                raise ValueError(
+                    f"Location '{loc.name}' connects to '{conn}' which does not exist"
+                )
+
+    # Verify agent locations
+    for agent in seed.agents:
+        if agent.location and agent.location not in location_names:
+            raise ValueError(
+                f"Agent '{agent.name}' is at '{agent.location}' which does not exist"
+            )
+
+    return seed.model_dump()

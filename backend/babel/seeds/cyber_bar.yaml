@@ -24,10 +24,13 @@ rules:
 locations:
   - name: "吧台"
     description: "油腻的金属台面，全息菜单悬浮在空中，合成酒的味道弥漫"
+    connections: ["VIP包间", "后巷"]
   - name: "VIP包间"
     description: "隔音墙壁，可以谈私密交易，灯光昏暗"
+    connections: ["吧台"]
   - name: "后巷"
     description: "垃圾箱和涂鸦，雨水淅沥，偶尔有可疑交易"
+    connections: ["吧台"]
 
 resources:
   - name: "eddies"

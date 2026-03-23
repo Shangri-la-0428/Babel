@@ -1,8 +1,8 @@
-"""BABEL — Action validation. Ensures state machine closure."""
+"""BABEL — Action validation. Ensures state machine closure (World Authority Layer)."""
 
 from __future__ import annotations
 
-from .models import ActionType, AgentState, LLMResponse, Session
+from .models import ActionType, AgentState, AgentStatus, LLMResponse, Session
 
 
 def _resolve_agent_target(target: str, agent: AgentState, session: Session) -> str | None:
@@ -23,6 +23,17 @@ def _resolve_agent_target(target: str, agent: AgentState, session: Session) -> s
     return None
 
 
+def _get_inventory_names(agent: AgentState) -> list[str]:
+    """Get flat list of item names from agent inventory (handles both str and Resource)."""
+    names = []
+    for item in agent.inventory:
+        if isinstance(item, str):
+            names.append(item)
+        else:
+            names.append(item.name if hasattr(item, "name") else str(item))
+    return names
+
+
 def validate_action(
     response: LLMResponse,
     agent: AgentState,
@@ -34,22 +45,49 @@ def validate_action(
     changes = response.state_changes
     locations = session.location_names
     alive_ids = session.agent_ids
+    inv_names = _get_inventory_names(agent)
 
-    # Move — target location must exist
+    # ── Move — location must exist AND be connected ──
     if action.type == ActionType.MOVE:
         target_loc = changes.location or action.target
         if target_loc and target_loc not in locations:
             errors.append(f"Location does not exist: '{target_loc}'. Valid: {locations}")
-        if target_loc and target_loc == agent.location:
+        elif target_loc and target_loc == agent.location:
             errors.append(f"Already at '{target_loc}'. Choose a different action or location.")
+        elif target_loc:
+            # Adjacency check — only enforce if connections are defined
+            connections = session.location_connections(agent.location)
+            if connections and target_loc not in connections:
+                errors.append(
+                    f"Cannot move from '{agent.location}' to '{target_loc}' — "
+                    f"not connected. Reachable: {connections}"
+                )
 
-    # Speak / Trade — target agent must exist and be alive
+    # ── Speak / Trade — target must exist, be alive, and be at same location ──
     if action.type in (ActionType.SPEAK, ActionType.TRADE):
         if action.target:
             resolved = _resolve_agent_target(action.target, agent, session)
             if resolved:
                 # Normalize target to the canonical agent_id
                 action.target = resolved
+                target_agent = session.agents[resolved]
+
+                # Same-location check
+                if target_agent.location != agent.location:
+                    errors.append(
+                        f"Cannot {action.type.value} with {target_agent.name} — "
+                        f"they are at '{target_agent.location}', you are at '{agent.location}'. "
+                        f"You must be at the same location."
+                    )
+
+                # Trade-specific: block if relation is hostile
+                if action.type == ActionType.TRADE:
+                    rel = session.get_relation(agent.agent_id, resolved)
+                    if rel and rel.type == "hostile":
+                        errors.append(
+                            f"Cannot trade with {target_agent.name} — "
+                            f"hostile relationship (strength: {rel.strength:.2f})."
+                        )
             else:
                 valid_targets = [
                     f"{aid} ({session.agents[aid].name})"
@@ -61,21 +99,25 @@ def validate_action(
                     f"Valid targets: {valid_targets}"
                 )
 
-    # Use item — item must be in inventory
+    # ── Use item — item must be in inventory ──
     if action.type == ActionType.USE_ITEM:
         item = action.target
-        if item and item not in agent.inventory:
+        if item and item not in inv_names:
             errors.append(
                 f"Item '{item}' not in inventory. "
-                f"You have: {agent.inventory}"
+                f"You have: {inv_names}"
             )
 
-    # Inventory removal — must have the items
+    # ── Inventory removal — must have the items ──
     for item in changes.inventory_remove:
-        if item not in agent.inventory:
-            errors.append(f"Cannot remove '{item}' — not in inventory: {agent.inventory}")
+        if item not in inv_names:
+            errors.append(f"Cannot remove '{item}' — not in inventory: {inv_names}")
 
-    # Location change consistency
+    # ── Inventory add — must have valid source (World Authority) ──
+    if changes.inventory_add:
+        _validate_inventory_add(changes.inventory_add, action, agent, session, errors)
+
+    # ── Location change consistency ──
     if action.type == ActionType.MOVE and changes.location:
         if changes.location not in locations:
             errors.append(f"state_changes.location '{changes.location}' is not a valid location.")
@@ -85,12 +127,98 @@ def validate_action(
     return errors
 
 
+def _validate_inventory_add(
+    adds: list[str],
+    action,
+    agent: AgentState,
+    session: Session,
+    errors: list[str],
+) -> None:
+    """Validate that inventory additions have a legitimate source.
+
+    Rules:
+    - TRADE: items must exist in the target agent's inventory
+    - USE_ITEM: limited self-referential add allowed (item effect)
+    - Other action types: inventory_add is not allowed (prevents LLM hallucination)
+    """
+    if action.type == ActionType.TRADE:
+        # For trade, added items should come from the target agent
+        if action.target and action.target in session.agents:
+            target_agent = session.agents[action.target]
+            target_inv = _get_inventory_names(target_agent)
+            for item in adds:
+                if item not in target_inv:
+                    errors.append(
+                        f"Trade: cannot receive '{item}' — "
+                        f"target does not have it. Their inventory: {target_inv}"
+                    )
+        else:
+            # No valid target — strip all adds
+            for item in adds:
+                errors.append(f"Trade: cannot add '{item}' — no valid trade partner.")
+    elif action.type == ActionType.USE_ITEM:
+        # Use item may produce something (e.g., crafting). Allow but log.
+        pass
+    else:
+        # All other actions: LLM should NOT add items from nothing
+        for item in adds:
+            errors.append(
+                f"Cannot add '{item}' to inventory — "
+                f"items can only be gained through TRADE or USE_ITEM actions."
+            )
+
+
+def _build_structured(
+    action: ActionOutput,
+    agent: AgentState,
+    session: Session,
+) -> dict:
+    """Build a structured event record from an action (modality-agnostic)."""
+    verb_map = {
+        ActionType.SPEAK: "spoke_to",
+        ActionType.MOVE: "moved_to",
+        ActionType.USE_ITEM: "used_item",
+        ActionType.TRADE: "traded_with",
+        ActionType.OBSERVE: "observed",
+        ActionType.WAIT: "waited",
+    }
+    verb = verb_map.get(action.type, "acted")
+
+    structured: dict = {
+        "verb": verb,
+        "subject": agent.agent_id,
+    }
+
+    if action.target:
+        structured["object"] = action.target
+
+    if action.content:
+        structured["content_key"] = action.content[:120]
+
+    # Action-specific params
+    params: dict = {}
+    if action.type == ActionType.MOVE:
+        params["destination"] = action.target or ""
+    elif action.type == ActionType.TRADE:
+        params["content"] = action.content
+    elif action.type == ActionType.USE_ITEM:
+        params["item"] = action.target or ""
+
+    if params:
+        structured["params"] = params
+
+    return structured
+
+
 def apply_action(
     response: LLMResponse,
     agent: AgentState,
     session: Session,
 ) -> str:
-    """Apply a validated action to the agent state. Returns a human-readable event summary."""
+    """Apply a validated action to the agent state. Returns a human-readable event summary.
+
+    Also sets response._structured for the caller to attach to the Event.
+    """
     action = response.action
     changes = response.state_changes
 
@@ -109,6 +237,12 @@ def apply_action(
     for item in changes.inventory_remove:
         if item in agent.inventory:
             agent.inventory.remove(item)
+
+    # Build structured record
+    structured = _build_structured(action, agent, session)
+
+    # Stash structured data on the response for the engine to pick up
+    response._structured = structured  # type: ignore[attr-defined]
 
     # Build event summary
     match action.type:

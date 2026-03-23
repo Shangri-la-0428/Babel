@@ -24,12 +24,16 @@ rules:
 locations:
   - name: "方舟甲板"
     description: "搁浅在山脊上的远洋邮轮顶层，倾斜15度，生锈的栏杆上系满了求救旗帜，临时帐篷在风中猎猎作响"
+    connections: ["补给仓库", "沉没都市"]
   - name: "沉没都市"
     description: "半淹的城市废墟，高楼只露出上半截，浑浊的水面漂浮着碎片，偶尔能找到有用的物资"
+    connections: ["方舟甲板", "鹰巢营地"]
   - name: "鹰巢营地"
     description: "海拔800米的山腰平台，用残骸搭建的营地，拥有唯一还能工作的气象观测站"
+    connections: ["沉没都市", "方舟甲板"]
   - name: "补给仓库"
     description: "邮轮底层的货舱，积水没过脚踝，货架上残存着罐头、药品和机械零件，只有一个人知道完整的库存清单"
+    connections: ["方舟甲板"]
 
 resources:
   - name: "配给券"

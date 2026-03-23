@@ -23,7 +23,7 @@ from .db import (
 )
 from .clock import world_time
 from .engine import Engine
-from .llm import chat_with_agent, chat_with_oracle, detect_new_character, enrich_entity
+from .llm import chat_with_agent, chat_with_oracle, detect_new_character, enrich_entity, generate_seed_draft
 from .memory import create_memory_from_event, update_agent_memory
 from .models import AgentRole, AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedType, Session, SessionStatus, WorldSeed
 
@@ -128,6 +128,7 @@ class ExtractSeedRequest(BaseModel):
 
 class OracleChatRequest(BaseModel):
     message: str
+    mode: str = "narrate"  # "narrate" | "create"
     model: str | None = None
     api_key: str | None = None
     api_base: str | None = None
@@ -183,11 +184,17 @@ async def _get_engine(session_id: str) -> Engine | None:
 
     # Reconstruct Session
     world_seed = WorldSeed(**data["world_seed"])
+    # Reconstruct relations from DB
+    from babel.models import Relation
+    relations_data = data.get("relations", [])
+    relations = [Relation(**r) if isinstance(r, dict) else r for r in relations_data]
+
     session = Session(
         id=data["id"],
         world_seed=world_seed,
         tick=data["tick"],
         status=SessionStatus(data["status"]) if data["status"] != "running" else SessionStatus.PAUSED,
+        relations=relations,
     )
 
     # Reconstruct agent states
@@ -605,7 +612,11 @@ async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
 
 @app.post("/api/worlds/{session_id}/oracle")
 async def oracle_chat_endpoint(session_id: str, req: OracleChatRequest) -> dict:
-    """Chat with the omniscient Oracle narrator."""
+    """Chat with the omniscient Oracle narrator.
+
+    mode="narrate" (default): Omniscient narrator conversation.
+    mode="create": Creative co-pilot — generate a WorldSeed JSON from conversation.
+    """
     engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
@@ -616,6 +627,31 @@ async def oracle_chat_endpoint(session_id: str, req: OracleChatRequest) -> dict:
     history = await load_narrator_messages(session_id, limit=20)
     conv_history = [{"role": m["role"], "content": m["content"]} for m in history]
 
+    # ── Creative mode: generate WorldSeed ──
+    if req.mode == "create":
+        try:
+            seed_data = await generate_seed_draft(
+                user_message=req.message,
+                conversation_history=conv_history,
+                model=req.model,
+                api_key=req.api_key,
+                api_base=req.api_base,
+            )
+            # Persist messages
+            await save_narrator_message(session_id, "user", req.message, session.tick)
+            import json as _json
+            reply_text = f"World seed generated: {seed_data.get('name', 'Untitled')}"
+            msg_id = await save_narrator_message(session_id, "oracle", reply_text, session.tick)
+            return {
+                "reply": reply_text,
+                "message_id": msg_id,
+                "mode": "create",
+                "seed": seed_data,
+            }
+        except (ValueError, Exception) as e:
+            raise HTTPException(422, f"Seed generation failed: {e}")
+
+    # ── Narrate mode (default) ──
     # Build agent states dict for prompt
     agents_dict = {}
     for aid, agent in session.agents.items():
@@ -1127,10 +1163,13 @@ def _serialize_state(engine: Engine) -> dict:
                 "status": a.status.value,
                 "memory": a.memory,
                 "role": a.role.value,
+                "active_goal": a.active_goal.model_dump() if a.active_goal else None,
+                "immediate_intent": a.immediate_intent,
             }
             for aid, a in session.agents.items()
         },
         "recent_events": [_event_dict(e) for e in session.events[-30:]],
+        "relations": [r.model_dump() for r in session.relations],
     }
 
 
