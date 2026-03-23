@@ -65,7 +65,8 @@ def build_user_prompt(
     if visible_agents:
         lines = []
         for a in visible_agents:
-            lines.append(f"- {a['id']}: {a['name']} (at {a['location']})")
+            loc_info = f" (at {a['location']})" if a.get("location") != agent_location else ""
+            lines.append(f"- {a['id']}: {a['name']}{loc_info}")
         agents_text = "\n".join(lines)
 
     events_text = "(nothing has happened yet)"
@@ -87,15 +88,15 @@ Goals:
 Location: {agent_location}
 Inventory: {inv_text}
 
-[Your Memory]
+[Your Memory — What You Know]
 {memory_text}
 
 [Current Situation]
 Tick: {tick}
-Visible agents at your location or nearby:
+Visible agents:
 {agents_text}
 
-Recent events:
+Recent events near you:
 {events_text}
 
 [Instruction]

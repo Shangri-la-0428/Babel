@@ -1,27 +1,30 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, Suspense } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense, lazy } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   WorldState,
   EventData,
   BabelSettings,
+  SavedSeedData,
   getState,
   runWorld,
   pauseWorld,
   stepWorld,
   createWebSocket,
   loadSettings,
-  extractSeed,
+  generateSeed,
 } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import EventFeed from "@/components/EventFeed";
-import AgentCard from "@/components/AgentCard";
-import WorldStatePanel from "@/components/WorldState";
+import AssetPanel from "@/components/AssetPanel";
 import ControlBar from "@/components/ControlBar";
 import Settings from "@/components/Settings";
 import InjectEvent from "@/components/InjectEvent";
-import AgentChat from "@/components/AgentChat";
+import { ErrorBanner } from "@/components/ui";
+
+const SeedPreview = lazy(() => import("@/components/SeedPreview"));
+const AgentChat = lazy(() => import("@/components/AgentChat"));
 
 const MAX_EVENTS = 500;
 
@@ -31,6 +34,7 @@ function SimContent() {
 
   const [state, setState] = useState<WorldState | null>(null);
   const [events, setEvents] = useState<EventData[]>([]);
+  const newEventIdsRef = useRef<Set<string>>(new Set());
   const [newEventIds, setNewEventIds] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState("paused");
   const [tick, setTick] = useState(0);
@@ -40,10 +44,11 @@ function SimContent() {
   const [error, setError] = useState<string | null>(null);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [chatAgent, setChatAgent] = useState<{ id: string; name: string } | null>(null);
-  const [worldExtracted, setWorldExtracted] = useState(false);
+  const [seedPreview, setSeedPreview] = useState<SavedSeedData | null>(null);
   const { locale, toggle, t } = useLocale();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const highlightTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Load initial state
   useEffect(() => {
@@ -51,11 +56,11 @@ function SimContent() {
     getState(sessionId)
       .then((s) => {
         setState(s);
-        setEvents(s.recent_events);
+        setEvents(s.recent_events || []);
         setTick(s.tick);
-        setStatus(s.status);
+        setStatus(s.status || "paused");
       })
-      .catch(() => setError("Failed to load world state. Is the backend running?"));
+      .catch(() => setError(t("failed_load_state")));
   }, [sessionId]);
 
   // WebSocket connection with reconnection
@@ -80,14 +85,18 @@ function SimContent() {
       };
 
       ws.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let data: any;
+        try { data = JSON.parse(msg.data); } catch { return; }
+
+        if (!data.data) return;
 
         switch (data.type) {
           case "connected":
             setState(data.data);
             setEvents(data.data.recent_events || []);
-            setTick(data.data.tick);
-            setStatus(data.data.status);
+            setTick(data.data.tick ?? 0);
+            setStatus(data.data.status || "paused");
             break;
 
           case "event":
@@ -95,35 +104,37 @@ function SimContent() {
               const next = [...prev, data.data];
               return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next;
             });
-            setNewEventIds((prev) => new Set(prev).add(data.data.id));
-            setTimeout(() => {
-              setNewEventIds((prev) => {
-                const next = new Set(prev);
-                next.delete(data.data.id);
-                return next;
-              });
-            }, 1500);
+            {
+              const evtId = data.data.id;
+              newEventIdsRef.current.add(evtId);
+              setNewEventIds(new Set(newEventIdsRef.current));
+              const timer = setTimeout(() => {
+                newEventIdsRef.current.delete(evtId);
+                setNewEventIds(new Set(newEventIdsRef.current));
+              }, 1500);
+              highlightTimers.current.push(timer);
+            }
             break;
 
           case "tick":
-            setTick(data.data.tick);
-            setStatus(data.data.status);
+            setTick(data.data.tick ?? 0);
+            setStatus(data.data.status || "paused");
             break;
 
           case "state_update":
             setState(data.data);
-            setTick(data.data.tick);
-            setStatus(data.data.status);
+            setTick(data.data.tick ?? 0);
+            setStatus(data.data.status || "paused");
             break;
 
           case "stopped":
             setStatus("ended");
-            setTick(data.data.tick);
+            setTick(data.data.tick ?? 0);
             setLoading(false);
             break;
 
           case "error":
-            setError(`Engine error: ${data.data.message}`);
+            setError(`${t("engine_error")}: ${data.data.message || "Unknown"}`);
             break;
         }
       };
@@ -138,7 +149,7 @@ function SimContent() {
           retryCount++;
           reconnectTimer.current = setTimeout(connect, delay);
         } else {
-          setError("Lost connection to server. Please refresh the page.");
+          setError(t("lost_connection"));
         }
       };
 
@@ -152,6 +163,8 @@ function SimContent() {
     return () => {
       mounted = false;
       clearTimeout(reconnectTimer.current);
+      highlightTimers.current.forEach(clearTimeout);
+      highlightTimers.current = [];
       wsRef.current?.close();
     };
   }, [sessionId]);
@@ -213,37 +226,72 @@ function SimContent() {
     }
   }, [sessionId, settings]);
 
+  // Seed generation handlers
+  async function handleGenerateAgentSeed(agentId: string) {
+    try {
+      const seed = await generateSeed("agent", sessionId, agentId);
+      setSeedPreview(seed);
+    } catch {
+      setError(t("gen_agent_seed_failed"));
+    }
+  }
+
+  async function handleGenerateEventSeed(eventId: string) {
+    try {
+      const seed = await generateSeed("event", sessionId, eventId);
+      setSeedPreview(seed);
+    } catch {
+      setError(t("gen_event_seed_failed"));
+    }
+  }
+
+  async function handleGenerateWorldSeed() {
+    try {
+      const seed = await generateSeed("world", sessionId);
+      setSeedPreview(seed);
+    } catch {
+      setError(t("gen_world_seed_failed"));
+    }
+  }
+
   if (!sessionId) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-t-dim">
-        No session ID provided.
-        <a href="/" className="text-primary ml-2 hover:underline">Go home</a>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3">
+        <div className="text-micro text-t-dim tracking-widest">{"// ERROR"}</div>
+        <div className="text-detail text-t-muted normal-case tracking-normal">{t("no_session")}</div>
+        <a href="/" className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors inline-flex items-center">
+          {t("go_home")}
+        </a>
       </div>
     );
   }
 
-  const agents = state?.agents || {};
   const activeAgentId =
     events.length > 0 ? events[events.length - 1]?.agent_id : null;
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-void">
+    <div className="h-screen flex flex-col overflow-hidden bg-void scanlines">
+      <h1 className="sr-only">{t("simulate")}</h1>
       <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
-        <a href="/" className="font-sans text-subheading font-bold tracking-widest">
-          BABEL
-        </a>
-        <div className="flex items-center gap-6">
-          <a
-            href="/"
-            className="text-micro text-t-muted tracking-widest hover:text-white transition-colors"
-          >
-            {t("home")}
+        <div className="flex items-center gap-4 min-w-0">
+          <a href="/" className="text-micro text-t-muted tracking-wider hover:text-primary transition-colors shrink-0">
+            {t("back")}
           </a>
-          <span className="text-micro text-primary tracking-widest" aria-current="page">{t("simulate")}</span>
-          <a
-            href="/assets"
-            className="text-micro text-t-muted tracking-widest hover:text-white transition-colors"
-          >
+          <span className="text-t-dim shrink-0">|</span>
+          <a href="/" className="font-sans text-subheading font-bold tracking-widest text-primary hover:drop-shadow-[0_0_8px_var(--color-primary-glow-strong)] transition-[filter] shrink-0">
+            BABEL
+          </a>
+          {state?.name && (
+            <>
+              <span className="text-t-dim shrink-0">/</span>
+              <span className="text-body font-semibold text-primary truncate max-w-[300px] drop-shadow-[0_0_8px_var(--color-primary-glow)]">
+                {state.name}
+              </span>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-6">
+          <a href="/assets" className="text-micro text-t-muted tracking-widest hover:text-t-DEFAULT transition-colors">
             {t("assets")}
           </a>
           <button
@@ -251,65 +299,24 @@ function SimContent() {
             aria-expanded={showSettings}
             aria-controls="settings-panel"
             className={`text-micro tracking-widest transition-colors ${
-              showSettings ? "text-primary" : "text-t-muted hover:text-white"
+              showSettings ? "text-primary" : "text-t-muted hover:text-t-DEFAULT"
             }`}
           >
             {t("settings")}
           </button>
           <button
             onClick={toggle}
-            className="text-micro text-t-dim tracking-wider border border-surface-3 px-2 py-[2px] hover:text-white hover:border-b-hover transition-colors"
+            className="text-micro text-t-dim tracking-wider border border-surface-3 px-3 py-1 hover:text-t-DEFAULT hover:border-b-hover transition-colors"
+            aria-label={t("lang_switch")}
           >
             {locale === "cn" ? "EN" : "中"}
           </button>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-baseline gap-2" aria-label={`Current tick: ${tick}`}>
-            <span className="text-micro text-t-muted tracking-widest">Tick</span>
-            <span className="text-subheading font-bold text-primary tabular-nums" aria-live="polite">
-              {String(tick).padStart(3, "0")}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={`inline-block w-1.5 h-1.5 rounded-full ${
-                status === "running"
-                  ? "bg-primary shadow-[0_0_8px_var(--color-primary-glow-strong)]"
-                  : status === "ended"
-                  ? "bg-danger"
-                  : "bg-t-dim"
-              }`}
-              aria-hidden="true"
-            />
-            <span
-              className={`text-micro tracking-wider ${
-                status === "running" ? "text-primary" : "text-t-muted"
-              }`}
-              role="status"
-            >
-              {status}
-            </span>
-          </div>
-          {/* Current model indicator */}
-          <div className="w-px h-4 bg-b-DEFAULT" aria-hidden="true" />
-          <span className="text-micro text-t-dim tracking-wider normal-case">
-            {settings.model}
-          </span>
-          {/* WebSocket indicator */}
-          {wsStatus === "disconnected" && (
-            <span className="text-micro text-danger tracking-wider">{t("disconnected")}</span>
-          )}
         </div>
       </nav>
 
       {/* Error banner */}
       {error && (
-        <div className="px-6 py-3 bg-surface-1 border-b border-danger text-detail text-danger flex items-center justify-between shrink-0" role="alert">
-          <span className="normal-case tracking-normal">{error}</span>
-          <button onClick={() => setError(null)} className="text-micro text-danger hover:text-white transition-colors ml-4" aria-label="Dismiss error">
-            Dismiss
-          </button>
-        </div>
+        <ErrorBanner variant="header" message={error} onDismiss={() => setError(null)} />
       )}
 
       {/* Settings panel */}
@@ -323,7 +330,8 @@ function SimContent() {
       )}
 
       {/* Main content */}
-      <div className="flex-1 grid grid-cols-[1fr_380px] overflow-hidden">
+      {/* Desktop-only layout (1280px+) */}
+      <main className="flex-1 grid grid-cols-[1fr_380px] min-w-[1024px] overflow-hidden">
         {/* Event Feed */}
         <section className="flex flex-col border-r border-b-DEFAULT overflow-hidden" aria-label="Event feed">
           <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 flex justify-between items-center shrink-0">
@@ -336,79 +344,55 @@ function SimContent() {
           </div>
           <div className="flex-1 overflow-y-auto">
             {events.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-detail text-t-dim">
-                {t("no_events")}
+              <div className="flex flex-col items-center justify-center h-full gap-2">
+                <div className="text-micro text-t-dim tracking-widest">{"// AWAITING INPUT"}</div>
+                <div className="text-detail text-t-muted normal-case tracking-normal">
+                  {t("no_events")}
+                </div>
               </div>
             ) : (
-              <EventFeed events={events} newEventIds={newEventIds} sessionId={sessionId} />
+              <EventFeed
+                events={events}
+                newEventIds={newEventIds}
+                onSeed={handleGenerateEventSeed}
+              />
             )}
           </div>
           <InjectEvent sessionId={sessionId} settings={settings} disabled={status === "running"} />
         </section>
 
-        {/* Sidebar */}
-        <aside className="flex flex-col overflow-hidden" aria-label="World details">
-          {/* Agents */}
-          <section className="border-b border-b-DEFAULT shrink-0" aria-label="Agents">
-            <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 flex justify-between items-center">
-              <span className="text-micro text-t-muted tracking-widest">
-                {t("agents")}
-              </span>
-              <span className="text-micro text-t-muted tracking-wider">
-                {Object.keys(agents).length} {t("total")}
-              </span>
-            </div>
-            <div className="p-3 flex flex-col gap-3 max-h-[50vh] overflow-y-auto">
-              {Object.entries(agents).map(([id, agent]) => (
-                <AgentCard
-                  key={id}
-                  agentId={id}
-                  agent={agent}
-                  isActive={id === activeAgentId}
-                  sessionId={sessionId}
-                  onChat={() => setChatAgent({ id, name: agent.name })}
-                />
-              ))}
-            </div>
-          </section>
-
-          {/* World State */}
-          <section className="flex-1 flex flex-col overflow-hidden" aria-label="World state">
-            <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 shrink-0 flex justify-between items-center">
-              <span className="text-micro text-t-muted tracking-widest">
-                {t("world_state")}
-              </span>
-              <button
-                onClick={async () => {
-                  try {
-                    await extractSeed("world", sessionId);
-                    setWorldExtracted(true);
-                    setTimeout(() => setWorldExtracted(false), 2000);
-                  } catch {}
-                }}
-                className={`text-micro tracking-wider transition-colors ${
-                  worldExtracted ? "text-primary" : "text-t-dim hover:text-primary"
-                }`}
-              >
-                {worldExtracted ? t("saved") : t("extract_world")}
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <WorldStatePanel state={state} />
-            </div>
-          </section>
-        </aside>
-      </div>
-
-      {/* Agent Chat Modal */}
-      {chatAgent && (
-        <AgentChat
+        {/* Sidebar — Asset Management */}
+        <AssetPanel
+          state={state}
+          activeAgentId={activeAgentId}
           sessionId={sessionId}
-          agentId={chatAgent.id}
-          agentName={chatAgent.name}
-          settings={settings}
-          onClose={() => setChatAgent(null)}
+          onChat={(id, name) => setChatAgent({ id, name })}
+          onExtractAgent={handleGenerateAgentSeed}
+          onExtractWorld={handleGenerateWorldSeed}
         />
+      </main>
+
+      {/* Seed Preview Modal (lazy) */}
+      {seedPreview && (
+        <Suspense fallback={null}>
+          <SeedPreview
+            seed={seedPreview}
+            onClose={() => setSeedPreview(null)}
+          />
+        </Suspense>
+      )}
+
+      {/* Agent Chat Modal (lazy) */}
+      {chatAgent && (
+        <Suspense fallback={null}>
+          <AgentChat
+            sessionId={sessionId}
+            agentId={chatAgent.id}
+            agentName={chatAgent.name}
+            settings={settings}
+            onClose={() => setChatAgent(null)}
+          />
+        </Suspense>
       )}
 
       {/* Control Bar */}
@@ -421,6 +405,8 @@ function SimContent() {
         disabled={loading && status !== "running"}
         worldName={state?.name}
         sessionId={sessionId}
+        model={settings.model}
+        wsStatus={wsStatus}
       />
     </div>
   );
@@ -430,8 +416,8 @@ export default function SimPage() {
   return (
     <Suspense
       fallback={
-        <div className="h-screen flex items-center justify-center bg-void text-t-dim">
-          Loading...
+        <div className="h-screen flex items-center justify-center bg-void text-micro text-t-dim tracking-widest">
+          LOADING
         </div>
       }
     >

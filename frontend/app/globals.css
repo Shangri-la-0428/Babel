@@ -8,9 +8,27 @@
  * and global styles. Must stay in sync with design/tailwind.preset.js.
  */
 :root {
+  /* Base — synced with design/tokens.css */
+  --color-void:       #000000;
+  --color-surface-1:  #0A0A0A;
+  --color-surface-2:  #111111;
+  --color-surface-3:  #1C1C1C;
+  --color-surface-4:  #252525;
+
+  /* Text */
+  --color-text:          #FFFFFF;
+  --color-text-secondary:#A0A0A0;
+  --color-text-muted:    #8A8A8A;
+  --color-text-dim:      #757575;
+
+  /* Accent */
   --color-primary: #C0FE04;
-  --color-primary-glow: rgba(192, 254, 4, 0.15);
-  --color-primary-glow-strong: rgba(192, 254, 4, 0.3);
+  --color-primary-glow: rgba(192, 254, 4, 0.2);
+  --color-primary-glow-strong: rgba(192, 254, 4, 0.4);
+
+  /* Semantic */
+  --color-danger-glow: rgba(242, 71, 35, 0.2);
+  --color-overlay: rgba(0, 0, 0, 0.80);
 }
 
 /* ── Global Reset ── */
@@ -19,8 +37,8 @@
 }
 
 body {
-  background: #000000;
-  color: #FFFFFF;
+  background: var(--color-void);
+  color: var(--color-text);
   font-family: var(--font-jetbrains), 'JetBrains Mono', monospace;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -33,9 +51,9 @@ body {
 }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: #000; }
-::-webkit-scrollbar-thumb { background: #1C1C1C; }
-::-webkit-scrollbar-thumb:hover { background: #7A7A7A; }
+::-webkit-scrollbar-track { background: var(--color-void); }
+::-webkit-scrollbar-thumb { background: var(--color-surface-3); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 
 /* ── Focus Indicators ── */
 *:focus-visible {
@@ -48,7 +66,23 @@ textarea:focus-visible,
 select:focus-visible {
   outline: none;
   border-color: var(--color-primary);
+  box-shadow: 0 0 8px var(--color-primary-glow);
 }
+
+/* ── Stagger Entrance ── */
+.stagger-in > * {
+  opacity: 0;
+  animation: fade-in 200ms ease both;
+}
+.stagger-in > *:nth-child(1)  { animation-delay: 0ms; }
+.stagger-in > *:nth-child(2)  { animation-delay: 40ms; }
+.stagger-in > *:nth-child(3)  { animation-delay: 80ms; }
+.stagger-in > *:nth-child(4)  { animation-delay: 120ms; }
+.stagger-in > *:nth-child(5)  { animation-delay: 160ms; }
+.stagger-in > *:nth-child(6)  { animation-delay: 200ms; }
+.stagger-in > *:nth-child(7)  { animation-delay: 240ms; }
+.stagger-in > *:nth-child(8)  { animation-delay: 280ms; }
+.stagger-in > *:nth-child(n+9) { animation-delay: 320ms; }
 
 /* ── Reduced Motion ── */
 @media (prefers-reduced-motion: reduce) {
@@ -60,14 +94,49 @@ select:focus-visible {
   }
 }
 
-/* ── Keyframes ── */
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* ── CRT Scanline Overlay ── */
+.scanlines::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  will-change: opacity;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 55%,
+    rgba(0, 0, 0, 0.4) 100%
+  );
 }
 
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(12px); }
+.scanlines::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  will-change: opacity;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.06) 2px,
+    rgba(0, 0, 0, 0.06) 4px
+  );
+  mix-blend-mode: multiply;
+  animation: crt-flicker 8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scanlines::before,
+  .scanlines::after {
+    display: none;
+  }
+}
+
+/* ── Keyframes (CSS-var dependent — others live in design/tailwind.preset.js) ── */
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -77,21 +146,19 @@ select:focus-visible {
 }
 
 @keyframes event-flash-danger {
-  0% { background: rgba(242, 71, 35, 0.15); }
+  0% { background: var(--color-danger-glow); }
   100% { background: transparent; }
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 var(--color-primary-glow); }
-  50% { box-shadow: 0 0 16px 4px var(--color-primary-glow); }
+  0%, 100% { box-shadow: 0 0 0 0 var(--color-primary-glow-strong); }
+  50% { box-shadow: 0 0 24px 6px var(--color-primary-glow-strong); }
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+@keyframes crt-flicker {
+  0%, 91%, 94%, 97%, 100% { opacity: 1; }
+  92% { opacity: 0.82; }
+  93% { opacity: 0.95; }
+  95% { opacity: 0.88; }
+  96% { opacity: 1; }
 }

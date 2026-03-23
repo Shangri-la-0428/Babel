@@ -2,38 +2,44 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { fetchAssets, deleteAsset, SavedSeedData, SeedTypeValue } from "@/lib/api";
+import { TransKey } from "@/lib/i18n";
+import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
+import Settings from "@/components/Settings";
 import SeedCard from "@/components/SeedCard";
 import SeedDetail from "@/components/SeedDetail";
+import { ErrorBanner, EmptyState, SkeletonLine } from "@/components/ui";
 
-const SEED_TYPES: { value: SeedTypeValue | "all"; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "world", label: "World" },
-  { value: "agent", label: "Agent" },
-  { value: "item", label: "Item" },
-  { value: "location", label: "Location" },
-  { value: "event", label: "Event" },
+const SEED_TYPES: { value: SeedTypeValue | "all"; labelKey: TransKey }[] = [
+  { value: "all", labelKey: "all" },
+  { value: "world", labelKey: "world" },
+  { value: "agent", labelKey: "agent" },
+  { value: "item", labelKey: "item" },
+  { value: "location", labelKey: "location" },
+  { value: "event", labelKey: "event" },
 ];
 
 export default function AssetsPage() {
+  const { t } = useLocale();
   const [seeds, setSeeds] = useState<SavedSeedData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<SeedTypeValue | "all">("all");
   const [selected, setSelected] = useState<SavedSeedData | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const loadSeeds = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchAssets(filter === "all" ? undefined : filter);
-      setSeeds(data);
+      setSeeds(Array.isArray(data) ? data : []);
       setError(null);
     } catch {
-      setError("Failed to load assets");
+      setError(t("failed_load"));
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, t]);
 
   useEffect(() => {
     loadSeeds();
@@ -45,7 +51,7 @@ export default function AssetsPage() {
       setSeeds((prev) => prev.filter((s) => s.id !== id));
       if (selected?.id === id) setSelected(null);
     } catch {
-      setError("Failed to delete seed");
+      setError(t("failed_load"));
     }
   }
 
@@ -59,39 +65,41 @@ export default function AssetsPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-void">
-      <Nav activePage="assets" />
+      <Nav activePage="assets" showSettings={showSettings} onToggleSettings={() => setShowSettings(!showSettings)} />
+
+      {showSettings && (
+        <Settings onClose={() => setShowSettings(false)} onSave={() => setShowSettings(false)} />
+      )}
 
       <main className="flex-1 flex flex-col px-6 py-8 max-w-5xl mx-auto w-full">
+        <a href="/" className="text-micro text-t-muted tracking-wider hover:text-t-DEFAULT transition-colors mb-4 inline-block">
+          {t("back")}
+        </a>
         <h1 className="font-sans text-heading font-bold tracking-tight mb-2">
-          Assets
+          {t("assets_title")}
         </h1>
         <p className="text-detail text-t-muted normal-case tracking-normal mb-8">
-          Reusable seeds extracted from simulations
+          {t("assets_desc")}
         </p>
 
         {/* Error */}
         {error && (
-          <div className="mb-4 px-4 py-3 border border-danger text-detail text-danger flex items-center justify-between" role="alert">
-            <span className="normal-case tracking-normal">{error}</span>
-            <button onClick={() => setError(null)} className="text-micro text-danger hover:text-white transition-colors ml-4">
-              Dismiss
-            </button>
-          </div>
+          <ErrorBanner message={error} onDismiss={() => setError(null)} className="mb-4" />
         )}
 
         {/* Type filter tabs */}
         <div className="flex items-center gap-px mb-6 bg-b-DEFAULT w-fit">
-          {SEED_TYPES.map(({ value, label }) => (
+          {SEED_TYPES.map(({ value, labelKey }) => (
             <button
               key={value}
               onClick={() => setFilter(value)}
               className={`px-4 py-2 text-micro tracking-widest transition-colors ${
                 filter === value
                   ? "bg-surface-2 text-primary"
-                  : "bg-void text-t-muted hover:text-white hover:bg-surface-1"
+                  : "bg-void text-t-muted hover:text-t-DEFAULT hover:bg-surface-1"
               }`}
             >
-              {label}
+              {t(labelKey)}
               {value !== "all" && counts[value] ? (
                 <span className="ml-1.5 text-t-dim">{counts[value]}</span>
               ) : null}
@@ -101,24 +109,30 @@ export default function AssetsPage() {
 
         {/* Seed grid */}
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-b-DEFAULT">
+          <div className="grid grid-cols-3 gap-3">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-void p-6">
-                <div className="h-4 w-32 mb-3 bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-[shimmer_1.5s_ease_infinite]" />
-                <div className="h-3 w-full mb-2 bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-[shimmer_1.5s_ease_infinite]" />
-                <div className="h-3 w-20 bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-[shimmer_1.5s_ease_infinite]" />
+              <div key={i} className="bg-surface-1 border border-b-DEFAULT p-4">
+                <SkeletonLine className="h-4 w-32 mb-3" />
+                <SkeletonLine className="h-3 w-full mb-2" />
+                <SkeletonLine className="h-3 w-20" />
               </div>
             ))}
           </div>
         ) : seeds.length === 0 ? (
-          <div className="border border-b-DEFAULT p-12 text-center">
-            <div className="text-body text-t-muted mb-2">No seeds yet</div>
-            <div className="text-detail text-t-dim normal-case tracking-normal">
-              Extract seeds from running simulations — agents, items, locations, and events can all become reusable seeds.
+          <EmptyState label="// EMPTY">
+            <div className="text-body text-t-muted">{t("no_seeds_yet")}</div>
+            <div className="text-detail text-t-dim normal-case tracking-normal text-center max-w-md">
+              {t("no_seeds_desc")}
             </div>
-          </div>
+            <a
+              href="/"
+              className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors inline-flex items-center"
+            >
+              {t("home")}
+            </a>
+          </EmptyState>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-3 stagger-in">
             {seeds.map((seed) => (
               <SeedCard
                 key={seed.id}

@@ -7,6 +7,7 @@ import {
   saveSettings,
   fetchModels,
 } from "@/lib/api";
+import { useLocale } from "@/lib/locale-context";
 
 interface SettingsProps {
   onClose: () => void;
@@ -14,6 +15,7 @@ interface SettingsProps {
 }
 
 export default function Settings({ onClose, onSave }: SettingsProps) {
+  const { t } = useLocale();
   const [settings, setSettings] = useState<BabelSettings>(loadSettings);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -48,37 +50,37 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
   }
 
   const inputCls =
-    "w-full h-10 px-3 bg-void border border-b-DEFAULT text-detail text-white focus:border-primary focus:outline-none hover:border-b-hover transition-colors normal-case tracking-normal";
+    "w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT focus:border-primary focus:outline-none hover:border-b-hover transition-colors normal-case tracking-normal";
   const labelCls =
     "text-micro text-t-muted tracking-widest block mb-1.5";
 
   return (
-    <div className="border-b border-b-DEFAULT bg-surface-1 animate-[slide-up_0.15s_ease] overflow-hidden">
+    <div className="border-b border-b-DEFAULT bg-surface-1 animate-[slide-down_0.15s_ease] overflow-hidden">
       <div className="max-w-4xl mx-auto px-6 py-5">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <span className="text-micro text-t-muted tracking-widest">
-            LLM Configuration
+            {t("llm_config")}
           </span>
           <div className="flex items-center gap-2" aria-live="polite">
             {testStatus === "ok" && (
               <span className="text-micro text-primary tracking-wider flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" aria-hidden="true" />
-                Connected · {models.length} models
+                {t("connected_models")} · {models.length}
               </span>
             )}
             {testStatus === "error" && (
               <span className="text-micro text-danger tracking-wider">
-                Connection failed
+                {t("connection_failed")}
               </span>
             )}
           </div>
         </div>
 
         {/* Fields */}
-        <div className="grid grid-cols-[1fr_1fr_200px] gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_200px] gap-4 mb-4">
           <div>
-            <label htmlFor="settings-api-base" className={labelCls}>API Base URL</label>
+            <label htmlFor="settings-api-base" className={labelCls}>{t("api_base_url")}</label>
             <input
               id="settings-api-base"
               className={inputCls}
@@ -88,7 +90,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
             />
           </div>
           <div>
-            <label htmlFor="settings-api-key" className={labelCls}>API Key</label>
+            <label htmlFor="settings-api-key" className={labelCls}>{t("api_key")}</label>
             <input
               id="settings-api-key"
               type="password"
@@ -99,7 +101,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
             />
           </div>
           <div>
-            <label htmlFor="settings-tick-delay" className={labelCls}>Tick Delay (sec)</label>
+            <label htmlFor="settings-tick-delay" className={labelCls}>{t("tick_delay")}</label>
             <input
               id="settings-tick-delay"
               type="number"
@@ -118,7 +120,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
         {/* Model selector row */}
         <div className="flex gap-4 items-end mb-5">
           <div className="flex-1">
-            <label htmlFor="settings-model" className={labelCls}>Model</label>
+            <label htmlFor="settings-model" className={labelCls}>{t("model")}</label>
             {models.length > 0 ? (
               <div className="relative">
                 <select
@@ -153,9 +155,9 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
           <button
             onClick={handleFetchModels}
             disabled={loadingModels || !settings.apiKey || !settings.apiBase}
-            className="h-10 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-white hover:text-white disabled:opacity-30 transition-colors whitespace-nowrap"
+            className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform] whitespace-nowrap"
           >
-            {loadingModels ? "Loading..." : "Fetch Models"}
+            {loadingModels ? t("loading") : t("fetch_models")}
           </button>
         </div>
 
@@ -163,20 +165,17 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
         <div className="flex items-center gap-3 pt-4 border-t border-b-DEFAULT">
           <button
             onClick={handleSave}
-            className="h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary transition-colors"
+            className="h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary active:scale-[0.97] transition-[colors,transform]"
           >
-            Save
+            {t("save")}
           </button>
           <button
             onClick={onClose}
-            className="h-9 px-4 text-micro tracking-wider text-t-muted hover:text-white transition-colors"
+            className="h-9 px-4 text-micro tracking-wider text-t-muted hover:text-t-DEFAULT transition-colors"
           >
-            Cancel
+            {t("cancel")}
           </button>
           <div className="flex-1" />
-          <span className="text-micro text-t-dim tracking-wider normal-case">
-            Settings saved to localStorage
-          </span>
         </div>
       </div>
     </div>

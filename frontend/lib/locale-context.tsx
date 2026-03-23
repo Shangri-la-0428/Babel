@@ -6,7 +6,7 @@ import { Locale, TransKey, detectLocale, setLocale as persistLocale, t as transl
 interface LocaleCtx {
   locale: Locale;
   toggle: () => void;
-  t: (key: TransKey) => string;
+  t: (key: TransKey, ...args: string[]) => string;
 }
 
 const Ctx = createContext<LocaleCtx>({
@@ -26,7 +26,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const t = useCallback((key: TransKey) => translate(key, locale), [locale]);
+  const t = useCallback((key: TransKey, ...args: string[]) => translate(key, locale, ...args), [locale]);
 
   return <Ctx.Provider value={{ locale, toggle, t }}>{children}</Ctx.Provider>;
 }

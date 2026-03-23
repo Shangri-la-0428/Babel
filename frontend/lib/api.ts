@@ -43,6 +43,7 @@ export interface AgentData {
   location: string;
   inventory: string[];
   status: string;
+  memory?: string[];
 }
 
 export interface EventData {
@@ -97,8 +98,37 @@ export async function fetchModels(apiBase: string, apiKey: string): Promise<stri
 
 // ── Backend API ──
 
+function assertOk(res: Response): void {
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+}
+
 export async function fetchSeeds(): Promise<SeedInfo[]> {
   const res = await fetch(`${API_BASE}/api/seeds`);
+  assertOk(res);
+  return res.json();
+}
+
+export interface SeedDetail {
+  file: string;
+  name: string;
+  description: string;
+  rules: string[];
+  locations: { name: string; description: string }[];
+  agents: {
+    id: string;
+    name: string;
+    description: string;
+    personality: string;
+    goals: string[];
+    inventory: string[];
+    location: string;
+  }[];
+  initial_events: string[];
+}
+
+export async function fetchSeedDetail(filename: string): Promise<SeedDetail> {
+  const res = await fetch(`${API_BASE}/api/seeds/${filename}`);
+  assertOk(res);
   return res.json();
 }
 
@@ -106,6 +136,7 @@ export async function createFromSeed(filename: string): Promise<{ session_id: st
   const res = await fetch(`${API_BASE}/api/worlds/from-seed/${filename}`, {
     method: "POST",
   });
+  assertOk(res);
   return res.json();
 }
 
@@ -130,21 +161,13 @@ export async function createWorld(data: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+  assertOk(res);
   return res.json();
 }
 
 export async function getState(sessionId: string): Promise<WorldState> {
   const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/state`);
-  return res.json();
-}
-
-export async function getEvents(
-  sessionId: string,
-  limit = 100
-): Promise<EventData[]> {
-  const res = await fetch(
-    `${API_BASE}/api/worlds/${sessionId}/events?limit=${limit}`
-  );
+  assertOk(res);
   return res.json();
 }
 
@@ -152,7 +175,7 @@ export async function runWorld(
   sessionId: string,
   opts: { max_ticks?: number; model?: string; api_key?: string; api_base?: string; tick_delay?: number } = {}
 ): Promise<void> {
-  await fetch(`${API_BASE}/api/worlds/${sessionId}/run`, {
+  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -163,6 +186,7 @@ export async function runWorld(
       tick_delay: opts.tick_delay ?? 3.0,
     }),
   });
+  assertOk(res);
 }
 
 export async function stepWorld(
@@ -178,20 +202,43 @@ export async function stepWorld(
       api_base: opts.api_base ?? null,
     }),
   });
+  assertOk(res);
   return res.json();
 }
 
 export async function pauseWorld(sessionId: string): Promise<void> {
-  await fetch(`${API_BASE}/api/worlds/${sessionId}/pause`, {
+  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/pause`, {
     method: "POST",
   });
+  assertOk(res);
 }
 
 export async function getSessions(): Promise<
   { id: string; world_seed: string; tick: number; status: string; created_at: string }[]
 > {
   const res = await fetch(`${API_BASE}/api/sessions`);
+  assertOk(res);
   return res.json();
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { method: "DELETE" });
+  assertOk(res);
+}
+
+export async function getSessionEvents(
+  sessionId: string,
+  limit: number = 3
+): Promise<EventData[]> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/worlds/${sessionId}/events?limit=${limit}`
+    );
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
 }
 
 export async function injectEvent(
@@ -203,6 +250,7 @@ export async function injectEvent(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content }),
   });
+  assertOk(res);
   return res.json();
 }
 
@@ -223,16 +271,7 @@ export async function chatWithAgent(
       api_base: opts.api_base ?? null,
     }),
   });
-  return res.json();
-}
-
-export async function getReplay(sessionId: string): Promise<{
-  world_name: string;
-  total_ticks: number;
-  events: EventData[];
-  initial_agents: Record<string, AgentData>;
-}> {
-  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/replay`);
+  assertOk(res);
   return res.json();
 }
 
@@ -261,11 +300,7 @@ export async function fetchAssets(type?: SeedTypeValue): Promise<SavedSeedData[]
     ? `${API_BASE}/api/assets?type=${type}`
     : `${API_BASE}/api/assets`;
   const res = await fetch(url);
-  return res.json();
-}
-
-export async function getAsset(id: string): Promise<SavedSeedData> {
-  const res = await fetch(`${API_BASE}/api/assets/${id}`);
+  assertOk(res);
   return res.json();
 }
 
@@ -282,22 +317,25 @@ export async function saveAsset(data: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+  assertOk(res);
   return res.json();
 }
 
 export async function deleteAsset(id: string): Promise<void> {
-  await fetch(`${API_BASE}/api/assets/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/api/assets/${id}`, { method: "DELETE" });
+  assertOk(res);
 }
 
-export async function extractSeed(
+export async function generateSeed(
   seedType: SeedTypeValue,
   sessionId: string,
   targetId: string = ""
-): Promise<{ id: string; name: string; type: string }> {
+): Promise<SavedSeedData> {
   const res = await fetch(`${API_BASE}/api/assets/extract/${seedType}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId, target_id: targetId }),
   });
+  assertOk(res);
   return res.json();
 }

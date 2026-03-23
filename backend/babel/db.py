@@ -63,11 +63,87 @@ CREATE INDEX IF NOT EXISTS idx_agent_states_session ON agent_states(session_id);
 CREATE INDEX IF NOT EXISTS idx_seeds_type ON saved_seeds(type);
 """
 
+# ── V2: Timeline + Memory tables ──
+
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS timeline_nodes (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    tick INTEGER NOT NULL,
+    parent_id TEXT,
+    branch_id TEXT DEFAULT 'main',
+    node_type TEXT DEFAULT 'tick',
+    summary TEXT DEFAULT '',
+    event_count INTEGER DEFAULT 0,
+    agent_locations TEXT DEFAULT '{}',
+    significant INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+CREATE INDEX IF NOT EXISTS idx_timeline_session_tick ON timeline_nodes(session_id, tick);
+CREATE INDEX IF NOT EXISTS idx_timeline_branch ON timeline_nodes(session_id, branch_id);
+
+CREATE TABLE IF NOT EXISTS world_snapshots (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    tick INTEGER NOT NULL,
+    world_seed_json TEXT NOT NULL,
+    agent_states_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_session_tick ON world_snapshots(session_id, tick);
+
+CREATE TABLE IF NOT EXISTS agent_memories (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    tick INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT DEFAULT 'episodic',
+    importance REAL DEFAULT 0.5,
+    tags TEXT DEFAULT '[]',
+    source_event_id TEXT,
+    access_count INTEGER DEFAULT 0,
+    last_accessed INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+CREATE INDEX IF NOT EXISTS idx_memories_agent ON agent_memories(session_id, agent_id);
+CREATE INDEX IF NOT EXISTS idx_memories_importance ON agent_memories(session_id, agent_id, importance DESC);
+"""
+
+
+async def _migrate_v2(db: aiosqlite.Connection) -> None:
+    """Add V2 columns to events table if missing."""
+    cursor = await db.execute("PRAGMA table_info(events)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    new_cols = [
+        ("location", "TEXT DEFAULT ''"),
+        ("involved_agents", "TEXT DEFAULT '[]'"),
+        ("importance", "REAL DEFAULT 0.5"),
+        ("node_id", "TEXT DEFAULT ''"),
+    ]
+    for col_name, col_def in new_cols:
+        if col_name not in columns:
+            await db.execute(f"ALTER TABLE events ADD COLUMN {col_name} {col_def}")
+    # Extra indices for events
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_events_location ON events(session_id, location)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_events_agent ON events(session_id, agent_id, tick DESC)"
+    )
+    await db.commit()
+
 
 async def init_db(db_path: str | Path | None = None) -> None:
     path = str(db_path or DB_PATH)
     async with aiosqlite.connect(path) as db:
         await db.executescript(SCHEMA)
+        await db.executescript(SCHEMA_V2)
+        await _migrate_v2(db)
         await db.commit()
 
 
@@ -128,21 +204,27 @@ async def save_session(session) -> None:
 
 
 async def save_event(event) -> None:
-    """Save a single event."""
+    """Save a single event (with V2 fields)."""
     async with aiosqlite.connect(str(DB_PATH)) as db:
+        at = event.action_type if isinstance(event.action_type, str) else event.action_type.value
         await db.execute(
             """INSERT OR IGNORE INTO events
-               (id, session_id, tick, agent_id, agent_name, action_type, action, result)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, session_id, tick, agent_id, agent_name, action_type,
+                action, result, location, involved_agents, importance, node_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event.id,
                 event.session_id,
                 event.tick,
                 event.agent_id,
                 event.agent_name,
-                event.action_type if isinstance(event.action_type, str) else event.action_type.value,
+                at,
                 json.dumps(event.action, ensure_ascii=False),
                 event.result,
+                event.location,
+                json.dumps(event.involved_agents, ensure_ascii=False),
+                event.importance,
+                event.node_id,
             ),
         )
         await db.commit()
@@ -161,6 +243,64 @@ async def load_events(session_id: str, limit: int = 200, offset: int = 0) -> lis
         return [dict(row) for row in rows]
 
 
+async def load_events_filtered(
+    session_id: str,
+    agent_id: str | None = None,
+    location: str | None = None,
+    min_tick: int = 0,
+    limit: int = 8,
+) -> list[dict]:
+    """Load events filtered by agent, location, or tick range."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        conditions = ["session_id = ?", "tick >= ?"]
+        params: list = [session_id, min_tick]
+
+        if agent_id and location:
+            conditions.append("(agent_id = ? OR agent_id IS NULL OR location = ?)")
+            params.extend([agent_id, location])
+        elif agent_id:
+            conditions.append("(agent_id = ? OR agent_id IS NULL)")
+            params.append(agent_id)
+        elif location:
+            conditions.append("(location = ? OR agent_id IS NULL)")
+            params.append(location)
+
+        where = " AND ".join(conditions)
+        cursor = await db.execute(
+            f"SELECT * FROM events WHERE {where} ORDER BY tick DESC, rowid DESC LIMIT ?",
+            (*params, limit),
+        )
+        rows = await cursor.fetchall()
+        result = []
+        for r in rows:
+            e = dict(r)
+            if "action" in e and isinstance(e["action"], str):
+                e["action"] = json.loads(e["action"])
+            if "involved_agents" in e and isinstance(e["involved_agents"], str):
+                e["involved_agents"] = json.loads(e["involved_agents"])
+            result.append(e)
+        result.reverse()
+        return result
+
+
+async def load_event_by_id(session_id: str, event_id: str) -> dict | None:
+    """Load a single event by ID."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM events WHERE id = ? AND session_id = ?",
+            (event_id, session_id),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        e = dict(row)
+        if isinstance(e.get("action"), str):
+            e["action"] = json.loads(e["action"])
+        return e
+
+
 async def list_sessions() -> list[dict]:
     """List all sessions."""
     async with aiosqlite.connect(str(DB_PATH)) as db:
@@ -172,16 +312,27 @@ async def list_sessions() -> list[dict]:
         return [dict(row) for row in rows]
 
 
-async def load_session(session_id: str) -> dict | None:
-    """Load a full session (with agents and recent events) from DB.
+async def delete_session(session_id: str) -> bool:
+    """Delete a session and all related data (events, agents, timeline, snapshots, memories)."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        cursor = await db.execute("SELECT id FROM sessions WHERE id = ?", (session_id,))
+        if not await cursor.fetchone():
+            return False
+        await db.execute("DELETE FROM events WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM agent_states WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM timeline_nodes WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM world_snapshots WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM agent_memories WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        await db.commit()
+        return True
 
-    Returns a dict with keys: id, world_seed, tick, status, created_at,
-    agents (list of dicts), events (list of dicts, last 50 by tick ASC).
-    """
+
+async def load_session(session_id: str) -> dict | None:
+    """Load a full session (with agents and recent events) from DB."""
     async with aiosqlite.connect(str(DB_PATH)) as db:
         db.row_factory = aiosqlite.Row
 
-        # Session row
         cursor = await db.execute(
             "SELECT * FROM sessions WHERE id = ?", (session_id,)
         )
@@ -191,7 +342,6 @@ async def load_session(session_id: str) -> dict | None:
         session = dict(row)
         session["world_seed"] = json.loads(session["world_seed"])
 
-        # Agent states
         cursor = await db.execute(
             "SELECT * FROM agent_states WHERE session_id = ?", (session_id,)
         )
@@ -204,7 +354,6 @@ async def load_session(session_id: str) -> dict | None:
             agents.append(a)
         session["agents"] = agents
 
-        # Recent events (last 50, chronological)
         cursor = await db.execute(
             """SELECT * FROM events WHERE session_id = ?
                ORDER BY tick DESC, rowid DESC LIMIT 50""",
@@ -215,7 +364,7 @@ async def load_session(session_id: str) -> dict | None:
             e = dict(r)
             e["action"] = json.loads(e["action"])
             events.append(e)
-        events.reverse()  # chronological
+        events.reverse()
         session["events"] = events
 
         return session
@@ -240,7 +389,6 @@ async def save_seed(seed) -> None:
                 json.dumps(seed.tags, ensure_ascii=False),
                 json.dumps(seed.data, ensure_ascii=False),
                 seed.source_world,
-                # ON CONFLICT updates:
                 seed.name,
                 seed.description,
                 json.dumps(seed.tags, ensure_ascii=False),
@@ -297,3 +445,215 @@ async def delete_seed(seed_id: str) -> bool:
         )
         await db.commit()
         return cursor.rowcount > 0
+
+
+# ── Agent Memories (Structured) ──
+
+
+async def save_memory(mem) -> None:
+    """Save a structured memory entry."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        await db.execute(
+            """INSERT OR IGNORE INTO agent_memories
+               (id, session_id, agent_id, tick, content, category,
+                importance, tags, source_event_id, access_count, last_accessed)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                mem.id,
+                mem.session_id,
+                mem.agent_id,
+                mem.tick,
+                mem.content,
+                mem.category,
+                mem.importance,
+                json.dumps(mem.tags, ensure_ascii=False),
+                mem.source_event_id,
+                mem.access_count,
+                mem.last_accessed,
+            ),
+        )
+        await db.commit()
+
+
+async def query_memories(
+    session_id: str,
+    agent_id: str,
+    category: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Query structured memories for an agent."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        if category:
+            cursor = await db.execute(
+                """SELECT * FROM agent_memories
+                   WHERE session_id = ? AND agent_id = ? AND category = ?
+                   ORDER BY importance DESC, tick DESC LIMIT ?""",
+                (session_id, agent_id, category, limit),
+            )
+        else:
+            cursor = await db.execute(
+                """SELECT * FROM agent_memories
+                   WHERE session_id = ? AND agent_id = ?
+                   ORDER BY importance DESC, tick DESC LIMIT ?""",
+                (session_id, agent_id, limit),
+            )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            d["tags"] = json.loads(d["tags"])
+            results.append(d)
+        return results
+
+
+async def update_memory_access(memory_id: str, tick: int) -> None:
+    """Update access count and last_accessed tick for a memory."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        await db.execute(
+            """UPDATE agent_memories
+               SET access_count = access_count + 1, last_accessed = ?
+               WHERE id = ?""",
+            (tick, memory_id),
+        )
+        await db.commit()
+
+
+async def delete_memories(memory_ids: list[str]) -> None:
+    """Delete memories by IDs."""
+    if not memory_ids:
+        return
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        placeholders = ",".join("?" * len(memory_ids))
+        await db.execute(
+            f"DELETE FROM agent_memories WHERE id IN ({placeholders})",
+            memory_ids,
+        )
+        await db.commit()
+
+
+# ── Timeline Nodes ──
+
+
+async def save_timeline_node(node) -> None:
+    """Save a timeline node."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        await db.execute(
+            """INSERT OR IGNORE INTO timeline_nodes
+               (id, session_id, tick, parent_id, branch_id, node_type,
+                summary, event_count, agent_locations, significant)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                node.id,
+                node.session_id,
+                node.tick,
+                node.parent_id,
+                node.branch_id,
+                node.node_type,
+                node.summary,
+                node.event_count,
+                json.dumps(node.agent_locations, ensure_ascii=False),
+                1 if node.significant else 0,
+            ),
+        )
+        await db.commit()
+
+
+async def load_timeline(
+    session_id: str,
+    branch: str = "main",
+    from_tick: int = 0,
+    to_tick: int | None = None,
+) -> list[dict]:
+    """Load timeline nodes for a session."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        if to_tick is not None:
+            cursor = await db.execute(
+                """SELECT * FROM timeline_nodes
+                   WHERE session_id = ? AND branch_id = ? AND tick >= ? AND tick <= ?
+                   ORDER BY tick ASC""",
+                (session_id, branch, from_tick, to_tick),
+            )
+        else:
+            cursor = await db.execute(
+                """SELECT * FROM timeline_nodes
+                   WHERE session_id = ? AND branch_id = ? AND tick >= ?
+                   ORDER BY tick ASC""",
+                (session_id, branch, from_tick),
+            )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            d["agent_locations"] = json.loads(d["agent_locations"])
+            d["significant"] = bool(d["significant"])
+            results.append(d)
+        return results
+
+
+async def get_last_node_id(session_id: str, branch: str = "main") -> str | None:
+    """Get the ID of the most recent timeline node."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        cursor = await db.execute(
+            """SELECT id FROM timeline_nodes
+               WHERE session_id = ? AND branch_id = ?
+               ORDER BY tick DESC LIMIT 1""",
+            (session_id, branch),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+
+# ── World Snapshots ──
+
+
+async def save_snapshot(snapshot) -> None:
+    """Save a world snapshot."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        await db.execute(
+            """INSERT OR IGNORE INTO world_snapshots
+               (id, session_id, node_id, tick, world_seed_json, agent_states_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                snapshot.id,
+                snapshot.session_id,
+                snapshot.node_id,
+                snapshot.tick,
+                snapshot.world_seed_json,
+                snapshot.agent_states_json,
+            ),
+        )
+        await db.commit()
+
+
+async def load_nearest_snapshot(session_id: str, tick: int) -> dict | None:
+    """Load the nearest snapshot at or before a given tick."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT * FROM world_snapshots
+               WHERE session_id = ? AND tick <= ?
+               ORDER BY tick DESC LIMIT 1""",
+            (session_id, tick),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["world_seed"] = json.loads(d["world_seed_json"])
+        d["agent_states"] = json.loads(d["agent_states_json"])
+        return d
+
+
+async def list_snapshots(session_id: str) -> list[dict]:
+    """List all snapshots for a session."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT id, session_id, node_id, tick, created_at
+               FROM world_snapshots WHERE session_id = ?
+               ORDER BY tick ASC""",
+            (session_id,),
+        )
+        return [dict(row) for row in await cursor.fetchall()]

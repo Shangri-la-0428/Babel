@@ -2,8 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createWorld, fetchAssets, SavedSeedData } from "@/lib/api";
+import { createWorld, fetchAssets, SavedSeedData, SeedDetail } from "@/lib/api";
+import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
+import Settings from "@/components/Settings";
+import { ErrorBanner } from "@/components/ui";
 
 interface AgentForm {
   id: string;
@@ -15,9 +18,8 @@ interface AgentForm {
   location: string;
 }
 
-let agentCounter = 0;
 const emptyAgent = (): AgentForm => ({
-  id: `agent_${Date.now()}_${++agentCounter}`,
+  id: `agent_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
   name: "",
   description: "",
   personality: "",
@@ -28,6 +30,7 @@ const emptyAgent = (): AgentForm => ({
 
 export default function CreatePage() {
   const router = useRouter();
+  const { t } = useLocale();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,16 +46,46 @@ export default function CreatePage() {
   const [savedAgents, setSavedAgents] = useState<SavedSeedData[]>([]);
   const [savedEvents, setSavedEvents] = useState<SavedSeedData[]>([]);
   const [showImport, setShowImport] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     fetchAssets("agent").then(setSavedAgents).catch(() => {});
     fetchAssets("event").then(setSavedEvents).catch(() => {});
+
+    // Load pre-filled data from world detail "Edit" button
+    const raw = localStorage.getItem("babel_edit_seed");
+    if (raw) {
+      localStorage.removeItem("babel_edit_seed");
+      try {
+        const seed: SeedDetail = JSON.parse(raw);
+        setWorld({
+          name: seed.name || "",
+          description: seed.description || "",
+          rules: (seed.rules || []).join("\n"),
+          locations: (seed.locations || []).map((l) => `${l.name}: ${l.description}`).join("\n"),
+          initial_events: (seed.initial_events || []).join("\n"),
+        });
+        if ((seed.agents || []).length > 0) {
+          setAgents(
+            seed.agents.map((a) => ({
+              id: a.id || `agent_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              name: a.name || "",
+              description: a.description || "",
+              personality: a.personality || "",
+              goals: (a.goals || []).join("\n"),
+              inventory: (a.inventory || []).join(", "),
+              location: a.location || "",
+            }))
+          );
+        }
+      } catch { /* ignore corrupt data */ }
+    }
   }, []);
 
   function importAgent(seed: SavedSeedData) {
     const d = seed.data;
     const a: AgentForm = {
-      id: (d.id as string) || `agent_${Date.now()}_${++agentCounter}`,
+      id: (d.id as string) || `agent_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: (d.name as string) || seed.name,
       description: (d.description as string) || "",
       personality: (d.personality as string) || "",
@@ -122,35 +155,38 @@ export default function CreatePage() {
         initial_events: world.initial_events.split("\n").filter(Boolean),
       };
 
-      const { session_id } = await createWorld(data);
-      router.push(`/sim?id=${session_id}`);
+      const res = await createWorld(data);
+      if (!res?.session_id) throw new Error("No session_id");
+      router.push(`/sim?id=${res.session_id}`);
     } catch {
-      setError("Failed to create world. Check backend connection.");
+      setError(t("failed_create"));
       setLoading(false);
     }
   }
 
   const inputClass =
-    "w-full h-12 px-4 bg-surface-1 border border-b-DEFAULT text-white text-body focus:border-primary focus:outline-none hover:border-b-hover transition-colors";
+    "w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors";
   const textareaClass =
-    "w-full min-h-[100px] p-3 px-4 bg-surface-1 border border-b-DEFAULT text-white text-body normal-case tracking-normal leading-normal resize-y focus:border-primary focus:outline-none hover:border-b-hover transition-colors";
-  const labelClass = "text-micro text-t-muted tracking-widest mb-2 block";
+    "w-full min-h-[100px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-y focus:border-primary focus:outline-none hover:border-b-hover transition-colors";
+  const labelClass = "text-micro text-t-muted tracking-widest mb-1.5 block";
 
   return (
     <div className="min-h-screen flex flex-col bg-void">
-      <Nav activePage="create" />
+      <Nav activePage="create" showSettings={showSettings} onToggleSettings={() => setShowSettings(!showSettings)} />
 
-      <main className="flex-1 p-6 max-w-3xl mx-auto w-full animate-[slide-up_0.4s_ease]">
-        <h1 className="font-sans text-title font-bold tracking-tight mb-8">Create World</h1>
+      {showSettings && (
+        <Settings onClose={() => setShowSettings(false)} onSave={() => setShowSettings(false)} />
+      )}
+
+      <main id="main-content" className="flex-1 p-6 max-w-3xl mx-auto w-full animate-slide-up">
+        <button onClick={() => router.push("/")} className="text-micro text-t-muted tracking-wider hover:text-t-DEFAULT transition-colors mb-4">
+          {t("back")}
+        </button>
+        <h1 className="font-sans text-title font-bold tracking-tight mb-8">{t("create_world")}</h1>
 
         {/* Error banner */}
         {error && (
-          <div className="mb-6 px-4 py-3 border border-danger text-detail text-danger flex items-center justify-between" role="alert">
-            <span className="normal-case tracking-normal">{error}</span>
-            <button onClick={() => setError(null)} className="text-micro text-danger hover:text-white transition-colors ml-4" aria-label="Dismiss error">
-              Dismiss
-            </button>
-          </div>
+          <ErrorBanner message={error} onDismiss={() => setError(null)} className="mb-6" />
         )}
 
         {/* Import from Assets */}
@@ -160,14 +196,14 @@ export default function CreatePage() {
               onClick={() => setShowImport(!showImport)}
               className="text-micro text-t-muted tracking-widest hover:text-primary transition-colors mb-3"
             >
-              {showImport ? "- Hide Assets" : "+ Import from Assets"}
+              {showImport ? t("hide_assets") : t("import_from_assets")}
             </button>
             {showImport && (
               <div className="border border-b-DEFAULT p-4 flex flex-col gap-4 bg-surface-1 animate-[slide-up_200ms_ease]">
                 {savedAgents.length > 0 && (
                   <div>
                     <div className="text-micro text-t-muted tracking-widest mb-2">
-                      Agent Seeds ({savedAgents.length})
+                      {t("agent_seeds")} ({savedAgents.length})
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {savedAgents.map((s) => (
@@ -185,7 +221,7 @@ export default function CreatePage() {
                 {savedEvents.length > 0 && (
                   <div>
                     <div className="text-micro text-t-muted tracking-widest mb-2">
-                      Event Seeds ({savedEvents.length})
+                      {t("event_seeds")} ({savedEvents.length})
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {savedEvents.map((s) => (
@@ -208,51 +244,53 @@ export default function CreatePage() {
         {/* World form */}
         <div className="flex flex-col gap-6 mb-10">
           <div>
-            <label htmlFor="world-name" className={labelClass}>World Name</label>
+            <label htmlFor="world-name" className={labelClass}>{t("world_name")}</label>
             <input
               id="world-name"
+              required
+              aria-required="true"
               className={inputClass}
-              placeholder="Enter world name"
+              placeholder={t("ph_world_name")}
               value={world.name}
               onChange={(e) => setWorld({ ...world, name: e.target.value })}
             />
           </div>
           <div>
-            <label htmlFor="world-desc" className={labelClass}>Description</label>
+            <label htmlFor="world-desc" className={labelClass}>{t("description")}</label>
             <textarea
               id="world-desc"
               className={textareaClass}
-              placeholder="Describe the world setting..."
+              placeholder={t("ph_description")}
               value={world.description}
               onChange={(e) => setWorld({ ...world, description: e.target.value })}
             />
           </div>
           <div>
-            <label htmlFor="world-rules" className={labelClass}>Rules (one per line)</label>
+            <label htmlFor="world-rules" className={labelClass}>{t("rules")}</label>
             <textarea
               id="world-rules"
               className={textareaClass}
-              placeholder="Each line is a rule..."
+              placeholder={t("ph_rules")}
               value={world.rules}
               onChange={(e) => setWorld({ ...world, rules: e.target.value })}
             />
           </div>
           <div>
-            <label htmlFor="world-locations" className={labelClass}>Locations (name: description, one per line)</label>
+            <label htmlFor="world-locations" className={labelClass}>{t("locations")}</label>
             <textarea
               id="world-locations"
               className={textareaClass}
-              placeholder="Bar Counter: The main area&#10;VIP Room: Private area"
+              placeholder={t("ph_locations")}
               value={world.locations}
               onChange={(e) => setWorld({ ...world, locations: e.target.value })}
             />
           </div>
           <div>
-            <label htmlFor="world-events" className={labelClass}>Initial Events (one per line)</label>
+            <label htmlFor="world-events" className={labelClass}>{t("initial_events")}</label>
             <textarea
               id="world-events"
               className={textareaClass}
-              placeholder="What has just happened before the simulation starts..."
+              placeholder={t("ph_events")}
               value={world.initial_events}
               onChange={(e) => setWorld({ ...world, initial_events: e.target.value })}
             />
@@ -261,88 +299,88 @@ export default function CreatePage() {
 
         {/* Agents */}
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-sans text-heading font-semibold tracking-tight">Agents</h2>
+          <h2 className="font-sans text-heading font-semibold tracking-tight">{t("agents")}</h2>
           <button
             onClick={addAgent}
             className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
           >
-            + Add Agent
+            {t("add_agent")}
           </button>
         </div>
 
         <div className="flex flex-col gap-4 mb-10">
           {agents.map((agent, i) => (
-            <div key={agent.id} className="bg-surface-1 border border-b-DEFAULT p-6 flex flex-col gap-4">
+            <div key={agent.id} className="bg-surface-1 border border-b-DEFAULT p-5 flex flex-col gap-3 animate-slide-up">
               <div className="flex justify-between items-center">
-                <span className="text-micro text-t-muted tracking-widest">Agent {i + 1}</span>
+                <span className="text-micro text-t-muted tracking-widest">{t("agent_n", String(i + 1))}</span>
                 {agents.length > 1 && (
                   <button
                     onClick={() => removeAgent(i)}
                     className="text-micro text-danger tracking-wider hover:text-danger/80"
                   >
-                    Remove
+                    {t("remove")}
                   </button>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor={`agent-name-${agent.id}`} className={labelClass}>Name</label>
+                  <label htmlFor={`agent-name-${agent.id}`} className={labelClass}>{t("name")}</label>
                   <input
                     id={`agent-name-${agent.id}`}
                     className={inputClass}
-                    placeholder="Agent name"
+                    placeholder={t("ph_agent_name")}
                     value={agent.name}
                     onChange={(e) => updateAgent(i, "name", e.target.value)}
                   />
                 </div>
                 <div>
-                  <label htmlFor={`agent-personality-${agent.id}`} className={labelClass}>Personality</label>
+                  <label htmlFor={`agent-personality-${agent.id}`} className={labelClass}>{t("personality")}</label>
                   <input
                     id={`agent-personality-${agent.id}`}
                     className={inputClass}
-                    placeholder="Traits..."
+                    placeholder={t("ph_personality")}
                     value={agent.personality}
                     onChange={(e) => updateAgent(i, "personality", e.target.value)}
                   />
                 </div>
               </div>
               <div>
-                <label htmlFor={`agent-desc-${agent.id}`} className={labelClass}>Description</label>
+                <label htmlFor={`agent-desc-${agent.id}`} className={labelClass}>{t("description")}</label>
                 <textarea
                   id={`agent-desc-${agent.id}`}
                   className={`${textareaClass} min-h-[60px]`}
-                  placeholder="Who is this agent?"
+                  placeholder={t("ph_agent_desc")}
                   value={agent.description}
                   onChange={(e) => updateAgent(i, "description", e.target.value)}
                 />
               </div>
               <div>
-                <label htmlFor={`agent-goals-${agent.id}`} className={labelClass}>Goals (one per line)</label>
+                <label htmlFor={`agent-goals-${agent.id}`} className={labelClass}>{t("goals")}</label>
                 <textarea
                   id={`agent-goals-${agent.id}`}
                   className={`${textareaClass} min-h-[60px]`}
-                  placeholder="What does this agent want?"
+                  placeholder={t("ph_goals")}
                   value={agent.goals}
                   onChange={(e) => updateAgent(i, "goals", e.target.value)}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor={`agent-inv-${agent.id}`} className={labelClass}>Inventory (comma separated)</label>
+                  <label htmlFor={`agent-inv-${agent.id}`} className={labelClass}>{t("inventory")}</label>
                   <input
                     id={`agent-inv-${agent.id}`}
                     className={inputClass}
-                    placeholder="item1, item2"
+                    placeholder={t("ph_inventory")}
                     value={agent.inventory}
                     onChange={(e) => updateAgent(i, "inventory", e.target.value)}
                   />
                 </div>
                 <div>
-                  <label htmlFor={`agent-loc-${agent.id}`} className={labelClass}>Starting Location</label>
+                  <label htmlFor={`agent-loc-${agent.id}`} className={labelClass}>{t("starting_location")}</label>
                   <input
                     id={`agent-loc-${agent.id}`}
                     className={inputClass}
-                    placeholder="Location name"
+                    placeholder={t("ph_location")}
                     value={agent.location}
                     onChange={(e) => updateAgent(i, "location", e.target.value)}
                   />
@@ -357,15 +395,15 @@ export default function CreatePage() {
           <button
             onClick={handleSubmit}
             disabled={loading || !world.name.trim()}
-            className="h-12 min-w-[200px] px-8 text-detail font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary active:bg-primary-dim active:border-primary-dim active:text-void disabled:opacity-30 disabled:pointer-events-none transition-colors"
+            className="h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:pointer-events-none transition-[colors,box-shadow,transform]"
           >
-            {loading ? "Creating..." : "Create & Launch"}
+            {loading ? t("creating") : t("create_launch")}
           </button>
           <a
             href="/"
-            className="h-12 min-w-[120px] px-6 text-detail font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:text-white hover:border-white transition-colors inline-flex items-center justify-center"
+            className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center justify-center"
           >
-            Cancel
+            {t("cancel")}
           </a>
         </div>
       </main>

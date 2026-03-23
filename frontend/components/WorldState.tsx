@@ -1,6 +1,7 @@
 "use client";
 
 import { WorldState as WorldStateType } from "@/lib/api";
+import { useLocale } from "@/lib/locale-context";
 
 function JsonValue({ value }: { value: unknown }) {
   if (typeof value === "string")
@@ -14,9 +15,10 @@ function JsonValue({ value }: { value: unknown }) {
 }
 
 export default function WorldStatePanel({ state }: { state: WorldStateType | null }) {
+  const { t } = useLocale();
   if (!state) {
     return (
-      <div className="p-4 text-detail text-t-dim">No world loaded</div>
+      <div className="p-4 text-detail text-t-dim">{t("panel_no_world")}</div>
     );
   }
 

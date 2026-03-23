@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@/lib/locale-context";
+
 interface ControlBarProps {
   tick: number;
   status: string;
@@ -9,6 +11,8 @@ interface ControlBarProps {
   disabled?: boolean;
   worldName?: string;
   sessionId?: string;
+  model?: string;
+  wsStatus?: "connecting" | "connected" | "disconnected";
 }
 
 function PlayIcon() {
@@ -46,29 +50,32 @@ export default function ControlBar({
   disabled,
   worldName,
   sessionId,
+  model,
+  wsStatus,
 }: ControlBarProps) {
+  const { t } = useLocale();
   const isRunning = status === "running";
 
   return (
-    <div className="flex items-center gap-3 px-4 h-14 bg-surface-1 border-t border-b-DEFAULT shrink-0" role="toolbar" aria-label="Simulation controls">
+    <div className="flex items-center gap-3 px-4 h-14 bg-surface-1 border-t border-b-DEFAULT shrink-0" role="toolbar" aria-label={t("aria_controls")}>
       {/* Run / Pause */}
       {isRunning ? (
         <button
           onClick={onPause}
           disabled={disabled}
-          aria-label="Pause simulation"
-          className="inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-white hover:border-white disabled:opacity-30 transition-colors"
+          aria-label={t("aria_pause")}
+          className="inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
         >
-          <PauseIcon /> Pause
+          <PauseIcon /> {t("pause")}
         </button>
       ) : (
         <button
           onClick={onRun}
           disabled={disabled}
-          aria-label="Run simulation"
-          className="inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary disabled:opacity-30 transition-colors"
+          aria-label={t("aria_run")}
+          className="inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 transition-[colors,box-shadow,transform]"
         >
-          <PlayIcon /> Run
+          <PlayIcon /> {t("run")}
         </button>
       )}
 
@@ -76,10 +83,10 @@ export default function ControlBar({
       <button
         onClick={onStep}
         disabled={disabled || isRunning}
-        aria-label="Advance one tick"
-        className="inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-white hover:border-white disabled:opacity-30 transition-colors"
+        aria-label={t("aria_step")}
+        className="inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
       >
-        <StepIcon /> Step
+        <StepIcon /> {t("step")}
       </button>
 
       {/* Divider */}
@@ -87,8 +94,8 @@ export default function ControlBar({
 
       {/* Tick counter */}
       <div className="flex items-baseline gap-2">
-        <span className="text-micro text-t-muted tracking-widest">Tick</span>
-        <span className="text-heading font-bold text-primary tabular-nums">
+        <span className="text-micro text-t-muted tracking-widest">{t("tick")}</span>
+        <span key={tick} className="text-heading font-bold text-primary tabular-nums animate-tick-bump">
           {String(tick).padStart(3, "0")}
         </span>
       </div>
@@ -99,11 +106,11 @@ export default function ControlBar({
       {/* Status */}
       <div className="flex items-center gap-2">
         <span
-          className={`inline-block w-1.5 h-1.5 rounded-full ${
+          className={`inline-block w-2 h-2 rounded-full ${
             isRunning
-              ? "bg-primary shadow-[0_0_8px_var(--color-primary-glow-strong)]"
+              ? "bg-primary animate-pulse-glow"
               : status === "ended"
-              ? "bg-danger"
+              ? "bg-danger shadow-[0_0_6px_theme(colors.danger.DEFAULT)]"
               : "bg-t-dim"
           }`}
         />
@@ -120,10 +127,25 @@ export default function ControlBar({
       {worldName && (
         <>
           <div className="w-px h-6 bg-b-DEFAULT" />
-          <span className="text-micro text-t-muted tracking-wider">
+          <span className="text-micro text-t-muted tracking-wider truncate max-w-[200px]">
             {worldName}
             {sessionId && ` · ${sessionId.slice(0, 6)}`}
           </span>
+        </>
+      )}
+
+      {/* Model + WS status */}
+      {(model || wsStatus) && (
+        <>
+          <div className="w-px h-6 bg-b-DEFAULT" />
+          {model && (
+            <span className="text-micro text-t-dim tracking-wider">{model}</span>
+          )}
+          {wsStatus && wsStatus !== "connected" && (
+            <span className={`text-micro tracking-wider ${wsStatus === "disconnected" ? "text-danger" : "text-t-dim"}`}>
+              {wsStatus === "disconnected" ? t("disconnected") : t("connecting")}
+            </span>
+          )}
         </>
       )}
     </div>

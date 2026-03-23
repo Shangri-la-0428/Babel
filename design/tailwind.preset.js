@@ -19,8 +19,8 @@ module.exports = {
       'title':      ['3rem',       { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '700' }],
       'heading':    ['2rem',       { lineHeight: '1.1', fontWeight: '600' }],
       'subheading': ['1.25rem',    { lineHeight: '1.3', fontWeight: '500' }],
-      'body':       ['0.9375rem',  { lineHeight: '1.5' }],
-      'detail':     ['0.8125rem',  { lineHeight: '1.5' }],
+      'body':       ['0.9375rem',  { lineHeight: '1.5', letterSpacing: '0' }],
+      'detail':     ['0.8125rem',  { lineHeight: '1.5', letterSpacing: '0' }],
       'micro':      ['0.6875rem',  { lineHeight: '1.5', letterSpacing: '0.1em', fontWeight: '500' }],
     },
 
@@ -52,16 +52,18 @@ module.exports = {
         t: {
           DEFAULT:   '#FFFFFF',
           secondary: '#A0A0A0',
-          muted:     '#7A7A7A',
-          dim:       '#525252',
+          muted:     '#8A8A8A',
+          dim:       '#757575',
         },
 
         primary: {
           DEFAULT: '#C0FE04',
           dim:     '#8AB503',
-          glow:    'rgba(192, 254, 4, 0.15)',
-          'glow-strong': 'rgba(192, 254, 4, 0.3)',
+          glow:    'rgba(192, 254, 4, 0.2)',
+          'glow-strong': 'rgba(192, 254, 4, 0.4)',
         },
+
+        overlay: 'rgba(0, 0, 0, 0.8)',
 
         danger:  { DEFAULT: '#F24723', dim: '#A83018' },
         warning: { DEFAULT: '#FFB800', dim: '#B38200' },
@@ -108,6 +110,7 @@ module.exports = {
       animation: {
         'fade-in':      'fade-in 300ms ease both',
         'slide-up':     'slide-up 300ms cubic-bezier(0, 0, 0.2, 1) both',
+        'slide-down':   'slide-down 150ms ease both',
         'reveal-right': 'reveal-right 800ms cubic-bezier(0, 0, 0.2, 1) both',
         'pulse-glow':   'pulse-glow 2s ease infinite',
         'blink':        'blink 1s step-end infinite',
@@ -116,6 +119,9 @@ module.exports = {
         'tick-bump':    'tick-bump 300ms cubic-bezier(0, 0, 0.2, 1)',
       },
 
+      // Keyframes for pure-value animations.
+      // CSS-var dependent keyframes (pulse-glow, event-flash, slide-down)
+      // live in frontend/app/globals.css.
       keyframes: {
         'fade-in': {
           from: { opacity: '0' },
@@ -128,10 +134,6 @@ module.exports = {
         'reveal-right': {
           from: { clipPath: 'inset(0 100% 0 0)' },
           to:   { clipPath: 'inset(0 0 0 0)' },
-        },
-        'pulse-glow': {
-          '0%, 100%': { boxShadow: '0 0 0 0 rgba(192, 254, 4, 0.15)' },
-          '50%':      { boxShadow: '0 0 20px 4px rgba(192, 254, 4, 0.15)' },
         },
         'blink': {
           '0%, 100%': { opacity: '1' },

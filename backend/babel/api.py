@@ -12,10 +12,15 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .db import init_db, save_session, save_event, load_events, list_sessions, load_session, save_seed, list_seeds, get_seed, delete_seed
+from .db import (
+    init_db, save_session, save_event, load_events, load_events_filtered,
+    load_event_by_id, list_sessions, load_session, delete_session,
+    save_seed, list_seeds, get_seed, delete_seed, query_memories,
+    load_timeline, list_snapshots, load_nearest_snapshot,
+)
 from .engine import Engine
 from .llm import chat_with_agent
-from .memory import update_agent_memory
+from .memory import create_memory_from_event, update_agent_memory
 from .models import AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedType, Session, SessionStatus, WorldSeed
 
 
@@ -221,6 +226,24 @@ async def get_seeds() -> list[dict]:
     return seeds
 
 
+@app.get("/api/seeds/{filename}")
+async def get_seed_detail(filename: str) -> dict:
+    """Get full seed data from a YAML file."""
+    path = SEEDS_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, f"Seed file not found: {filename}")
+    ws = WorldSeed.from_yaml(str(path))
+    return {
+        "file": filename,
+        "name": ws.name,
+        "description": ws.description,
+        "rules": ws.rules,
+        "locations": [loc.model_dump() for loc in ws.locations],
+        "agents": [a.model_dump() for a in ws.agents],
+        "initial_events": ws.initial_events,
+    }
+
+
 @app.post("/api/worlds")
 async def create_world(req: CreateWorldRequest) -> dict:
     """Create a new world session."""
@@ -265,6 +288,7 @@ async def create_from_seed(filename: str) -> dict:
             action_type="world_event",
             action={"content": text},
             result=f"[WORLD] {text}",
+            importance=0.9,
         )
         session.events.append(event)
         await save_event(event)
@@ -295,7 +319,6 @@ async def add_agent(session_id: str, req: AddAgentRequest) -> dict:
         raise HTTPException(400, "Cannot add agent while simulation is running")
 
     seed = AgentSeed(**req.model_dump())
-    from .models import AgentState
     engine.session.agents[seed.id] = AgentState.from_seed(seed)
     engine.session.world_seed.agents.append(seed)
     await save_session(engine.session)
@@ -434,14 +457,18 @@ async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
         action_type="world_event",
         action={"content": req.content},
         result=f"[WORLD] {req.content}",
+        importance=0.9,
     )
     engine.session.events.append(event)
+    if len(engine.session.events) > 30:
+        engine.session.events = engine.session.events[-30:]
     await save_event(event)
 
     # Write into ALL alive agents' memory so they react to it
     for aid in engine.session.agent_ids:
         agent = engine.session.agents[aid]
         update_agent_memory(agent, event.result)
+        await create_memory_from_event(agent, event, engine.session)
     await save_session(engine.session)
 
     await broadcast(session_id, "event", {
@@ -565,6 +592,19 @@ async def create_asset(req: SaveSeedRequest) -> dict:
     return {"id": seed.id, "name": seed.name, "type": seed.type.value}
 
 
+@app.delete("/api/sessions/{session_id}")
+async def api_delete_session(session_id: str) -> dict:
+    """Delete a session and all its data."""
+    # Stop engine if running
+    if session_id in _engines:
+        _engines[session_id].stop()
+        del _engines[session_id]
+    deleted = await delete_session(session_id)
+    if not deleted:
+        raise HTTPException(404, "Session not found")
+    return {"deleted": True}
+
+
 @app.delete("/api/assets/{seed_id}")
 async def delete_asset(seed_id: str) -> dict:
     """Delete a saved seed."""
@@ -577,7 +617,7 @@ async def delete_asset(seed_id: str) -> dict:
 @app.post("/api/assets/extract/agent")
 async def extract_agent_seed(req: ExtractSeedRequest) -> dict:
     """Extract an agent from a running session as a reusable seed."""
-    engine = _engines.get(req.session_id)
+    engine = await _get_engine(req.session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
     agent = engine.session.agents.get(req.target_id)
@@ -600,14 +640,13 @@ async def extract_agent_seed(req: ExtractSeedRequest) -> dict:
         },
         source_world=engine.session.world_seed.name,
     )
-    await save_seed(seed)
-    return {"id": seed.id, "name": seed.name, "type": "agent"}
+    return seed.model_dump()
 
 
 @app.post("/api/assets/extract/item")
 async def extract_item_seed(req: ExtractSeedRequest) -> dict:
     """Extract an item from a running session as a reusable seed."""
-    engine = _engines.get(req.session_id)
+    engine = await _get_engine(req.session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
 
@@ -630,14 +669,13 @@ async def extract_item_seed(req: ExtractSeedRequest) -> dict:
         data={"name": item_name},
         source_world=engine.session.world_seed.name,
     )
-    await save_seed(seed)
-    return {"id": seed.id, "name": seed.name, "type": "item"}
+    return seed.model_dump()
 
 
 @app.post("/api/assets/extract/location")
 async def extract_location_seed(req: ExtractSeedRequest) -> dict:
     """Extract a location from a running session as a reusable seed."""
-    engine = _engines.get(req.session_id)
+    engine = await _get_engine(req.session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
 
@@ -658,45 +696,40 @@ async def extract_location_seed(req: ExtractSeedRequest) -> dict:
         data={"name": loc.name, "description": loc.description},
         source_world=engine.session.world_seed.name,
     )
-    await save_seed(seed)
-    return {"id": seed.id, "name": seed.name, "type": "location"}
+    return seed.model_dump()
 
 
 @app.post("/api/assets/extract/event")
 async def extract_event_seed(req: ExtractSeedRequest) -> dict:
     """Extract an event from a running session as a reusable event seed."""
-    engine = _engines.get(req.session_id)
+    engine = await _get_engine(req.session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
 
-    event = None
-    for e in engine.session.events:
-        if e.id == req.target_id:
-            event = e
-            break
-
-    if not event:
+    # Use DB query instead of in-memory scan (events may be windowed)
+    event_data = await load_event_by_id(req.session_id, req.target_id)
+    if not event_data:
         raise HTTPException(404, f"Event not found: {req.target_id}")
 
+    at = event_data.get("action_type", "")
     seed = SavedSeed(
         type=SeedType.EVENT,
-        name=event.result[:60] if event.result else "Event",
+        name=(event_data.get("result", "") or "Event")[:60],
         description="",
-        tags=[event.action_type if isinstance(event.action_type, str) else event.action_type.value],
+        tags=[at] if at else [],
         data={
-            "content": event.result,
-            "action_type": event.action_type if isinstance(event.action_type, str) else event.action_type.value,
+            "content": event_data.get("result", ""),
+            "action_type": at,
         },
         source_world=engine.session.world_seed.name,
     )
-    await save_seed(seed)
-    return {"id": seed.id, "name": seed.name, "type": "event"}
+    return seed.model_dump()
 
 
 @app.post("/api/assets/extract/world")
 async def extract_world_seed(req: ExtractSeedRequest) -> dict:
     """Extract the entire world seed from a running session."""
-    engine = _engines.get(req.session_id)
+    engine = await _get_engine(req.session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
 
@@ -709,8 +742,67 @@ async def extract_world_seed(req: ExtractSeedRequest) -> dict:
         data=ws.model_dump(),
         source_world=ws.name,
     )
-    await save_seed(seed)
-    return {"id": seed.id, "name": seed.name, "type": "world"}
+    return seed.model_dump()
+
+
+# ── Timeline & Memory endpoints ───────────────────────
+
+
+@app.get("/api/worlds/{session_id}/timeline")
+async def get_timeline(
+    session_id: str,
+    branch: str = "main",
+    from_tick: int = 0,
+    to_tick: int | None = None,
+) -> dict:
+    """Get timeline nodes for a session."""
+    nodes = await load_timeline(session_id, branch, from_tick, to_tick)
+    return {"nodes": nodes, "branch": branch}
+
+
+@app.get("/api/worlds/{session_id}/snapshots")
+async def get_snapshots(session_id: str) -> list[dict]:
+    """List all snapshots for a session."""
+    return await list_snapshots(session_id)
+
+
+@app.get("/api/worlds/{session_id}/agents/{agent_id}/memories")
+async def get_agent_memories(
+    session_id: str,
+    agent_id: str,
+    category: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Get structured memories for an agent."""
+    return await query_memories(session_id, agent_id, category=category, limit=limit)
+
+
+class ReconstructRequest(BaseModel):
+    tick: int
+
+
+@app.post("/api/worlds/{session_id}/reconstruct")
+async def reconstruct_state(session_id: str, req: ReconstructRequest) -> dict:
+    """Reconstruct world state at a given tick using snapshots."""
+    snapshot = await load_nearest_snapshot(session_id, req.tick)
+    if not snapshot:
+        raise HTTPException(404, f"No snapshot found at or before tick {req.tick}")
+
+    # Load events between snapshot tick and target tick
+    events = await load_events_filtered(
+        session_id=session_id,
+        min_tick=snapshot["tick"] + 1,
+        limit=500,
+    )
+    target_events = [e for e in events if e.get("tick", 0) <= req.tick]
+
+    return {
+        "tick": req.tick,
+        "snapshot_tick": snapshot["tick"],
+        "world_seed": snapshot["world_seed"],
+        "agent_states": snapshot["agent_states"],
+        "events_since_snapshot": target_events,
+    }
 
 
 # ── WebSocket ──────────────────────────────────────────
@@ -765,6 +857,7 @@ def _serialize_state(engine: Engine) -> dict:
                 "location": a.location,
                 "inventory": a.inventory,
                 "status": a.status.value,
+                "memory": a.memory,
             }
             for aid, a in session.agents.items()
         },

@@ -149,6 +149,10 @@ class Event(BaseModel):
     action_type: ActionType | str = ActionType.WAIT
     action: dict[str, Any] = Field(default_factory=dict)
     result: str = ""
+    location: str = ""
+    involved_agents: list[str] = Field(default_factory=list)
+    importance: float = 0.5
+    node_id: str = ""
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -188,6 +192,53 @@ class SavedSeed(BaseModel):
     tags: list[str] = Field(default_factory=list)
     data: dict[str, Any] = Field(default_factory=dict)
     source_world: str = ""
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+
+
+# ── Timeline & Memory ─────────────────────────────────
+
+class MemoryEntry(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
+    session_id: str = ""
+    agent_id: str = ""
+    tick: int = 0
+    content: str = ""
+    category: str = "episodic"  # episodic | semantic | goal | social
+    importance: float = 0.5
+    tags: list[str] = Field(default_factory=list)
+    source_event_id: str | None = None
+    access_count: int = 0
+    last_accessed: int = 0
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+
+
+class TimelineNode(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
+    session_id: str = ""
+    tick: int = 0
+    parent_id: str | None = None
+    branch_id: str = "main"
+    node_type: str = "tick"  # tick | epoch | snapshot
+    summary: str = ""
+    event_count: int = 0
+    agent_locations: dict[str, str] = Field(default_factory=dict)
+    significant: bool = False
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+
+
+class WorldSnapshot(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
+    session_id: str = ""
+    node_id: str = ""
+    tick: int = 0
+    world_seed_json: str = ""
+    agent_states_json: str = ""
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
