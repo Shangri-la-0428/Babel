@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { AgentData, WorldState, SavedSeedData, generateSeed, fetchAssets } from "@/lib/api";
+import { AgentData, WorldState, SavedSeedData, generateSeed, fetchAssets, enrichEntity } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import { StatusDot, Badge } from "./ui";
 
@@ -15,6 +15,10 @@ function AgentRow({
   onToggle,
   onChat,
   onExtract,
+  enrichedDetails,
+  enriching,
+  enrichError,
+  onEnrich,
 }: {
   agent: AgentData;
   isActive: boolean;
@@ -22,13 +26,20 @@ function AgentRow({
   onToggle: () => void;
   onChat: () => void;
   onExtract: () => void;
+  enrichedDetails: Record<string, unknown> | null;
+  enriching: boolean;
+  enrichError: boolean;
+  onEnrich: () => void;
 }) {
   const { t } = useLocale();
   const isDead = agent.status === "dead";
+  const isSupporting = agent.role === "supporting";
 
   return (
     <div
       className={`border transition-colors ${
+        isSupporting ? "border-dashed opacity-80" : ""
+      } ${
         isActive
           ? "border-primary shadow-[0_0_0_1px_var(--color-primary)]"
           : isDead
@@ -45,7 +56,14 @@ function AgentRow({
       >
         <StatusDot status={agent.status} />
         <div className="flex-1 min-w-0">
-          <div className="text-body font-semibold truncate">{agent.name}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-body font-semibold truncate">{agent.name}</span>
+            {isSupporting && (
+              <span className="text-micro tracking-wider px-2 py-0.5 border border-t-dim text-t-dim shrink-0">
+                {t("supporting_character")}
+              </span>
+            )}
+          </div>
           <div className="text-micro text-t-dim tracking-wider mt-0.5 truncate">
             {agent.location || "\u2014"}
           </div>
@@ -121,6 +139,59 @@ function AgentRow({
             </div>
           )}
 
+          {/* Enrichment */}
+          <div className="px-4 py-2 border-b border-b-DEFAULT">
+            {enrichedDetails ? (
+              <>
+                {enrichedDetails.backstory && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-1 mb-1">{"// BACKSTORY"}</div>
+                    <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                      {enrichedDetails.backstory as string}
+                    </div>
+                  </>
+                )}
+                {(enrichedDetails.notable_traits as string[])?.length > 0 && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// TRAITS"}</div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {(enrichedDetails.notable_traits as string[]).map((trait, i) => (
+                        <span key={i} className="text-detail text-t-secondary px-2 py-0.5 border border-b-DEFAULT normal-case tracking-normal">
+                          {trait}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {(enrichedDetails.relationships as Array<{name: string; relation: string}>)?.length > 0 && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// RELATIONSHIPS"}</div>
+                    {(enrichedDetails.relationships as Array<{name: string; relation: string}>).map((rel, i) => (
+                      <div key={i} className="text-detail normal-case tracking-normal">
+                        <span className="text-t-DEFAULT">{rel.name}</span>
+                        <span className="text-t-dim mx-1">&mdash;</span>
+                        <span className="text-t-secondary">{rel.relation}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={onEnrich}
+                  disabled={enriching}
+                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                >
+                  {enriching ? t("enriching") : t("enrich")}
+                </button>
+                {enrichError && (
+                  <span className="text-micro text-danger tracking-wider">{t("enrich_failed")}</span>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Actions */}
           {!isDead && (
             <div className="flex items-center gap-2 px-4 py-2">
@@ -158,6 +229,10 @@ function ItemRow({
   onGenerate,
   generating,
   error,
+  enrichedDetails,
+  enriching,
+  enrichError,
+  onEnrich,
 }: {
   item: ItemInfo;
   expanded: boolean;
@@ -166,6 +241,10 @@ function ItemRow({
   onGenerate: () => void;
   generating: boolean;
   error?: boolean;
+  enrichedDetails: Record<string, unknown> | null;
+  enriching: boolean;
+  enrichError: boolean;
+  onEnrich: () => void;
 }) {
   const { t } = useLocale();
   const detail = cachedDetail?.data;
@@ -211,6 +290,62 @@ function ItemRow({
               ))}
             </div>
           </div>
+          {/* Enrichment */}
+          <div className="px-4 py-2 border-b border-b-DEFAULT">
+            {enrichedDetails ? (
+              <>
+                {enrichedDetails.description && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-1 mb-1">{"// DESCRIPTION"}</div>
+                    <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                      {enrichedDetails.description as string}
+                    </div>
+                  </>
+                )}
+                {enrichedDetails.origin && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// ORIGIN"}</div>
+                    <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                      {enrichedDetails.origin as string}
+                    </div>
+                  </>
+                )}
+                {(enrichedDetails.properties as string[])?.length > 0 && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// PROPERTIES"}</div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {(enrichedDetails.properties as string[]).map((prop, i) => (
+                        <span key={i} className="text-detail text-t-secondary px-2 py-0.5 border border-b-DEFAULT normal-case tracking-normal">
+                          {prop}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {enrichedDetails.significance && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// SIGNIFICANCE"}</div>
+                    <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                      {enrichedDetails.significance as string}
+                    </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={onEnrich}
+                  disabled={enriching}
+                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                >
+                  {enriching ? t("enriching") : t("enrich")}
+                </button>
+                {enrichError && (
+                  <span className="text-micro text-danger tracking-wider">{t("enrich_failed")}</span>
+                )}
+              </div>
+            )}
+          </div>
           {/* Generate / status */}
           <div className="px-4 py-2 flex items-center gap-3">
             {cachedDetail ? (
@@ -242,12 +377,22 @@ function LocationRow({
   agentsHere,
   expanded,
   onToggle,
+  enrichedDetails,
+  enriching,
+  enrichError,
+  onEnrich,
 }: {
   location: { name: string; description: string };
   agentsHere: { id: string; name: string; status: string }[];
   expanded: boolean;
   onToggle: () => void;
+  enrichedDetails: Record<string, unknown> | null;
+  enriching: boolean;
+  enrichError: boolean;
+  onEnrich: () => void;
 }) {
+  const { t } = useLocale();
+
   return (
     <div className="border border-b-DEFAULT hover:border-b-hover transition-colors">
       <button
@@ -271,20 +416,80 @@ function LocationRow({
         </span>
       </button>
       {expanded && (
-        <div className="border-t border-b-DEFAULT bg-void px-4 py-2 animate-slide-down">
-          <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed mb-2">
-            {location.description}
+        <div className="border-t border-b-DEFAULT bg-void animate-slide-down">
+          <div className="px-4 py-2 border-b border-b-DEFAULT">
+            <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+              {location.description}
+            </div>
           </div>
           {agentsHere.length > 0 && (
-            <div className="flex flex-col gap-1 mt-2">
-              {agentsHere.map((a) => (
-                <div key={a.id} className="flex items-center gap-2 text-detail text-t-secondary">
-                  <StatusDot status={a.status} />
-                  {a.name}
-                </div>
-              ))}
+            <div className="px-4 py-2 border-b border-b-DEFAULT">
+              <div className="flex flex-col gap-1">
+                {agentsHere.map((a) => (
+                  <div key={a.id} className="flex items-center gap-2 text-detail text-t-secondary">
+                    <StatusDot status={a.status} />
+                    {a.name}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
+          {/* Enrichment */}
+          <div className="px-4 py-2">
+            {enrichedDetails ? (
+              <>
+                {enrichedDetails.description && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-1 mb-1">{"// DESCRIPTION"}</div>
+                    <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                      {enrichedDetails.description as string}
+                    </div>
+                  </>
+                )}
+                {enrichedDetails.atmosphere && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// ATMOSPHERE"}</div>
+                    <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                      {enrichedDetails.atmosphere as string}
+                    </div>
+                  </>
+                )}
+                {(enrichedDetails.notable_features as string[])?.length > 0 && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// FEATURES"}</div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {(enrichedDetails.notable_features as string[]).map((feature, i) => (
+                        <span key={i} className="text-detail text-t-secondary px-2 py-0.5 border border-b-DEFAULT normal-case tracking-normal">
+                          {feature}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {enrichedDetails.history && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// HISTORY"}</div>
+                    <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                      {enrichedDetails.history as string}
+                    </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={onEnrich}
+                  disabled={enriching}
+                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                >
+                  {enriching ? t("enriching") : t("enrich")}
+                </button>
+                {enrichError && (
+                  <span className="text-micro text-danger tracking-wider">{t("enrich_failed")}</span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -316,6 +521,11 @@ export default function AssetPanel({
   const [generatingItem, setGeneratingItem] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
 
+  // Enrichment state
+  const [enrichCache, setEnrichCache] = useState<Map<string, Record<string, unknown>>>(new Map());
+  const [enrichingEntity, setEnrichingEntity] = useState<string | null>(null);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+
   // Load cached item assets on mount
   useEffect(() => {
     let mounted = true;
@@ -327,6 +537,38 @@ export default function AssetPanel({
     }).catch(() => {});
     return () => { mounted = false; };
   }, []);
+
+  // Hydrate enrichCache from state.entity_details when state changes
+  useEffect(() => {
+    if (!state?.entity_details) return;
+    setEnrichCache((prev) => {
+      const next = new Map(prev);
+      for (const [entityId, details] of Object.entries(state.entity_details!)) {
+        if (!next.has(entityId)) {
+          next.set(entityId, details);
+        }
+      }
+      return next;
+    });
+  }, [state?.entity_details]);
+
+  async function handleEnrich(entityType: "agent" | "item" | "location", entityId: string) {
+    if (enrichingEntity) return;
+    setEnrichingEntity(entityId);
+    setEnrichError(null);
+    try {
+      const details = await enrichEntity(sessionId, entityType, entityId);
+      setEnrichCache((prev) => {
+        const next = new Map(prev);
+        next.set(entityId, details);
+        return next;
+      });
+    } catch {
+      setEnrichError(entityId);
+    } finally {
+      setEnrichingEntity(null);
+    }
+  }
 
   async function handleGenerateItemDetail(itemName: string) {
     if (generatingItem) return;
@@ -425,6 +667,10 @@ export default function AssetPanel({
                   onToggle={() => setExpandedAgent(expandedAgent === id ? null : id)}
                   onChat={() => onChat(id, agent.name)}
                   onExtract={() => onExtractAgent(id)}
+                  enrichedDetails={enrichCache.get(id) || null}
+                  enriching={enrichingEntity === id}
+                  enrichError={enrichError === id}
+                  onEnrich={() => handleEnrich("agent", id)}
                 />
               ))
             )}
@@ -449,6 +695,10 @@ export default function AssetPanel({
                   onGenerate={() => handleGenerateItemDetail(item.name)}
                   generating={generatingItem === item.name}
                   error={genError === item.name}
+                  enrichedDetails={enrichCache.get(item.name) || null}
+                  enriching={enrichingEntity === item.name}
+                  enrichError={enrichError === item.name}
+                  onEnrich={() => handleEnrich("item", item.name)}
                 />
               ))
             )}
@@ -474,6 +724,10 @@ export default function AssetPanel({
                     agentsHere={agentsHere}
                     expanded={expandedLocation === loc.name}
                     onToggle={() => setExpandedLocation(expandedLocation === loc.name ? null : loc.name)}
+                    enrichedDetails={enrichCache.get(loc.name) || null}
+                    enriching={enrichingEntity === loc.name}
+                    enrichError={enrichError === loc.name}
+                    onEnrich={() => handleEnrich("location", loc.name)}
                   />
                 );
               })

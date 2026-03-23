@@ -1,5 +1,7 @@
 """BABEL — Prompt templates for LLM calls."""
 
+import json
+
 SYSTEM_PROMPT = """\
 You are a world simulation engine's action resolver. NOT a storyteller.
 
@@ -39,6 +41,19 @@ Action type rules:
 """
 
 
+def _build_urgent_section(urgent_events: list[str] | None) -> str:
+    if not urgent_events:
+        return ""
+    items = "\n".join(f"- {e}" for e in urgent_events)
+    return f"""
+[URGENT — React to This]
+The following just happened and demands your immediate attention:
+{items}
+You MUST acknowledge or react to these events. Do NOT ignore them.
+
+"""
+
+
 def build_user_prompt(
     world_rules: list[str],
     agent_name: str,
@@ -51,6 +66,7 @@ def build_user_prompt(
     visible_agents: list[dict],
     recent_events: list[str],
     available_locations: list[str],
+    urgent_events: list[str] | None = None,
 ) -> str:
     rules_text = "\n".join(f"- {r}" for r in world_rules)
     goals_text = "\n".join(f"- {g}" for g in agent_goals)
@@ -98,7 +114,7 @@ Visible agents:
 
 Recent events near you:
 {events_text}
-
+{_build_urgent_section(urgent_events)}
 [Instruction]
 Output {agent_name}'s action as JSON. Only JSON, nothing else."""
 
@@ -155,6 +171,59 @@ Respond in character as {agent_name}. Plain text only, no JSON."""
 
 # ── Perturbation Prompt (LLM-driven world events) ────
 
+CHARACTER_DETECT_SYSTEM = """\
+You are an event analyzer for a simulated world. Your job is to determine whether an injected event introduces a NEW named character that should become an active agent.
+
+Rules:
+- Output ONLY valid JSON. No other text.
+- If the event introduces a clearly named character (not vague like "someone" or "a stranger"), output their details.
+- If no specific new character is introduced, output: {"result": null}
+- The character must be a distinct individual, not a group or abstract entity.
+- Choose a location from the available locations list that best fits the character's arrival.
+
+Output JSON schema (when a character is found):
+{
+  "result": {
+    "name": "Character's name",
+    "description": "Brief description based on the event context (1-2 sentences)",
+    "personality": "Inferred personality traits (1-2 sentences)",
+    "location": "One of the available locations"
+  }
+}
+
+Output JSON schema (when no character is found):
+{
+  "result": null
+}\
+"""
+
+
+def build_character_detect_prompt(
+    content: str,
+    existing_names: list[str],
+    locations: list[str],
+    world_desc: str,
+) -> str:
+    names_text = ", ".join(existing_names) if existing_names else "(none)"
+    locs_text = ", ".join(locations) if locations else "(none)"
+
+    return f"""\
+[World]
+{world_desc}
+
+[Available Locations]
+{locs_text}
+
+[Existing Characters — do NOT duplicate these]
+{names_text}
+
+[Injected Event]
+{content}
+
+[Instruction]
+Does this event introduce a new named character? If yes, output their details as JSON. If no, output {{"result": null}}. Only JSON, nothing else."""
+
+
 PERTURBATION_SYSTEM_PROMPT = """\
 You are a world event generator for a simulated world. Your job is to create a single unexpected event that breaks routine and creates new narrative possibilities.
 
@@ -196,3 +265,77 @@ def build_perturbation_prompt(
 
 [Instruction]
 Generate one unexpected world event that would disrupt the current routine. Plain text only, 1-2 sentences."""
+
+
+# ── Enrichment Prompt (progressive detail generation) ──
+
+ENRICHMENT_SYSTEM = """\
+You are a narrative enrichment engine for a simulated world. Your job is to generate rich, evocative details for a world entity based on its history of events.
+
+Rules:
+- Output ONLY valid JSON matching the schema for the given entity type. No other text.
+- Build on existing details if provided — do not contradict them, but expand and deepen.
+- Ground all details in the entity's actual event history. Do not invent facts that contradict events.
+- Keep descriptions vivid but concise (2-4 sentences each).
+- Maintain consistency with the world's tone and setting.
+
+Schema by entity type:
+
+Agent:
+{
+  "description": "Physical appearance and demeanor (2-3 sentences)",
+  "backstory": "Inferred history based on behavior and events (2-4 sentences)",
+  "notable_traits": ["trait1", "trait2", "trait3"],
+  "relationships": [{"name": "other character name", "relation": "nature of relationship"}]
+}
+
+Item:
+{
+  "description": "Physical description and appearance (2-3 sentences)",
+  "origin": "Where this item came from or how it was made (1-2 sentences)",
+  "properties": ["property1", "property2"],
+  "significance": "Why this item matters in the world (1-2 sentences)"
+}
+
+Location:
+{
+  "description": "Sensory details — what you see, hear, smell (2-4 sentences)",
+  "atmosphere": "The mood and feeling of this place (1-2 sentences)",
+  "notable_features": ["feature1", "feature2", "feature3"],
+  "history": "What has happened here, its past (1-2 sentences)"
+}\
+"""
+
+
+def build_enrichment_prompt(
+    entity_type: str,
+    entity_name: str,
+    current_details: dict,
+    relevant_events: list[str],
+    world_desc: str,
+) -> str:
+    """Build the user prompt for entity enrichment."""
+    current_text = "(no existing details)"
+    if current_details:
+        current_text = json.dumps(current_details, ensure_ascii=False, indent=2)
+
+    events_text = "(no events recorded)"
+    if relevant_events:
+        events_text = "\n".join(f"- {e}" for e in relevant_events[-15:])
+
+    return f"""\
+[World]
+{world_desc}
+
+[Entity]
+Type: {entity_type}
+Name: {entity_name}
+
+[Existing Details]
+{current_text}
+
+[Event History Involving This Entity]
+{events_text}
+
+[Instruction]
+Generate enriched details for this {entity_type} as JSON. Match the schema for "{entity_type}" exactly. Only JSON, nothing else."""

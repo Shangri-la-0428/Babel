@@ -43,6 +43,11 @@ class AgentStatus(str, Enum):
     GONE = "gone"
 
 
+class AgentRole(str, Enum):
+    MAIN = "main"
+    SUPPORTING = "supporting"
+
+
 # ── Seed Models (from YAML) ───────────────────────────
 
 class LocationSeed(BaseModel):
@@ -126,6 +131,7 @@ class AgentState(BaseModel):
     inventory: list[str] = Field(default_factory=list)
     status: AgentStatus = AgentStatus.IDLE
     memory: list[str] = Field(default_factory=list)
+    role: AgentRole = AgentRole.MAIN
 
     @classmethod
     def from_seed(cls, seed: AgentSeed) -> AgentState:
@@ -165,6 +171,8 @@ class Session(BaseModel):
     events: list[Event] = Field(default_factory=list)
     tick: int = 0
     status: SessionStatus = SessionStatus.PAUSED
+    # Transient: injected events that agents must react to on next tick
+    urgent_events: list[str] = Field(default_factory=list)
 
     def init_agents(self) -> None:
         for seed in self.world_seed.agents:

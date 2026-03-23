@@ -137,6 +137,12 @@ function SimContent() {
             setLoading(false);
             break;
 
+          case "agent_added":
+            getState(sessionId).then((s) => {
+              setState(s);
+            }).catch(() => {});
+            break;
+
           case "error":
             setError(`${t("engine_error")}: ${data.data.message || "Unknown"}`);
             break;

@@ -228,6 +228,25 @@ const translations = {
   delete_failed: { cn: "// DEL_ERR — 删除失败", en: "// DEL_ERR — Delete failed" },
   request_timeout: { cn: "// TIMEOUT — 请求超时，重试", en: "// TIMEOUT — Request timed out. Retry." },
   gen_item_gen_failed: { cn: "// GEN_ERR — 生成失败，重试", en: "// GEN_ERR — Generation failed. Retry." },
+
+  // Agent classification
+  main_character: { cn: "主角", en: "MAIN" },
+  supporting_character: { cn: "配角", en: "SUPPORTING" },
+  auto_agent_created: { cn: "// NEW_AGENT — 检测到新角色", en: "// NEW_AGENT — New character detected" },
+
+  // Enrichment
+  enrich: { cn: "生成详情", en: "ENRICH" },
+  enriching: { cn: "生成中...", en: "ENRICHING..." },
+  backstory: { cn: "背景故事", en: "BACKSTORY" },
+  traits: { cn: "特征", en: "TRAITS" },
+  relationships: { cn: "关系", en: "RELATIONSHIPS" },
+  atmosphere: { cn: "氛围", en: "ATMOSPHERE" },
+  history: { cn: "历史", en: "HISTORY" },
+  properties: { cn: "属性", en: "PROPERTIES" },
+  significance: { cn: "意义", en: "SIGNIFICANCE" },
+  origin: { cn: "起源", en: "ORIGIN" },
+  notable_features: { cn: "特色", en: "FEATURES" },
+  enrich_failed: { cn: "// ENRICH_ERR — 详情生成失败", en: "// ENRICH_ERR — Detail enrichment failed" },
 } as const;
 
 export type TransKey = keyof typeof translations;

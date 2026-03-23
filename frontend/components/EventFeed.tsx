@@ -76,11 +76,14 @@ const EventItem = memo(function EventItem({
 }) {
   const { t } = useLocale();
   const isWorld = event.action_type === "world_event";
+  const isSupporting = event.agent_role === "supporting";
   const style = TYPE_STYLES[event.action_type] || "text-t-muted border-surface-3";
 
   return (
     <div
       className={`grid grid-cols-[56px_80px_1fr_auto_auto] gap-3 items-baseline px-4 py-3 border-b border-b-DEFAULT hover:bg-surface-1 transition-colors group min-w-0 ${
+        isSupporting ? "opacity-70" : ""
+      } ${
         isNew
           ? isWorld
             ? "animate-[event-flash-danger_1.2s_ease]"

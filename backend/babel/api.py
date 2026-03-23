@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -17,11 +18,12 @@ from .db import (
     load_event_by_id, list_sessions, load_session, delete_session,
     save_seed, list_seeds, get_seed, delete_seed, query_memories,
     load_timeline, list_snapshots, load_nearest_snapshot,
+    save_entity_details, load_entity_details, load_all_entity_details,
 )
 from .engine import Engine
-from .llm import chat_with_agent
+from .llm import chat_with_agent, detect_new_character, enrich_entity
 from .memory import create_memory_from_event, update_agent_memory
-from .models import AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedType, Session, SessionStatus, WorldSeed
+from .models import AgentRole, AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedType, Session, SessionStatus, WorldSeed
 
 
 # ── State ──────────────────────────────────────────────
@@ -112,6 +114,11 @@ class SaveSeedRequest(BaseModel):
     source_world: str = ""
 
 
+class EnrichRequest(BaseModel):
+    entity_type: str  # "agent", "item", "location"
+    entity_id: str    # agent_id, item name, or location name
+
+
 class ExtractSeedRequest(BaseModel):
     session_id: str
     target_id: str = ""  # agent_id, item name, location name, or event_id
@@ -171,6 +178,7 @@ async def _get_engine(session_id: str) -> Engine | None:
 
     # Reconstruct agent states
     for a in data["agents"]:
+        role_val = a.get("role", "main")
         session.agents[a["agent_id"]] = AgentState(
             agent_id=a["agent_id"],
             name=a["name"],
@@ -181,6 +189,7 @@ async def _get_engine(session_id: str) -> Engine | None:
             inventory=a["inventory"],
             status=AgentStatus(a["status"]) if a["status"] != "acting" else AgentStatus.IDLE,
             memory=a["memory"],
+            role=AgentRole(role_val) if role_val else AgentRole.MAIN,
         )
 
     # Reconstruct recent events (for context)
@@ -427,7 +436,7 @@ async def get_world_state(session_id: str) -> dict:
     engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
-    return _serialize_state(engine)
+    return await _serialize_state_async(engine)
 
 
 @app.get("/api/worlds/{session_id}/events")
@@ -464,11 +473,68 @@ async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
         engine.session.events = engine.session.events[-30:]
     await save_event(event)
 
+    # Mark as urgent so agents react on next tick
+    engine.session.urgent_events.append(req.content)
+
     # Write into ALL alive agents' memory so they react to it
     for aid in engine.session.agent_ids:
         agent = engine.session.agents[aid]
         update_agent_memory(agent, event.result)
         await create_memory_from_event(agent, event, engine.session)
+
+    # ── Auto-detect new character from injected event ──
+    new_agent_data = None
+    existing_names = [a.name for a in engine.session.agents.values()]
+    try:
+        char_result = await detect_new_character(
+            content=req.content,
+            existing_names=existing_names,
+            locations=engine.session.location_names,
+            world_desc=engine.session.world_seed.description,
+        )
+        if char_result:
+            # Slugify name into a safe agent ID
+            slug = re.sub(r"[^a-z0-9]+", "_", char_result["name"].lower()).strip("_")
+            if not slug:
+                slug = "agent"
+            # Ensure unique ID
+            agent_id = slug
+            counter = 2
+            while agent_id in engine.session.agents:
+                agent_id = f"{slug}_{counter}"
+                counter += 1
+
+            # Pick a valid location, fallback to first available
+            location = char_result.get("location", "")
+            if location not in engine.session.location_names and engine.session.location_names:
+                location = engine.session.location_names[0]
+
+            new_agent = AgentState(
+                agent_id=agent_id,
+                name=char_result["name"],
+                description=char_result.get("description", ""),
+                personality=char_result.get("personality", ""),
+                goals=[],
+                location=location,
+                inventory=[],
+                role=AgentRole.SUPPORTING,
+            )
+            # Give initial memory about their arrival
+            arrival_memory = f"I have just arrived. {req.content}"
+            update_agent_memory(new_agent, arrival_memory)
+
+            engine.session.agents[agent_id] = new_agent
+            new_agent_data = {
+                "agent_id": agent_id,
+                "name": new_agent.name,
+                "description": new_agent.description,
+                "personality": new_agent.personality,
+                "location": new_agent.location,
+                "role": new_agent.role.value,
+            }
+    except Exception:
+        pass  # Never block injection on character detection failure
+
     await save_session(engine.session)
 
     await broadcast(session_id, "event", {
@@ -481,11 +547,18 @@ async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
         "result": event.result,
     })
 
-    return {
+    # Broadcast agent_added if a new character was created
+    if new_agent_data:
+        await broadcast(session_id, "agent_added", new_agent_data)
+
+    result = {
         "id": event.id,
         "tick": event.tick,
         "result": event.result,
     }
+    if new_agent_data:
+        result["new_agent"] = new_agent_data
+    return result
 
 
 # ── Feature 2: Chat with agent ────────────────────────
@@ -519,6 +592,101 @@ async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
         "agent_id": req.agent_id,
         "agent_name": agent.name,
         "reply": reply,
+    }
+
+
+# ── Feature 3: Progressive Detail Enrichment ──────────
+
+@app.post("/api/worlds/{session_id}/enrich")
+async def enrich_entity_endpoint(session_id: str, req: EnrichRequest) -> dict:
+    """Generate or update rich narrative details for a world entity."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    session = engine.session
+
+    # 1. Load existing details from DB
+    existing = await load_entity_details(session_id, req.entity_type, req.entity_id)
+    current_details = existing["details"] if existing else {}
+
+    # 2. Gather relevant events mentioning this entity
+    relevant_event_strings: list[str] = []
+
+    if req.entity_type == "agent":
+        # Search by agent_id
+        events = await load_events_filtered(
+            session_id=session_id,
+            agent_id=req.entity_id,
+            limit=30,
+        )
+        for e in events:
+            relevant_event_strings.append(e.get("result", ""))
+    else:
+        # For items and locations, search by content text
+        all_events = await load_events(session_id, limit=200)
+        search_term = req.entity_id.lower()
+        for e in all_events:
+            result_text = (e.get("result") or "").lower()
+            action_text = json.dumps(e.get("action", {})).lower()
+            location_text = (e.get("location") or "").lower()
+            if search_term in result_text or search_term in action_text or search_term in location_text:
+                relevant_event_strings.append(e.get("result", ""))
+
+    # Deduplicate and limit
+    seen: set[str] = set()
+    unique_events: list[str] = []
+    for ev_str in relevant_event_strings:
+        if ev_str and ev_str not in seen:
+            seen.add(ev_str)
+            unique_events.append(ev_str)
+    relevant_event_strings = unique_events[:20]
+
+    # 3. Get entity context from session state
+    entity_context = ""
+    if req.entity_type == "agent":
+        agent = session.agents.get(req.entity_id)
+        if agent:
+            entity_context = f"{agent.name} — {agent.description}. Personality: {agent.personality}. Location: {agent.location}."
+    elif req.entity_type == "location":
+        for loc in session.world_seed.locations:
+            if loc.name == req.entity_id:
+                entity_context = f"{loc.name} — {loc.description}"
+                break
+    elif req.entity_type == "item":
+        entity_context = f"Item: {req.entity_id}"
+
+    world_desc = session.world_seed.description
+    if entity_context:
+        world_desc = f"{world_desc}\n\n[Entity Context]\n{entity_context}"
+
+    # 4. Call enrichment LLM
+    enriched = await enrich_entity(
+        entity_type=req.entity_type,
+        entity_name=req.entity_id,
+        current_details=current_details,
+        relevant_events=relevant_event_strings,
+        world_desc=world_desc,
+        model=engine.model,
+        api_key=engine.api_key,
+        api_base=engine.api_base,
+    )
+
+    # 5. Save to DB
+    await save_entity_details(
+        session_id=session_id,
+        entity_type=req.entity_type,
+        entity_id=req.entity_id,
+        details=enriched,
+        tick=session.tick,
+    )
+
+    # 6. Return
+    return {
+        "entity_type": req.entity_type,
+        "entity_id": req.entity_id,
+        "details": enriched,
+        "tick": session.tick,
     }
 
 
@@ -838,7 +1006,49 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
 # ── Helpers ────────────────────────────────────────────
 
+async def _serialize_state_async(engine: Engine) -> dict:
+    """Serialize engine state including entity details from DB."""
+    session = engine.session
+    entity_details = await load_all_entity_details(session.id)
+    return {
+        "session_id": session.id,
+        "name": session.world_seed.name,
+        "description": session.world_seed.description,
+        "tick": session.tick,
+        "status": session.status.value,
+        "locations": [loc.model_dump() for loc in session.world_seed.locations],
+        "rules": session.world_seed.rules,
+        "agents": {
+            aid: {
+                "name": a.name,
+                "description": a.description,
+                "personality": a.personality,
+                "goals": a.goals,
+                "location": a.location,
+                "inventory": a.inventory,
+                "status": a.status.value,
+                "memory": a.memory,
+                "role": a.role.value,
+            }
+            for aid, a in session.agents.items()
+        },
+        "recent_events": [
+            {
+                "id": e.id,
+                "tick": e.tick,
+                "agent_id": e.agent_id,
+                "agent_name": e.agent_name,
+                "action_type": e.action_type if isinstance(e.action_type, str) else e.action_type.value,
+                "result": e.result,
+            }
+            for e in session.events[-30:]
+        ],
+        "entity_details": entity_details,
+    }
+
+
 def _serialize_state(engine: Engine) -> dict:
+    """Serialize engine state (sync version, without entity_details for backward compat)."""
     session = engine.session
     return {
         "session_id": session.id,
@@ -858,6 +1068,7 @@ def _serialize_state(engine: Engine) -> dict:
                 "inventory": a.inventory,
                 "status": a.status.value,
                 "memory": a.memory,
+                "role": a.role.value,
             }
             for aid, a in session.agents.items()
         },

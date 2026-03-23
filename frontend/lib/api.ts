@@ -82,6 +82,7 @@ export interface AgentData {
   inventory: string[];
   status: string;
   memory?: string[];
+  role?: "main" | "supporting";
 }
 
 export interface EventData {
@@ -92,6 +93,7 @@ export interface EventData {
   action_type: string;
   action: Record<string, unknown>;
   result: string;
+  agent_role?: string;
 }
 
 export interface WorldState {
@@ -104,6 +106,7 @@ export interface WorldState {
   rules: string[];
   agents: Record<string, AgentData>;
   recent_events: EventData[];
+  entity_details?: Record<string, Record<string, unknown>>;
 }
 
 export interface SeedInfo {
@@ -313,6 +316,24 @@ export async function chatWithAgent(
     }),
     timeout: LONG_TIMEOUT,
   });
+  assertOk(res);
+  return res.json();
+}
+
+export async function enrichEntity(
+  sessionId: string,
+  entityType: "agent" | "item" | "location",
+  entityId: string,
+): Promise<Record<string, unknown>> {
+  const res = await fetchWithTimeout(
+    `${API_BASE}/api/worlds/${sessionId}/enrich`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity_type: entityType, entity_id: entityId }),
+      timeout: LONG_TIMEOUT,
+    },
+  );
   assertOk(res);
   return res.json();
 }

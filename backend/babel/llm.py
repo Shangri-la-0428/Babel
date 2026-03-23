@@ -14,8 +14,12 @@ from .prompts import (
     build_user_prompt,
     CHAT_SYSTEM_PROMPT,
     build_chat_prompt,
+    CHARACTER_DETECT_SYSTEM,
+    build_character_detect_prompt,
     PERTURBATION_SYSTEM_PROMPT,
     build_perturbation_prompt,
+    ENRICHMENT_SYSTEM,
+    build_enrichment_prompt,
 )
 
 # Suppress litellm debug noise
@@ -105,6 +109,7 @@ async def get_agent_action(
     model: str | None = None,
     api_key: str | None = None,
     api_base: str | None = None,
+    urgent_events: list[str] | None = None,
 ) -> LLMResponse:
     """Get a validated agent action from the LLM."""
     user_prompt = build_user_prompt(
@@ -119,6 +124,7 @@ async def get_agent_action(
         visible_agents=visible_agents,
         recent_events=recent_events,
         available_locations=available_locations,
+        urgent_events=urgent_events,
     )
 
     raw = await call_llm(user_prompt, model=model, api_key=api_key, api_base=api_base)
@@ -225,3 +231,140 @@ async def generate_world_event(
     # Strip any accidental quotes or markdown
     content = content.strip('"\'`')
     return content
+
+
+def _strip_json(text: str) -> str:
+    """Strip markdown code block wrappers from JSON text."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(
+            line for line in lines
+            if not line.strip().startswith("```")
+        )
+    return text.strip()
+
+
+async def detect_new_character(
+    content: str,
+    existing_names: list[str],
+    locations: list[str],
+    world_desc: str,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> dict | None:
+    """Detect whether an injected event introduces a new named character.
+
+    Returns dict with {name, description, personality, location} or None.
+    Never raises — failures are silently swallowed so injection is not blocked.
+    """
+    try:
+        model = model or get_model()
+        api_key = api_key or get_api_key()
+        api_base = api_base or get_api_base()
+        model = _ensure_provider_prefix(model, api_base)
+
+        user_prompt = build_character_detect_prompt(
+            content=content,
+            existing_names=existing_names,
+            locations=locations,
+            world_desc=world_desc,
+        )
+
+        kwargs: dict = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": CHARACTER_DETECT_SYSTEM},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.3,
+            "max_tokens": 256,
+        }
+
+        if api_key:
+            kwargs["api_key"] = api_key
+        if api_base:
+            kwargs["api_base"] = api_base
+
+        # Force JSON output where supported
+        if "gpt" in model or "o1" in model or "o3" in model or "o4" in model:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        response = await litellm.acompletion(**kwargs)
+        raw = _strip_json(response.choices[0].message.content.strip())
+        data = json.loads(raw)
+
+        result = data.get("result")
+        if result is None:
+            return None
+
+        # Validate required fields
+        if not isinstance(result, dict):
+            return None
+        if not result.get("name"):
+            return None
+
+        return {
+            "name": result["name"],
+            "description": result.get("description", ""),
+            "personality": result.get("personality", ""),
+            "location": result.get("location", ""),
+        }
+    except Exception:
+        return None
+
+
+async def enrich_entity(
+    entity_type: str,
+    entity_name: str,
+    current_details: dict,
+    relevant_events: list[str],
+    world_desc: str,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> dict:
+    """Generate or update rich narrative details for a world entity.
+
+    Returns the enriched details dict. Never raises — returns current_details
+    (or empty dict) on failure.
+    """
+    try:
+        model = model or get_model()
+        api_key = api_key or get_api_key()
+        api_base = api_base or get_api_base()
+        model = _ensure_provider_prefix(model, api_base)
+
+        user_prompt = build_enrichment_prompt(
+            entity_type=entity_type,
+            entity_name=entity_name,
+            current_details=current_details,
+            relevant_events=relevant_events,
+            world_desc=world_desc,
+        )
+
+        kwargs: dict = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": ENRICHMENT_SYSTEM},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.7,
+            "max_tokens": 512,
+        }
+
+        if api_key:
+            kwargs["api_key"] = api_key
+        if api_base:
+            kwargs["api_base"] = api_base
+
+        # Force JSON output where supported
+        if "gpt" in model or "o1" in model or "o3" in model or "o4" in model:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        response = await litellm.acompletion(**kwargs)
+        raw = _strip_json(response.choices[0].message.content.strip())
+        return json.loads(raw)
+    except Exception:
+        return current_details or {}

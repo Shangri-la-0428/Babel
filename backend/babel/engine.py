@@ -9,8 +9,11 @@ from typing import Any, Callable
 
 from pydantic import ValidationError
 
-from .db import get_last_node_id, save_snapshot, save_timeline_node
-from .llm import get_agent_action
+from .db import (
+    get_last_node_id, save_snapshot, save_timeline_node,
+    load_entity_details, save_entity_details, load_events,
+)
+from .llm import get_agent_action, enrich_entity
 from .memory import (
     EPOCH_INTERVAL,
     IMPORTANCE_MAP,
@@ -26,6 +29,7 @@ from .memory import (
 )
 from .models import (
     ActionType,
+    AgentRole,
     AgentState,
     AgentStatus,
     Event,
@@ -64,6 +68,7 @@ class Engine:
         self.on_event = on_event
         self.tick_delay = tick_delay
         self._running = False
+        self._enrichment_queue: list[tuple[str, str]] = []  # (entity_type, entity_id)
 
     @classmethod
     def from_seed(
@@ -113,6 +118,12 @@ class Engine:
 
         for agent_id in alive_ids:
             agent = self.session.agents[agent_id]
+
+            # Supporting agents skip ~30% of ticks to reduce noise
+            if agent.role == AgentRole.SUPPORTING and random.random() > 0.7:
+                agent.status = AgentStatus.IDLE
+                continue
+
             agent.status = AgentStatus.ACTING
 
             # Check for repetition — inject perturbation if needed
@@ -146,6 +157,13 @@ class Engine:
             tick_events.append(event)
 
             agent.status = AgentStatus.IDLE
+
+            # Respect mid-tick pause — stop processing remaining agents
+            if not self._running:
+                break
+
+        # Clear urgent events after all agents have processed them
+        self.session.urgent_events.clear()
 
         # ── Post-tick: timeline node + snapshot + consolidation ──
         await self._post_tick(tick_events)
@@ -209,6 +227,7 @@ class Engine:
                     model=self.model,
                     api_key=self.api_key,
                     api_base=self.api_base,
+                    urgent_events=self.session.urgent_events or None,
                 )
 
                 # Validate
@@ -326,6 +345,9 @@ class Engine:
             for aid in session.agent_ids:
                 await consolidate_memories(session, aid)
 
+        # ── Passive enrichment: enrich entities from high-importance events ──
+        await self._passive_enrichment(tick_events)
+
     @staticmethod
     def _summarize_tick(events: list[Event]) -> str:
         """Generate a simple tick summary from events (rule-based, no LLM)."""
@@ -335,6 +357,86 @@ class Engine:
             at = e.action_type if isinstance(e.action_type, str) else e.action_type.value
             parts.append(f"{name}: {at}")
         return ". ".join(parts)
+
+    async def _passive_enrichment(self, tick_events: list[Event]) -> None:
+        """Best-effort: enrich one entity per tick from high-importance events."""
+        try:
+            session = self.session
+
+            # Scan tick events for entities involved in high-importance events
+            for event in tick_events:
+                if event.importance < 0.7:
+                    continue
+                # Queue agents involved
+                if event.agent_id and event.agent_id in session.agents:
+                    pair = ("agent", event.agent_id)
+                    if pair not in self._enrichment_queue:
+                        self._enrichment_queue.append(pair)
+                # Queue locations mentioned
+                if event.location:
+                    pair = ("location", event.location)
+                    if pair not in self._enrichment_queue:
+                        self._enrichment_queue.append(pair)
+
+            # Process at most 1 enrichment per tick
+            if not self._enrichment_queue:
+                return
+
+            entity_type, entity_id = self._enrichment_queue.pop(0)
+
+            # Load existing details
+            existing = await load_entity_details(session.id, entity_type, entity_id)
+            current_details = existing["details"] if existing else {}
+
+            # Skip if recently updated (within last 5 ticks)
+            if existing and existing.get("last_updated_tick", 0) > session.tick - 5:
+                return
+
+            # Gather relevant events
+            relevant_event_strings: list[str] = []
+            if entity_type == "agent":
+                from .db import load_events_filtered
+                events = await load_events_filtered(
+                    session_id=session.id,
+                    agent_id=entity_id,
+                    limit=15,
+                )
+                relevant_event_strings = [e.get("result", "") for e in events if e.get("result")]
+            else:
+                all_events = await load_events(session.id, limit=100)
+                search_term = entity_id.lower()
+                for e in all_events:
+                    result_text = (e.get("result") or "").lower()
+                    if search_term in result_text:
+                        relevant_event_strings.append(e.get("result", ""))
+                relevant_event_strings = relevant_event_strings[:15]
+
+            if not relevant_event_strings:
+                return
+
+            # Call enrichment LLM
+            enriched = await enrich_entity(
+                entity_type=entity_type,
+                entity_name=entity_id,
+                current_details=current_details,
+                relevant_events=relevant_event_strings,
+                world_desc=session.world_seed.description,
+                model=self.model,
+                api_key=self.api_key,
+                api_base=self.api_base,
+            )
+
+            # Save to DB
+            if enriched and enriched != current_details:
+                await save_entity_details(
+                    session_id=session.id,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    details=enriched,
+                    tick=session.tick,
+                )
+        except Exception:
+            pass  # Best-effort — never block simulation
 
     async def _emit(self, event: Event) -> None:
         if self.on_event:

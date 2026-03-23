@@ -138,12 +138,46 @@ async def _migrate_v2(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+async def _migrate_v3(db: aiosqlite.Connection) -> None:
+    """Add role column to agent_states table if missing."""
+    cursor = await db.execute("PRAGMA table_info(agent_states)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "role" not in columns:
+        await db.execute(
+            "ALTER TABLE agent_states ADD COLUMN role TEXT DEFAULT 'main'"
+        )
+        await db.commit()
+
+
+# ── V4: Entity Details table ──
+
+SCHEMA_V4 = """
+CREATE TABLE IF NOT EXISTS entity_details (
+    session_id TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    details TEXT DEFAULT '{}',
+    last_updated_tick INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (session_id, entity_type, entity_id)
+);
+"""
+
+
+async def _migrate_v4(db: aiosqlite.Connection) -> None:
+    """Create entity_details table if it doesn't exist."""
+    await db.executescript(SCHEMA_V4)
+    await db.commit()
+
+
 async def init_db(db_path: str | Path | None = None) -> None:
     path = str(db_path or DB_PATH)
     async with aiosqlite.connect(path) as db:
         await db.executescript(SCHEMA)
         await db.executescript(SCHEMA_V2)
         await _migrate_v2(db)
+        await _migrate_v3(db)
+        await _migrate_v4(db)
         await db.commit()
 
 
@@ -174,13 +208,14 @@ async def save_session(session) -> None:
 
         # Upsert agent states
         for aid, agent in session.agents.items():
+            role_val = agent.role.value if hasattr(agent.role, "value") else agent.role
             await db.execute(
                 """INSERT INTO agent_states
                    (session_id, agent_id, name, description, personality, goals,
-                    location, inventory, status, memory)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    location, inventory, status, memory, role)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(session_id, agent_id) DO UPDATE SET
-                    location=?, inventory=?, status=?, memory=?""",
+                    location=?, inventory=?, status=?, memory=?, role=?""",
                 (
                     session.id,
                     aid,
@@ -192,11 +227,13 @@ async def save_session(session) -> None:
                     json.dumps(agent.inventory, ensure_ascii=False),
                     agent.status.value,
                     json.dumps(agent.memory, ensure_ascii=False),
+                    role_val,
                     # ON CONFLICT updates:
                     agent.location,
                     json.dumps(agent.inventory, ensure_ascii=False),
                     agent.status.value,
                     json.dumps(agent.memory, ensure_ascii=False),
+                    role_val,
                 ),
             )
 
@@ -323,6 +360,7 @@ async def delete_session(session_id: str) -> bool:
         await db.execute("DELETE FROM timeline_nodes WHERE session_id = ?", (session_id,))
         await db.execute("DELETE FROM world_snapshots WHERE session_id = ?", (session_id,))
         await db.execute("DELETE FROM agent_memories WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM entity_details WHERE session_id = ?", (session_id,))
         await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         await db.commit()
         return True
@@ -657,3 +695,66 @@ async def list_snapshots(session_id: str) -> list[dict]:
             (session_id,),
         )
         return [dict(row) for row in await cursor.fetchall()]
+
+
+# ── Entity Details (Progressive Enrichment) ──
+
+
+async def save_entity_details(
+    session_id: str, entity_type: str, entity_id: str, details: dict, tick: int
+) -> None:
+    """Save or update enriched details for a world entity."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        await db.execute(
+            """INSERT INTO entity_details (session_id, entity_type, entity_id, details, last_updated_tick)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(session_id, entity_type, entity_id) DO UPDATE SET
+                details=?, last_updated_tick=?""",
+            (
+                session_id,
+                entity_type,
+                entity_id,
+                json.dumps(details, ensure_ascii=False),
+                tick,
+                json.dumps(details, ensure_ascii=False),
+                tick,
+            ),
+        )
+        await db.commit()
+
+
+async def load_entity_details(
+    session_id: str, entity_type: str, entity_id: str
+) -> dict | None:
+    """Load enriched details for a single entity. Returns None if not found."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT * FROM entity_details
+               WHERE session_id = ? AND entity_type = ? AND entity_id = ?""",
+            (session_id, entity_type, entity_id),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["details"] = json.loads(d["details"])
+        return d
+
+
+async def load_all_entity_details(session_id: str) -> list[dict]:
+    """Load all enriched entity details for a session."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT * FROM entity_details WHERE session_id = ?
+               ORDER BY entity_type, entity_id""",
+            (session_id,),
+        )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            d["details"] = json.loads(d["details"])
+            results.append(d)
+        return results
