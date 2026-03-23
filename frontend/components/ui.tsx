@@ -9,7 +9,7 @@ import { useLocale } from "@/lib/locale-context";
 
 const DOT_VARIANTS: Record<string, string> = {
   acting:    "bg-primary shadow-[0_0_8px_var(--color-primary-glow-strong)]",
-  dead:      "bg-danger shadow-[0_0_8px_theme(colors.danger.dim)]",
+  dead:      "bg-danger shadow-[0_0_8px_var(--color-danger-glow)]",
   idle:      "bg-t-dim",
   info:      "bg-info",
   warning:   "bg-warning",
@@ -63,11 +63,13 @@ export function ErrorBanner({
   onDismiss,
   variant = "inline",
   className = "",
+  children,
 }: {
   message: string;
   onDismiss: () => void;
   variant?: "header" | "inline";
   className?: string;
+  children?: ReactNode;
 }) {
   const { t } = useLocale();
   const base =
@@ -79,10 +81,13 @@ export function ErrorBanner({
       className={`${base} text-detail text-danger flex items-center justify-between animate-slide-down ${className}`}
       role="alert"
     >
-      <span className="normal-case tracking-normal">{message}</span>
+      <div className="flex items-center min-w-0">
+        <span className="normal-case tracking-normal">{message}</span>
+        {children}
+      </div>
       <button
         onClick={onDismiss}
-        className="text-micro text-danger hover:text-t-DEFAULT transition-colors ml-4"
+        className="text-micro text-danger hover:text-t-DEFAULT transition-colors ml-4 shrink-0"
         aria-label={t("dismiss")}
       >
         {t("dismiss")}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { fetchAssets, deleteAsset, SavedSeedData, SeedTypeValue } from "@/lib/api";
 import { TransKey } from "@/lib/i18n";
 import { useLocale } from "@/lib/locale-context";
@@ -28,21 +28,27 @@ export default function AssetsPage() {
   const [selected, setSelected] = useState<SavedSeedData | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
+  const mountedRef = useRef(true);
+
   const loadSeeds = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchAssets(filter === "all" ? undefined : filter);
+      if (!mountedRef.current) return;
       setSeeds(Array.isArray(data) ? data : []);
       setError(null);
     } catch {
+      if (!mountedRef.current) return;
       setError(t("failed_load"));
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }, [filter, t]);
 
   useEffect(() => {
+    mountedRef.current = true;
     loadSeeds();
+    return () => { mountedRef.current = false; };
   }, [loadSeeds]);
 
   async function handleDelete(id: string) {
@@ -51,7 +57,7 @@ export default function AssetsPage() {
       setSeeds((prev) => prev.filter((s) => s.id !== id));
       if (selected?.id === id) setSelected(null);
     } catch {
-      setError(t("failed_load"));
+      setError(t("delete_failed"));
     }
   }
 
@@ -75,7 +81,7 @@ export default function AssetsPage() {
         <a href="/" className="text-micro text-t-muted tracking-wider hover:text-t-DEFAULT transition-colors mb-4 inline-block">
           {t("back")}
         </a>
-        <h1 className="font-sans text-heading font-bold tracking-tight mb-2">
+        <h1 className="font-sans text-title font-bold tracking-tight mb-2">
           {t("assets_title")}
         </h1>
         <p className="text-detail text-t-muted normal-case tracking-normal mb-8">
@@ -84,7 +90,11 @@ export default function AssetsPage() {
 
         {/* Error */}
         {error && (
-          <ErrorBanner message={error} onDismiss={() => setError(null)} className="mb-4" />
+          <ErrorBanner message={error} onDismiss={() => setError(null)} className="mb-4">
+            <button onClick={loadSeeds} className="ml-3 text-micro tracking-wider text-danger underline hover:text-t-DEFAULT transition-colors shrink-0">
+              {t("retry")}
+            </button>
+          </ErrorBanner>
         )}
 
         {/* Type filter tabs */}
@@ -126,7 +136,7 @@ export default function AssetsPage() {
             </div>
             <a
               href="/"
-              className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors inline-flex items-center"
+              className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center"
             >
               {t("home")}
             </a>

@@ -17,8 +17,8 @@ const translations = {
   available_worlds: { cn: "可用世界", en: "Available Worlds" },
   previous_sessions: { cn: "历史会话", en: "Previous Sessions" },
   create_custom: { cn: "+ 创建自定义世界", en: "+ Create Custom World" },
-  no_seeds: { cn: "尚无世界。创建你的第一个世界，或将种子 YAML 放入 seeds/ 目录。", en: "No worlds yet. Create your first world, or drop seed YAML files into seeds/." },
-  failed_load: { cn: "加载失败，后端是否运行？", en: "Failed to load. Is the backend running?" },
+  no_seeds: { cn: "// EMPTY — 暂无世界种子。创建自定义世界或将 YAML 放入 seeds/", en: "// EMPTY — No world seeds found. Create a custom world or drop YAML into seeds/" },
+  failed_load: { cn: "// LINK_DOWN — 后端未响应，检查服务状态", en: "// LINK_DOWN — Backend unreachable. Check service status." },
 
   // World detail
   world_start_new: { cn: "开始新模拟", en: "Start New" },
@@ -65,8 +65,8 @@ const translations = {
   // Assets
   assets_title: { cn: "资产库", en: "Assets" },
   assets_desc: { cn: "从模拟中提取的可复用种子", en: "Reusable seeds extracted from simulations" },
-  no_seeds_yet: { cn: "暂无种子", en: "No seeds yet" },
-  no_seeds_desc: { cn: "从运行中的模拟提取角色、物品、地点和事件作为可复用种子", en: "Extract agents, items, locations, and events from running simulations as reusable seeds." },
+  no_seeds_yet: { cn: "// EMPTY — 暂无种子", en: "// EMPTY — No seeds" },
+  no_seeds_desc: { cn: "运行模拟后，从角色、物品、地点和事件中提取可复用种子", en: "Run a simulation, then extract reusable seeds from agents, items, locations, and events." },
   all: { cn: "全部", en: "All" },
   world: { cn: "世界", en: "World" },
   agent: { cn: "角色", en: "Agent" },
@@ -107,10 +107,10 @@ const translations = {
   ph_location: { cn: "地点名称", en: "Location name" },
 
   // Settings error
-  api_key_required: { cn: "请先在 Settings 中配置 API Key", en: "Configure your API Key in Settings first" },
-  run_failed: { cn: "启动失败，请检查后端和 LLM 设置", en: "Failed to start. Check backend and LLM settings." },
-  pause_failed: { cn: "暂停失败", en: "Failed to pause" },
-  step_failed: { cn: "单步执行失败，请检查 LLM 设置", en: "Step failed. Check LLM settings." },
+  api_key_required: { cn: "// AUTH — 需要 API Key，在设置中配置", en: "// AUTH — API Key required. Configure in Settings." },
+  run_failed: { cn: "// RUN_ERR — 启动失败，检查后端连接和 LLM 配置", en: "// RUN_ERR — Start failed. Check backend and LLM config." },
+  pause_failed: { cn: "// PAUSE_ERR — 暂停指令失败", en: "// PAUSE_ERR — Pause command failed." },
+  step_failed: { cn: "// STEP_ERR — 单步失败，检查 LLM 配置", en: "// STEP_ERR — Step failed. Check LLM config." },
 
   // Agent detail modal
   agent_detail: { cn: "角色详情", en: "Agent Detail" },
@@ -130,13 +130,18 @@ const translations = {
   source: { cn: "来源", en: "Source" },
 
   // Error messages
-  gen_agent_seed_failed: { cn: "生成角色种子失败", en: "Failed to generate agent seed" },
-  gen_event_seed_failed: { cn: "生成事件种子失败", en: "Failed to generate event seed" },
-  gen_world_seed_failed: { cn: "生成世界种子失败", en: "Failed to generate world seed" },
-  no_session: { cn: "未找到模拟会话", en: "No simulation session found." },
+  gen_agent_seed_failed: { cn: "// EXTRACT_ERR — 角色种子提取失败", en: "// EXTRACT_ERR — Agent seed extraction failed." },
+  gen_event_seed_failed: { cn: "// EXTRACT_ERR — 事件种子提取失败", en: "// EXTRACT_ERR — Event seed extraction failed." },
+  gen_world_seed_failed: { cn: "// EXTRACT_ERR — 世界种子提取失败", en: "// EXTRACT_ERR — World seed extraction failed." },
+  no_session: { cn: "// NULL_REF — 未找到模拟会话", en: "// NULL_REF — No simulation session found." },
   go_home: { cn: "返回首页", en: "Go home" },
   retry: { cn: "重试", en: "Retry" },
   manual: { cn: "手动", en: "manual" },
+
+  // Status (translated)
+  status_running: { cn: "运行中", en: "RUNNING" },
+  status_paused: { cn: "已暂停", en: "PAUSED" },
+  status_ended: { cn: "已结束", en: "ENDED" },
 
   // Control bar
   run: { cn: "运行", en: "Run" },
@@ -153,7 +158,7 @@ const translations = {
   seed: { cn: "种子", en: "Seed" },
 
   // Settings panel
-  llm_config: { cn: "LLM 配置", en: "LLM Configuration" },
+  llm_config: { cn: "// LLM_CONFIG", en: "// LLM_CONFIG" },
   api_base_url: { cn: "API 地址", en: "API Base URL" },
   api_key: { cn: "API 密钥", en: "API Key" },
   tick_delay: { cn: "回合延迟（秒）", en: "Tick Delay (sec)" },
@@ -163,7 +168,7 @@ const translations = {
   save: { cn: "保存", en: "Save" },
   settings_saved: { cn: "设置已保存", en: "Settings saved" },
   connected_models: { cn: "已连接", en: "Connected" },
-  connection_failed: { cn: "连接失败", en: "Connection failed" },
+  connection_failed: { cn: "// NO_SIGNAL", en: "// NO_SIGNAL" },
 
   // Agent chat
   chat_with: { cn: "与{0}对话", en: "Chat with {0}" },
@@ -172,14 +177,14 @@ const translations = {
   thinking: { cn: "思考中...", en: "Thinking..." },
   chat_empty: { cn: "发送消息，与{0}角色对话", en: "Send a message to talk with {0} in character" },
   chat_placeholder: { cn: "对{0}说...", en: "Say something to {0}..." },
-  chat_failed: { cn: "获取回复失败", en: "Failed to get response" },
+  chat_failed: { cn: "// REPLY_ERR — 回复失败", en: "// REPLY_ERR — No response" },
 
   // Error messages (additional)
-  failed_load_state: { cn: "加载世界状态失败，后端是否运行？", en: "Failed to load world state. Is the backend running?" },
-  failed_create: { cn: "创建失败，请检查后端连接", en: "Failed to create world. Check backend connection." },
-  failed_load_detail: { cn: "加载世界详情失败", en: "Failed to load world details." },
-  lost_connection: { cn: "与服务器断开连接，请刷新页面", en: "Lost connection. Please refresh." },
-  engine_error: { cn: "引擎错误", en: "Engine error" },
+  failed_load_state: { cn: "// LINK_DOWN — 无法加载世界状态，检查后端服务", en: "// LINK_DOWN — Cannot load world state. Check backend." },
+  failed_create: { cn: "// CREATE_ERR — 世界创建失败，检查后端连接", en: "// CREATE_ERR — World creation failed. Check backend." },
+  failed_load_detail: { cn: "// LOAD_ERR — 世界详情加载失败", en: "// LOAD_ERR — Failed to load world details." },
+  lost_connection: { cn: "// CONN_LOST — 与服务器断开，点击重连", en: "// CONN_LOST — Server disconnected. Reconnect below." },
+  engine_error: { cn: "// ENGINE_ERR", en: "// ENGINE_ERR" },
 
   // Asset panel (sim sidebar)
   panel_holders: { cn: "持有者", en: "Holder(s)" },
@@ -218,7 +223,11 @@ const translations = {
   branch_created: { cn: "创建于", en: "Created" },
   branch_no_events: { cn: "暂无事件", en: "No events yet" },
   view_all_assets: { cn: "查看全部资产 →", en: "View All Assets →" },
-  inject_failed: { cn: "注入失败", en: "Inject failed" },
+  inject_failed: { cn: "// INJECT_ERR — 注入失败", en: "// INJECT_ERR — Injection failed" },
+  reconnect: { cn: "重连", en: "Reconnect" },
+  delete_failed: { cn: "// DEL_ERR — 删除失败", en: "// DEL_ERR — Delete failed" },
+  request_timeout: { cn: "// TIMEOUT — 请求超时，重试", en: "// TIMEOUT — Request timed out. Retry." },
+  gen_item_gen_failed: { cn: "// GEN_ERR — 生成失败，重试", en: "// GEN_ERR — Generation failed. Retry." },
 } as const;
 
 export type TransKey = keyof typeof translations;
@@ -228,14 +237,18 @@ const LOCALE_KEY = "babel_locale";
 
 export function detectLocale(): Locale {
   if (typeof window === "undefined") return "cn";
-  const saved = localStorage.getItem(LOCALE_KEY);
-  if (saved === "cn" || saved === "en") return saved;
-  const lang = navigator.language.toLowerCase();
-  return lang.startsWith("zh") ? "cn" : "en";
+  try {
+    const saved = localStorage.getItem(LOCALE_KEY);
+    if (saved === "cn" || saved === "en") return saved;
+  } catch { /* localStorage may be unavailable */ }
+  try {
+    const lang = navigator.language.toLowerCase();
+    return lang.startsWith("zh") ? "cn" : "en";
+  } catch { return "cn"; }
 }
 
 export function setLocale(locale: Locale): void {
-  localStorage.setItem(LOCALE_KEY, locale);
+  try { localStorage.setItem(LOCALE_KEY, locale); } catch { /* ignore */ }
 }
 
 export function t(key: TransKey, locale: Locale, ...args: string[]): string {

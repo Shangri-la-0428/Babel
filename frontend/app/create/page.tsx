@@ -49,14 +49,15 @@ export default function CreatePage() {
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
-    fetchAssets("agent").then(setSavedAgents).catch(() => {});
-    fetchAssets("event").then(setSavedEvents).catch(() => {});
+    let mounted = true;
+    fetchAssets("agent").then((d) => { if (mounted) setSavedAgents(d); }).catch(() => {});
+    fetchAssets("event").then((d) => { if (mounted) setSavedEvents(d); }).catch(() => {});
 
     // Load pre-filled data from world detail "Edit" button
-    const raw = localStorage.getItem("babel_edit_seed");
-    if (raw) {
-      localStorage.removeItem("babel_edit_seed");
-      try {
+    try {
+      const raw = localStorage.getItem("babel_edit_seed");
+      if (raw) {
+        localStorage.removeItem("babel_edit_seed");
         const seed: SeedDetail = JSON.parse(raw);
         setWorld({
           name: seed.name || "",
@@ -78,8 +79,9 @@ export default function CreatePage() {
             }))
           );
         }
-      } catch { /* ignore corrupt data */ }
-    }
+      }
+    } catch { /* ignore corrupt or inaccessible localStorage */ }
+    return () => { mounted = false; };
   }, []);
 
   function importAgent(seed: SavedSeedData) {
@@ -132,7 +134,8 @@ export default function CreatePage() {
         .map((line) => {
           const [name, ...desc] = line.split(":");
           return { name: name.trim(), description: desc.join(":").trim() };
-        });
+        })
+        .filter((loc) => loc.name);
 
       const firstLocation = locations[0]?.name || "";
 
@@ -242,6 +245,7 @@ export default function CreatePage() {
         )}
 
         {/* World form */}
+        <div className="text-micro text-t-dim tracking-widest mb-4">{"// WORLD_SEED"}</div>
         <div className="flex flex-col gap-6 mb-10">
           <div>
             <label htmlFor="world-name" className={labelClass}>{t("world_name")}</label>
@@ -249,6 +253,7 @@ export default function CreatePage() {
               id="world-name"
               required
               aria-required="true"
+              maxLength={200}
               className={inputClass}
               placeholder={t("ph_world_name")}
               value={world.name}
@@ -302,7 +307,7 @@ export default function CreatePage() {
           <h2 className="font-sans text-heading font-semibold tracking-tight">{t("agents")}</h2>
           <button
             onClick={addAgent}
-            className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
+            className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
           >
             {t("add_agent")}
           </button>
@@ -316,7 +321,7 @@ export default function CreatePage() {
                 {agents.length > 1 && (
                   <button
                     onClick={() => removeAgent(i)}
-                    className="text-micro text-danger tracking-wider hover:text-danger/80"
+                    className="text-micro text-danger tracking-wider hover:text-danger/80 transition-colors"
                   >
                     {t("remove")}
                   </button>
@@ -328,6 +333,7 @@ export default function CreatePage() {
                   <input
                     id={`agent-name-${agent.id}`}
                     className={inputClass}
+                    maxLength={200}
                     placeholder={t("ph_agent_name")}
                     value={agent.name}
                     onChange={(e) => updateAgent(i, "name", e.target.value)}
@@ -391,6 +397,7 @@ export default function CreatePage() {
         </div>
 
         {/* Submit */}
+        <div className="text-micro text-t-dim tracking-widest mb-3">{"// LAUNCH"}</div>
         <div className="flex gap-3 pt-4 border-t border-b-DEFAULT">
           <button
             onClick={handleSubmit}

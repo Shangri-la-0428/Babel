@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { fetchSeeds, fetchSeedDetail, createFromSeed, createWorld, getSessions, saveAsset, loadSettings, SeedInfo, SeedDetail, BabelSettings } from "@/lib/api";
+import { fetchSeeds, fetchSeedDetail, createFromSeed, createWorld, getSessions, saveAsset, SeedInfo, SeedDetail } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
 import Settings from "@/components/Settings";
@@ -59,7 +59,8 @@ export default function Home() {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [editDetail, setEditDetail] = useState<SeedDetail | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [, setSettings] = useState<BabelSettings>(loadSettings);
+  // Settings saved to localStorage by Settings component; home page only shows/hides the panel
+  const noop = () => {};
 
   function markSaved(id: string) {
     setSavedIds((prev) => new Set(prev).add(id));
@@ -331,7 +332,7 @@ export default function Home() {
         {showSettings && (
           <Settings
             onClose={() => setShowSettings(false)}
-            onSave={(s) => setSettings(s)}
+            onSave={noop}
           />
         )}
 
@@ -383,7 +384,7 @@ export default function Home() {
                 <button
                   onClick={handleSaveLaunch}
                   disabled={loading || !ed}
-                  className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                  className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 transition-[colors,box-shadow,transform]"
                 >
                   {loading ? t("creating") : t("save_launch")}
                 </button>
@@ -531,7 +532,7 @@ export default function Home() {
                           )}
                         </div>
                       ))}
-                      <button onClick={addAgent} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors">
+                      <button onClick={addAgent} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
                         {t("add_agent")}
                       </button>
                     </div>
@@ -620,7 +621,7 @@ export default function Home() {
                           )}
                         </div>
                       ))}
-                      <button onClick={addLocation} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors">
+                      <button onClick={addLocation} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
                         {t("add_location")}
                       </button>
                     </div>
@@ -676,7 +677,7 @@ export default function Home() {
       {showSettings && (
         <Settings
           onClose={() => setShowSettings(false)}
-          onSave={(s) => setSettings(s)}
+          onSave={noop}
         />
       )}
 

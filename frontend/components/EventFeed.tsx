@@ -95,6 +95,7 @@ const EventItem = memo(function EventItem({
         className={`text-detail font-medium truncate ${
           isWorld ? "text-danger" : "text-primary"
         }`}
+        title={event.agent_name || undefined}
       >
         {event.agent_name || t("system")}
       </span>

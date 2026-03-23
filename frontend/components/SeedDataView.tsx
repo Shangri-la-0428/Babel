@@ -9,7 +9,7 @@ export const TYPE_STYLES: Record<string, string> = {
   event: "text-danger border-danger",
 };
 
-export function DataField({ label, value }: { label: string; value: string | string[] }) {
+function DataField({ label, value }: { label: string; value: string | string[] }) {
   if (Array.isArray(value)) {
     if (value.length === 0) return null;
     return (

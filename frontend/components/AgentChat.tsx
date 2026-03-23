@@ -111,21 +111,22 @@ export default function AgentChat({
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSend} className="flex gap-2 p-4 border-t border-t-DEFAULT shrink-0">
+      <form onSubmit={handleSend} className="flex gap-2 p-4 border-t border-b-DEFAULT shrink-0">
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={t("chat_placeholder", agentName)}
+          maxLength={2000}
           disabled={loading}
           autoFocus
           aria-label={t("chat_placeholder", agentName)}
-          className="flex-1 h-9 px-3 bg-surface-1 border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-30"
+          className="flex-1 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-30"
         />
         <button
           type="submit"
           disabled={loading || !input.trim()}
-          className="h-9 px-5 text-micro tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:pointer-events-none transition-[colors,transform]"
+          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:pointer-events-none transition-[colors,box-shadow,transform]"
         >
           {t("send")}
         </button>

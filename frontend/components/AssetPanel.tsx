@@ -157,6 +157,7 @@ function ItemRow({
   cachedDetail,
   onGenerate,
   generating,
+  error,
 }: {
   item: ItemInfo;
   expanded: boolean;
@@ -164,6 +165,7 @@ function ItemRow({
   cachedDetail: SavedSeedData | null;
   onGenerate: () => void;
   generating: boolean;
+  error?: boolean;
 }) {
   const { t } = useLocale();
   const detail = cachedDetail?.data;
@@ -214,13 +216,18 @@ function ItemRow({
             {cachedDetail ? (
               <span className="text-micro text-primary tracking-wider">{t("saved_ok")}</span>
             ) : (
-              <button
-                onClick={onGenerate}
-                disabled={generating}
-                className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 transition-colors"
-              >
-                {generating ? t("generating") : t("generate_details")}
-              </button>
+              <>
+                <button
+                  onClick={onGenerate}
+                  disabled={generating}
+                  className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 transition-colors"
+                >
+                  {generating ? t("generating") : error ? t("retry") : t("generate_details")}
+                </button>
+                {error && (
+                  <span className="text-micro text-danger tracking-wider">{t("gen_item_gen_failed")}</span>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -307,20 +314,24 @@ export default function AssetPanel({
   const [expandedLocation, setExpandedLocation] = useState<string | null>(null);
   const [itemCache, setItemCache] = useState<Map<string, SavedSeedData>>(new Map());
   const [generatingItem, setGeneratingItem] = useState<string | null>(null);
+  const [genError, setGenError] = useState<string | null>(null);
 
   // Load cached item assets on mount
   useEffect(() => {
+    let mounted = true;
     fetchAssets("item").then((assets) => {
-      if (!Array.isArray(assets)) return;
+      if (!mounted || !Array.isArray(assets)) return;
       const map = new Map<string, SavedSeedData>();
       assets.forEach((a) => map.set(a.name, a));
       setItemCache(map);
     }).catch(() => {});
+    return () => { mounted = false; };
   }, []);
 
   async function handleGenerateItemDetail(itemName: string) {
     if (generatingItem) return;
     setGeneratingItem(itemName);
+    setGenError(null);
     try {
       const seed = await generateSeed("item", sessionId, itemName);
       setItemCache((prev) => {
@@ -329,7 +340,7 @@ export default function AssetPanel({
         return next;
       });
     } catch {
-      // silent fail — user can retry
+      setGenError(itemName);
     } finally {
       setGeneratingItem(null);
     }
@@ -437,6 +448,7 @@ export default function AssetPanel({
                   cachedDetail={itemCache.get(item.name) || null}
                   onGenerate={() => handleGenerateItemDetail(item.name)}
                   generating={generatingItem === item.name}
+                  error={genError === item.name}
                 />
               ))
             )}

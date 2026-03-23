@@ -110,7 +110,7 @@ export default function ControlBar({
             isRunning
               ? "bg-primary animate-pulse-glow"
               : status === "ended"
-              ? "bg-danger shadow-[0_0_6px_theme(colors.danger.DEFAULT)]"
+              ? "bg-danger shadow-[0_0_6px_var(--color-danger-glow)]"
               : "bg-t-dim"
           }`}
         />
@@ -119,7 +119,7 @@ export default function ControlBar({
             isRunning ? "text-primary" : "text-t-muted"
           }`}
         >
-          {status}
+          {status === "running" ? t("status_running") : status === "ended" ? t("status_ended") : t("status_paused")}
         </span>
       </div>
 
@@ -127,7 +127,7 @@ export default function ControlBar({
       {worldName && (
         <>
           <div className="w-px h-6 bg-b-DEFAULT" />
-          <span className="text-micro text-t-muted tracking-wider truncate max-w-[200px]">
+          <span className="text-micro text-t-muted tracking-wider truncate max-w-[200px]" title={`${worldName}${sessionId ? ` · ${sessionId}` : ""}`}>
             {worldName}
             {sessionId && ` · ${sessionId.slice(0, 6)}`}
           </span>

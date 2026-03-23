@@ -1,5 +1,43 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// ── Fetch with timeout & abort support ──
+
+const DEFAULT_TIMEOUT = 15_000; // 15s for normal API calls
+const LONG_TIMEOUT = 60_000; // 60s for LLM-backed operations (step, chat, generate)
+
+class ApiError extends Error {
+  status: number;
+  constructor(status: number, statusText: string) {
+    super(`${status} ${statusText}`);
+    this.status = status;
+    this.name = "ApiError";
+  }
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo,
+  init?: RequestInit & { timeout?: number },
+): Promise<Response> {
+  const { timeout = DEFAULT_TIMEOUT, ...fetchInit } = init || {};
+  const controller = new AbortController();
+  if (fetchInit.signal) {
+    // If caller passes an external signal, chain it
+    fetchInit.signal.addEventListener("abort", () => controller.abort());
+  }
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(input, { ...fetchInit, signal: controller.signal });
+    return res;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") {
+      throw new Error("Request timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── Settings (stored in localStorage) ──
 
 export interface BabelSettings {
@@ -82,8 +120,9 @@ export async function fetchModels(apiBase: string, apiKey: string): Promise<stri
   try {
     const base = apiBase.replace(/\/+$/, "");
     const url = base.endsWith("/v1") ? `${base}/models` : `${base}/v1/models`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { Authorization: `Bearer ${apiKey}` },
+      timeout: 10_000,
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -99,11 +138,11 @@ export async function fetchModels(apiBase: string, apiKey: string): Promise<stri
 // ── Backend API ──
 
 function assertOk(res: Response): void {
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
 }
 
 export async function fetchSeeds(): Promise<SeedInfo[]> {
-  const res = await fetch(`${API_BASE}/api/seeds`);
+  const res = await fetchWithTimeout(`${API_BASE}/api/seeds`);
   assertOk(res);
   return res.json();
 }
@@ -127,13 +166,13 @@ export interface SeedDetail {
 }
 
 export async function fetchSeedDetail(filename: string): Promise<SeedDetail> {
-  const res = await fetch(`${API_BASE}/api/seeds/${filename}`);
+  const res = await fetchWithTimeout(`${API_BASE}/api/seeds/${filename}`);
   assertOk(res);
   return res.json();
 }
 
 export async function createFromSeed(filename: string): Promise<{ session_id: string }> {
-  const res = await fetch(`${API_BASE}/api/worlds/from-seed/${filename}`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/from-seed/${filename}`, {
     method: "POST",
   });
   assertOk(res);
@@ -156,7 +195,7 @@ export async function createWorld(data: {
   }[];
   initial_events: string[];
 }): Promise<{ session_id: string }> {
-  const res = await fetch(`${API_BASE}/api/worlds`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -166,7 +205,7 @@ export async function createWorld(data: {
 }
 
 export async function getState(sessionId: string): Promise<WorldState> {
-  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/state`);
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/state`);
   assertOk(res);
   return res.json();
 }
@@ -175,7 +214,7 @@ export async function runWorld(
   sessionId: string,
   opts: { max_ticks?: number; model?: string; api_key?: string; api_base?: string; tick_delay?: number } = {}
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/run`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -193,7 +232,7 @@ export async function stepWorld(
   sessionId: string,
   opts: { model?: string; api_key?: string; api_base?: string } = {}
 ): Promise<{ tick: number; events: { agent_name: string; action_type: string; result: string }[] }> {
-  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/step`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/step`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -201,13 +240,14 @@ export async function stepWorld(
       api_key: opts.api_key ?? null,
       api_base: opts.api_base ?? null,
     }),
+    timeout: LONG_TIMEOUT,
   });
   assertOk(res);
   return res.json();
 }
 
 export async function pauseWorld(sessionId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/pause`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/pause`, {
     method: "POST",
   });
   assertOk(res);
@@ -216,13 +256,13 @@ export async function pauseWorld(sessionId: string): Promise<void> {
 export async function getSessions(): Promise<
   { id: string; world_seed: string; tick: number; status: string; created_at: string }[]
 > {
-  const res = await fetch(`${API_BASE}/api/sessions`);
+  const res = await fetchWithTimeout(`${API_BASE}/api/sessions`);
   assertOk(res);
   return res.json();
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { method: "DELETE" });
+  const res = await fetchWithTimeout(`${API_BASE}/api/sessions/${sessionId}`, { method: "DELETE" });
   assertOk(res);
 }
 
@@ -231,7 +271,7 @@ export async function getSessionEvents(
   limit: number = 3
 ): Promise<EventData[]> {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${API_BASE}/api/worlds/${sessionId}/events?limit=${limit}`
     );
     if (!res.ok) return [];
@@ -245,10 +285,11 @@ export async function injectEvent(
   sessionId: string,
   content: string
 ): Promise<{ event_id: string }> {
-  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/inject`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/inject`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content }),
+    timeout: LONG_TIMEOUT,
   });
   assertOk(res);
   return res.json();
@@ -260,7 +301,7 @@ export async function chatWithAgent(
   message: string,
   opts: { model?: string; api_key?: string; api_base?: string } = {}
 ): Promise<{ agent_id: string; agent_name: string; reply: string }> {
-  const res = await fetch(`${API_BASE}/api/worlds/${sessionId}/chat`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -270,6 +311,7 @@ export async function chatWithAgent(
       api_key: opts.api_key ?? null,
       api_base: opts.api_base ?? null,
     }),
+    timeout: LONG_TIMEOUT,
   });
   assertOk(res);
   return res.json();
@@ -299,7 +341,7 @@ export async function fetchAssets(type?: SeedTypeValue): Promise<SavedSeedData[]
   const url = type
     ? `${API_BASE}/api/assets?type=${type}`
     : `${API_BASE}/api/assets`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   assertOk(res);
   return res.json();
 }
@@ -312,7 +354,7 @@ export async function saveAsset(data: {
   data?: Record<string, unknown>;
   source_world?: string;
 }): Promise<{ id: string; name: string; type: string }> {
-  const res = await fetch(`${API_BASE}/api/assets`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/assets`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -322,7 +364,7 @@ export async function saveAsset(data: {
 }
 
 export async function deleteAsset(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/assets/${id}`, { method: "DELETE" });
+  const res = await fetchWithTimeout(`${API_BASE}/api/assets/${id}`, { method: "DELETE" });
   assertOk(res);
 }
 
@@ -331,10 +373,11 @@ export async function generateSeed(
   sessionId: string,
   targetId: string = ""
 ): Promise<SavedSeedData> {
-  const res = await fetch(`${API_BASE}/api/assets/extract/${seedType}`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/assets/extract/${seedType}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId, target_id: targetId }),
+    timeout: LONG_TIMEOUT,
   });
   assertOk(res);
   return res.json();

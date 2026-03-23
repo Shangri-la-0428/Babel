@@ -24,9 +24,12 @@ export default function SeedPreview({
 
   const style = TYPE_STYLES[seed.type] || "text-t-muted border-b-DEFAULT";
 
+  const [saveError, setSaveError] = useState(false);
+
   async function handleSave() {
     if (saving || saved) return;
     setSaving(true);
+    setSaveError(false);
     try {
       const tags = tagsInput
         .split(",")
@@ -45,6 +48,7 @@ export default function SeedPreview({
       setTimeout(() => onClose(), 800);
     } catch {
       setSaving(false);
+      setSaveError(true);
     }
   }
 
@@ -75,7 +79,7 @@ export default function SeedPreview({
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full h-9 px-3 bg-surface-1 border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+            className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
           />
         </div>
         <div>
@@ -85,7 +89,7 @@ export default function SeedPreview({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
-            className="w-full px-3 py-2 bg-surface-1 border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed focus:border-primary focus:outline-none hover:border-b-hover transition-colors resize-none"
+            className="w-full px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed focus:border-primary focus:outline-none hover:border-b-hover transition-colors resize-none"
           />
         </div>
         <div>
@@ -95,7 +99,7 @@ export default function SeedPreview({
             type="text"
             value={tagsInput}
             onChange={(e) => setTagsInput(e.target.value)}
-            className="w-full h-9 px-3 bg-surface-1 border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+            className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
           />
         </div>
         {seed.source_world && (
@@ -112,6 +116,9 @@ export default function SeedPreview({
 
       {/* Footer */}
       <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-b-DEFAULT bg-surface-1 shrink-0">
+        {saveError && (
+          <span className="text-micro text-danger tracking-wider mr-auto">{t("delete_failed")}</span>
+        )}
         <button
           onClick={onClose}
           className="h-8 px-4 text-micro tracking-wider text-t-dim hover:text-t-DEFAULT transition-colors"
@@ -121,13 +128,15 @@ export default function SeedPreview({
         <button
           onClick={handleSave}
           disabled={saving || saved}
-          className={`h-8 px-5 text-micro tracking-wider border transition-colors ${
+          className={`h-8 px-5 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,transform] ${
             saved
               ? "border-primary text-primary"
+              : saveError
+              ? "border-danger text-danger hover:border-danger/80 hover:text-danger/80"
               : "border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-30 disabled:pointer-events-none"
           }`}
         >
-          {saved ? t("saved") : saving ? t("saving") : t("save_to_assets")}
+          {saved ? t("saved") : saving ? t("saving") : saveError ? t("retry") : t("save_to_assets")}
         </button>
       </div>
     </Modal>

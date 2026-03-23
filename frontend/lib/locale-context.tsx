@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { Locale, TransKey, detectLocale, setLocale as persistLocale, t as translate } from "./i18n";
 
 interface LocaleCtx {
@@ -16,7 +16,13 @@ const Ctx = createContext<LocaleCtx>({
 });
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocale] = useState<Locale>(detectLocale);
+  // Always start with "cn" to match SSR, then detect on client after mount
+  const [locale, setLocale] = useState<Locale>("cn");
+
+  useEffect(() => {
+    const detected = detectLocale();
+    if (detected !== "cn") setLocale(detected);
+  }, []);
 
   const toggle = useCallback(() => {
     setLocale((prev) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, Suspense, lazy } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense, lazy } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   WorldState,
@@ -46,9 +46,11 @@ function SimContent() {
   const [chatAgent, setChatAgent] = useState<{ id: string; name: string } | null>(null);
   const [seedPreview, setSeedPreview] = useState<SavedSeedData | null>(null);
   const { locale, toggle, t } = useLocale();
+  const [wsRetryExhausted, setWsRetryExhausted] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const highlightTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const operationRef = useRef(false); // guard against concurrent Run/Step
 
   // Load initial state
   useEffect(() => {
@@ -64,6 +66,7 @@ function SimContent() {
   }, [sessionId]);
 
   // WebSocket connection with reconnection
+  const connectWsRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!sessionId) return;
 
@@ -74,6 +77,7 @@ function SimContent() {
     function connect() {
       if (!mounted) return;
       setWsStatus("connecting");
+      setWsRetryExhausted(false);
 
       const ws = createWebSocket(sessionId);
       wsRef.current = ws;
@@ -149,6 +153,7 @@ function SimContent() {
           retryCount++;
           reconnectTimer.current = setTimeout(connect, delay);
         } else {
+          setWsRetryExhausted(true);
           setError(t("lost_connection"));
         }
       };
@@ -157,6 +162,12 @@ function SimContent() {
         ws.close();
       };
     }
+
+    connectWsRef.current = () => {
+      retryCount = 0;
+      wsRef.current?.close();
+      connect();
+    };
 
     connect();
 
@@ -169,6 +180,10 @@ function SimContent() {
     };
   }, [sessionId]);
 
+  function handleReconnect() {
+    connectWsRef.current();
+  }
+
   function checkSettings(): boolean {
     if (!settings.apiKey) {
       setError(t("api_key_required"));
@@ -179,7 +194,8 @@ function SimContent() {
   }
 
   const handleRun = useCallback(async () => {
-    if (!sessionId || !checkSettings()) return;
+    if (!sessionId || !checkSettings() || operationRef.current) return;
+    operationRef.current = true;
     setLoading(true);
     setStatus("running");
     setError(null);
@@ -195,8 +211,10 @@ function SimContent() {
       setError(t("run_failed"));
       setLoading(false);
       setStatus("paused");
+    } finally {
+      operationRef.current = false;
     }
-  }, [sessionId, settings, tick]);
+  }, [sessionId, settings, tick, t]);
 
   const handlePause = useCallback(async () => {
     if (!sessionId) return;
@@ -207,10 +225,11 @@ function SimContent() {
     } catch {
       setError(t("pause_failed"));
     }
-  }, [sessionId]);
+  }, [sessionId, t]);
 
   const handleStep = useCallback(async () => {
-    if (!sessionId || !checkSettings()) return;
+    if (!sessionId || !checkSettings() || operationRef.current) return;
+    operationRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -223,51 +242,64 @@ function SimContent() {
       setError(t("step_failed"));
     } finally {
       setLoading(false);
+      operationRef.current = false;
     }
-  }, [sessionId, settings]);
+  }, [sessionId, settings, t]);
 
   // Seed generation handlers
-  async function handleGenerateAgentSeed(agentId: string) {
+  const handleGenerateAgentSeed = useCallback(async (agentId: string) => {
     try {
       const seed = await generateSeed("agent", sessionId, agentId);
       setSeedPreview(seed);
     } catch {
       setError(t("gen_agent_seed_failed"));
     }
-  }
+  }, [sessionId, t]);
 
-  async function handleGenerateEventSeed(eventId: string) {
+  const handleGenerateEventSeed = useCallback(async (eventId: string) => {
     try {
       const seed = await generateSeed("event", sessionId, eventId);
       setSeedPreview(seed);
     } catch {
       setError(t("gen_event_seed_failed"));
     }
-  }
+  }, [sessionId, t]);
 
-  async function handleGenerateWorldSeed() {
+  const handleGenerateWorldSeed = useCallback(async () => {
     try {
       const seed = await generateSeed("world", sessionId);
       setSeedPreview(seed);
     } catch {
       setError(t("gen_world_seed_failed"));
     }
-  }
+  }, [sessionId, t]);
+
+  const handleOpenChat = useCallback((id: string, name: string) => {
+    setChatAgent({ id, name });
+  }, []);
+
+  const handleCloseSettings = useCallback(() => setShowSettings(false), []);
+  const handleSaveSettings = useCallback((s: BabelSettings) => setSettings(s), []);
+  const handleDismissError = useCallback(() => setError(null), []);
+  const handleCloseSeedPreview = useCallback(() => setSeedPreview(null), []);
+  const handleCloseChat = useCallback(() => setChatAgent(null), []);
+
+  const activeAgentId = useMemo(
+    () => (events.length > 0 ? events[events.length - 1]?.agent_id : null),
+    [events]
+  );
 
   if (!sessionId) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3">
         <div className="text-micro text-t-dim tracking-widest">{"// ERROR"}</div>
         <div className="text-detail text-t-muted normal-case tracking-normal">{t("no_session")}</div>
-        <a href="/" className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors inline-flex items-center">
+        <a href="/" className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center">
           {t("go_home")}
         </a>
       </div>
     );
   }
-
-  const activeAgentId =
-    events.length > 0 ? events[events.length - 1]?.agent_id : null;
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-void scanlines">
@@ -314,17 +346,26 @@ function SimContent() {
         </div>
       </nav>
 
-      {/* Error banner */}
+      {/* Error banner with optional reconnect */}
       {error && (
-        <ErrorBanner variant="header" message={error} onDismiss={() => setError(null)} />
+        <ErrorBanner variant="header" message={error} onDismiss={handleDismissError}>
+          {wsRetryExhausted && (
+            <button
+              onClick={handleReconnect}
+              className="ml-3 text-micro tracking-wider text-void bg-danger/80 px-3 py-1 hover:bg-danger transition-colors shrink-0"
+            >
+              {t("reconnect")}
+            </button>
+          )}
+        </ErrorBanner>
       )}
 
       {/* Settings panel */}
       {showSettings && (
         <div id="settings-panel">
           <Settings
-            onClose={() => setShowSettings(false)}
-            onSave={(s) => setSettings(s)}
+            onClose={handleCloseSettings}
+            onSave={handleSaveSettings}
           />
         </div>
       )}
@@ -366,7 +407,7 @@ function SimContent() {
           state={state}
           activeAgentId={activeAgentId}
           sessionId={sessionId}
-          onChat={(id, name) => setChatAgent({ id, name })}
+          onChat={handleOpenChat}
           onExtractAgent={handleGenerateAgentSeed}
           onExtractWorld={handleGenerateWorldSeed}
         />
@@ -377,7 +418,7 @@ function SimContent() {
         <Suspense fallback={null}>
           <SeedPreview
             seed={seedPreview}
-            onClose={() => setSeedPreview(null)}
+            onClose={handleCloseSeedPreview}
           />
         </Suspense>
       )}
@@ -390,7 +431,7 @@ function SimContent() {
             agentId={chatAgent.id}
             agentName={chatAgent.name}
             settings={settings}
-            onClose={() => setChatAgent(null)}
+            onClose={handleCloseChat}
           />
         </Suspense>
       )}

@@ -110,9 +110,10 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
               step={0.5}
               className={inputCls}
               value={settings.tickDelay}
-              onChange={(e) =>
-                update({ tickDelay: parseFloat(e.target.value) || 3 })
-              }
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                update({ tickDelay: Number.isFinite(val) ? Math.max(0.5, Math.min(30, val)) : 3 });
+              }}
             />
           </div>
         </div>
@@ -165,7 +166,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
         <div className="flex items-center gap-3 pt-4 border-t border-b-DEFAULT">
           <button
             onClick={handleSave}
-            className="h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+            className="h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
           >
             {t("save")}
           </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { getSessionEvents, deleteSession, EventData } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import Modal from "./Modal";
@@ -41,6 +41,7 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
   const [branchEvents, setBranchEvents] = useState<Record<string, EventData[]>>({});
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(false);
 
   const prefersReducedMotion = typeof window !== "undefined"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -94,16 +95,19 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
   }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Delete handler */
-  async function handleDelete(id: string) {
+  const handleDelete = useCallback(async (id: string) => {
     setDeleting(true);
+    setDeleteError(false);
     try {
       await deleteSession(id);
       setConfirmDelete(null);
       setExpanded(null);
       onDeleted?.(id);
-    } catch { /* ignore */ }
+    } catch {
+      setDeleteError(true);
+    }
     setDeleting(false);
-  }
+  }, [onDeleted]);
 
   /* Geometry */
   const maxTick = Math.max(...sorted.map((s) => s.tick), 1);
@@ -316,7 +320,7 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
             <div className="flex items-center gap-3 pt-1">
               <button
                 onClick={() => onSelect(expandedBranch.id)}
-                className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+                className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
               >
                 {expandedBranch.status !== "ended" ? t("resume") : t("world_review")} &rarr;
               </button>
@@ -338,13 +342,16 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
             <p className="text-body text-t-DEFAULT normal-case tracking-normal mb-6">
               {t("branch_delete_confirm")}
             </p>
+            {deleteError && (
+              <p className="text-detail text-danger normal-case tracking-normal mb-4">{t("delete_failed")}</p>
+            )}
             <div className="flex items-center gap-3">
               <button
                 onClick={() => handleDelete(confirmDelete)}
                 disabled={deleting}
-                className="h-9 px-5 text-micro font-medium tracking-wider bg-danger text-void border border-danger hover:bg-transparent hover:text-danger disabled:opacity-30 transition-colors"
+                className="h-9 px-5 text-micro font-medium tracking-wider bg-danger text-void border border-danger hover:bg-transparent hover:text-danger active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
               >
-                {deleting ? t("loading") : t("delete")}
+                {deleting ? t("loading") : deleteError ? t("retry") : t("delete")}
               </button>
               <button
                 onClick={() => setConfirmDelete(null)}

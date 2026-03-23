@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BABEL Frontend
 
-## Getting Started
+Next.js 14 frontend for BABEL — AI World State Machine.
 
-First, run the development server:
+## Stack
+
+- **Framework**: Next.js 14 (App Router)
+- **Styling**: Tailwind CSS 3.4 with custom design preset (`../design/tailwind.preset.js`)
+- **Typography**: JetBrains Mono (monospace) + Inter (headings)
+- **i18n**: Built-in CN/EN toggle, 210+ translation keys in `lib/i18n.ts`
+
+## Pages
+
+| Route | Description |
+|-------|-------------|
+| `/` | Home — browse world seeds, view details, launch simulations |
+| `/create` | Create a custom world with agents, rules, locations, events |
+| `/sim?id=<session_id>` | Live simulation — event feed, agent panel, chat, controls |
+| `/assets` | Saved asset library — agents, items, locations, events |
+
+## Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Requires the BABEL backend running at `http://localhost:8000` (configurable via `NEXT_PUBLIC_API_URL`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Build & Deploy
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build    # Production build
+npm start        # Start production server
 
-## Learn More
+# Docker
+docker build -t babel-frontend .
+docker run -p 3000:3000 babel-frontend
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Design System
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Dark cyberpunk aesthetic — void-black (#000), lime accent (#C0FE04), zero border-radius, uppercase monospace, machine voice. See `../design/` and `CLAUDE.md` for full design tokens and component patterns.
