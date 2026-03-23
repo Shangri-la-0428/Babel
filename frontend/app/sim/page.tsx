@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef, Suspense, lazy } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import {
   WorldState,
@@ -23,8 +24,11 @@ import Settings from "@/components/Settings";
 import InjectEvent from "@/components/InjectEvent";
 import { ErrorBanner } from "@/components/ui";
 
+const ParticleField = dynamic(() => import("@/components/ParticleField"), { ssr: false });
+const WorldRadar = dynamic(() => import("@/components/WorldRadar"), { ssr: false });
 const SeedPreview = lazy(() => import("@/components/SeedPreview"));
 const AgentChat = lazy(() => import("@/components/AgentChat"));
+const OracleDrawer = lazy(() => import("@/components/OracleDrawer"));
 
 const MAX_EVENTS = 500;
 
@@ -45,6 +49,8 @@ function SimContent() {
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [chatAgent, setChatAgent] = useState<{ id: string; name: string } | null>(null);
   const [seedPreview, setSeedPreview] = useState<SavedSeedData | null>(null);
+  const [oracleOpen, setOracleOpen] = useState(false);
+  const [oracleEverOpened, setOracleEverOpened] = useState(false);
   const { locale, toggle, t } = useLocale();
   const [wsRetryExhausted, setWsRetryExhausted] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -140,7 +146,7 @@ function SimContent() {
           case "agent_added":
             getState(sessionId).then((s) => {
               setState(s);
-            }).catch(() => {});
+            }).catch(() => { /* state refresh is best-effort — WS will sync */ });
             break;
 
           case "error":
@@ -289,11 +295,39 @@ function SimContent() {
   const handleDismissError = useCallback(() => setError(null), []);
   const handleCloseSeedPreview = useCallback(() => setSeedPreview(null), []);
   const handleCloseChat = useCallback(() => setChatAgent(null), []);
+  const handleToggleOracle = useCallback(() => {
+    setOracleOpen((prev) => {
+      if (!prev) setOracleEverOpened(true);
+      return !prev;
+    });
+  }, []);
+  const handleCloseOracle = useCallback(() => setOracleOpen(false), []);
 
   const activeAgentId = useMemo(
     () => (events.length > 0 ? events[events.length - 1]?.agent_id : null),
     [events]
   );
+
+  // Radar: derive latest event location from agent state
+  const latestEventLocation = useMemo(() => {
+    if (!events.length || !state?.agents) return "";
+    const last = events[events.length - 1];
+    if (last.agent_id && state.agents[last.agent_id]) {
+      return state.agents[last.agent_id].location;
+    }
+    return "";
+  }, [events, state?.agents]);
+
+  // Radar: agent list for Canvas visualization
+  const radarAgents = useMemo(() => {
+    if (!state?.agents) return [];
+    return Object.entries(state.agents).map(([id, a]) => ({
+      id,
+      name: a.name,
+      location: a.location,
+      status: a.status,
+    }));
+  }, [state?.agents]);
 
   if (!sessionId) {
     return (
@@ -308,7 +342,12 @@ function SimContent() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-void scanlines">
+    <div className="h-screen flex flex-col overflow-hidden bg-void scanlines relative isolate">
+      <ParticleField
+        status={status}
+        isNight={state?.world_time?.is_night ?? false}
+        eventCount={events.length}
+      />
       <h1 className="sr-only">{t("simulate")}</h1>
       <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
         <div className="flex items-center gap-4 min-w-0">
@@ -316,7 +355,7 @@ function SimContent() {
             {t("back")}
           </a>
           <span className="text-t-dim shrink-0">|</span>
-          <a href="/" className="font-sans text-subheading font-bold tracking-widest text-primary hover:drop-shadow-[0_0_8px_var(--color-primary-glow-strong)] transition-[filter] shrink-0">
+          <a href="/" className="font-sans text-subheading font-bold tracking-widest text-primary hover:drop-shadow-[0_0_8px_var(--color-primary-glow-strong)] hover:animate-[logo-glitch_300ms_ease] transition-[filter] shrink-0">
             BABEL
           </a>
           {state?.name && (
@@ -381,6 +420,21 @@ function SimContent() {
       <main className="flex-1 grid grid-cols-[1fr_380px] min-w-[1024px] overflow-hidden">
         {/* Event Feed */}
         <section className="flex flex-col border-r border-b-DEFAULT overflow-hidden" aria-label="Event feed">
+          {/* World Radar — Direction A */}
+          {state && (state.locations?.length ?? 0) > 0 && (
+            <div className="h-[180px] border-b border-b-DEFAULT shrink-0 bg-void relative">
+              <span className="absolute top-2 left-4 text-micro text-t-dim tracking-widest pointer-events-none z-10">
+                TACTICAL
+              </span>
+              <WorldRadar
+                locations={state.locations}
+                agents={radarAgents}
+                isRunning={status === "running"}
+                latestEventLocation={latestEventLocation}
+                tick={tick}
+              />
+            </div>
+          )}
           <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 flex justify-between items-center shrink-0">
             <span className="text-micro text-t-muted tracking-widest">
               {t("event_feed")}
@@ -392,7 +446,10 @@ function SimContent() {
           <div className="flex-1 overflow-y-auto">
             {events.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-2">
-                <div className="text-micro text-t-dim tracking-widest">{"// AWAITING INPUT"}</div>
+                <div className="text-micro text-t-dim tracking-widest">
+                  {"// AWAITING INPUT"}
+                  <span className="inline-block w-[0.55em] h-[1.1em] bg-t-dim ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite]" aria-hidden="true" />
+                </div>
                 <div className="text-detail text-t-muted normal-case tracking-normal">
                   {t("no_events")}
                 </div>
@@ -402,6 +459,7 @@ function SimContent() {
                 events={events}
                 newEventIds={newEventIds}
                 onSeed={handleGenerateEventSeed}
+                worldTimeDisplay={state?.world_time?.display}
               />
             )}
           </div>
@@ -425,6 +483,19 @@ function SimContent() {
           <SeedPreview
             seed={seedPreview}
             onClose={handleCloseSeedPreview}
+          />
+        </Suspense>
+      )}
+
+      {/* Oracle Drawer (lazy — stays mounted after first open for exit animation) */}
+      {oracleEverOpened && (
+        <Suspense fallback={null}>
+          <OracleDrawer
+            sessionId={sessionId}
+            settings={settings}
+            open={oracleOpen}
+            onClose={handleCloseOracle}
+            tick={tick}
           />
         </Suspense>
       )}
@@ -454,6 +525,9 @@ function SimContent() {
         sessionId={sessionId}
         model={settings.model}
         wsStatus={wsStatus}
+        worldTime={state?.world_time || null}
+        onOracle={handleToggleOracle}
+        oracleOpen={oracleOpen}
       />
     </div>
   );

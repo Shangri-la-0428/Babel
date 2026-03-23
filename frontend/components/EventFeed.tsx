@@ -3,57 +3,7 @@
 import { EventData } from "@/lib/api";
 import { memo, useEffect, useMemo, useRef, useCallback } from "react";
 import { useLocale } from "@/lib/locale-context";
-
-/* ── Decode Transmission Effect (optimized: DOM-direct, no setState per frame) ── */
-const GLITCH_CHARS = "█▓▒░▀▄│─╬";
-
-const DecodeText = memo(function DecodeText({ text }: { text: string }) {
-  const spanRef = useRef<HTMLSpanElement>(null);
-  const glitchRef = useRef<HTMLSpanElement>(null);
-  const frameRef = useRef(0);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      if (spanRef.current) spanRef.current.textContent = text;
-      if (glitchRef.current) glitchRef.current.textContent = "";
-      return;
-    }
-
-    const start = performance.now();
-    function tick(now: number) {
-      const p = Math.min((now - start) / 800, 1);
-      const count = Math.floor(text.length * p);
-
-      if (spanRef.current) spanRef.current.textContent = text.slice(0, count);
-
-      if (p >= 1) {
-        if (glitchRef.current) glitchRef.current.textContent = "";
-        return;
-      }
-
-      if (glitchRef.current) {
-        const remaining = text.slice(count);
-        let glitched = "";
-        for (let i = 0; i < remaining.length; i++) {
-          glitched += remaining[i] === " " ? " " : GLITCH_CHARS[((now / 50 + i * 7) | 0) % GLITCH_CHARS.length];
-        }
-        glitchRef.current.textContent = glitched;
-      }
-
-      frameRef.current = requestAnimationFrame(tick);
-    }
-    frameRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frameRef.current);
-  }, [text]);
-
-  return (
-    <>
-      <span ref={spanRef} />
-      <span ref={glitchRef} className="text-t-dim" />
-    </>
-  );
-});
+import { DecodeText } from "./ui";
 
 const TYPE_STYLES: Record<string, string> = {
   speak:       "text-info border-info",
@@ -63,6 +13,17 @@ const TYPE_STYLES: Record<string, string> = {
   observe:     "text-t-muted border-surface-3",
   wait:        "text-t-dim border-surface-3",
   world_event: "text-danger border-danger",
+};
+
+// Left-edge accent per action type — subtle signal stripe
+const ACCENT_BORDER: Record<string, string> = {
+  speak:       "border-l-info/40",
+  move:        "border-l-surface-4",
+  use_item:    "border-l-primary/40",
+  trade:       "border-l-warning/40",
+  observe:     "border-l-transparent",
+  wait:        "border-l-transparent",
+  world_event: "border-l-danger/60",
 };
 
 const EventItem = memo(function EventItem({
@@ -78,18 +39,20 @@ const EventItem = memo(function EventItem({
   const isWorld = event.action_type === "world_event";
   const isSupporting = event.agent_role === "supporting";
   const style = TYPE_STYLES[event.action_type] || "text-t-muted border-surface-3";
+  const accent = ACCENT_BORDER[event.action_type] || "border-l-transparent";
 
   return (
     <div
-      className={`grid grid-cols-[56px_80px_1fr_auto_auto] gap-3 items-baseline px-4 py-3 border-b border-b-DEFAULT hover:bg-surface-1 transition-colors group min-w-0 ${
+      className={`grid grid-cols-[56px_80px_1fr_auto_auto] gap-3 items-baseline px-4 py-3 border-b border-b-DEFAULT border-l-2 ${accent} hover:bg-surface-1 transition-colors group min-w-0 ${
         isSupporting ? "opacity-70" : ""
       } ${
         isNew
           ? isWorld
-            ? "animate-[event-flash-danger_1.2s_ease]"
+            ? ""
             : "animate-[event-flash_1.2s_ease]"
           : ""
       }`}
+      style={isNew && isWorld ? { animation: "event-flash-danger 1.2s ease, crt-glitch 600ms ease both" } : undefined}
     >
       <span className="text-micro text-t-dim tracking-wider tabular-nums" aria-label={`Tick ${event.tick}`}>
         {String(event.tick).padStart(3, "0")}
@@ -125,11 +88,21 @@ const EventItem = memo(function EventItem({
   );
 });
 
-function TickDivider({ tick: tickNum }: { tick: number }) {
+function TickDivider({ tick: tickNum, worldTimeDisplay, isLatest }: { tick: number; worldTimeDisplay?: string; isLatest?: boolean }) {
   const { t } = useLocale();
   return (
-    <div className="px-4 py-2 border-b border-b-DEFAULT bg-surface-1 text-micro text-t-muted tracking-widest">
-      {t("tick")} {String(tickNum).padStart(3, "0")}
+    <div className="px-4 py-2 border-b border-b-DEFAULT bg-surface-1 text-micro text-t-muted tracking-widest flex items-center gap-3 relative overflow-hidden">
+      <span>{t("tick")} {String(tickNum).padStart(3, "0")}</span>
+      {worldTimeDisplay && !worldTimeDisplay.startsWith("Tick") && (
+        <span className="text-t-dim">{worldTimeDisplay}</span>
+      )}
+      {isLatest && (
+        <span
+          key={`sweep-${tickNum}`}
+          className="absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-primary/10 to-transparent pointer-events-none animate-[tick-sweep_800ms_cubic-bezier(0.16,1,0.3,1)_both]"
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 }
@@ -141,10 +114,12 @@ export default function EventFeed({
   events,
   newEventIds,
   onSeed,
+  worldTimeDisplay,
 }: {
   events: EventData[];
   newEventIds?: Set<string>;
   onSeed?: (eventId: string) => void;
+  worldTimeDisplay?: string;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const { t } = useLocale();
@@ -189,9 +164,9 @@ export default function EventFeed({
           {safeEvents.length - RENDER_WINDOW} {t("events_count")} {t("total")} &middot; {RENDER_WINDOW} {t("events_count")}
         </div>
       )}
-      {grouped.map((group) => (
+      {grouped.map((group, gi) => (
         <div key={group.tick}>
-          <TickDivider tick={group.tick} />
+          <TickDivider tick={group.tick} worldTimeDisplay={gi === grouped.length - 1 ? worldTimeDisplay : undefined} isLatest={gi === grouped.length - 1} />
           {group.events.map((event) => (
             <EventItem
               key={event.id}

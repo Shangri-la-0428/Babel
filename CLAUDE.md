@@ -35,7 +35,7 @@ Creative worldbuilders — writers, game designers, and AI enthusiasts who use B
 ### Technical Constraints
 - **Platform**: Desktop only, 1280px+ viewport
 - **Stack**: Next.js 14 (App Router) + Tailwind CSS 3.4 with custom preset (`design/tailwind.preset.js`)
-- **i18n**: 210+ translation keys in `lib/i18n.ts`, CN/EN toggle. All user-facing strings use `t()`
+- **i18n**: 250+ translation keys in `lib/i18n.ts`, CN/EN toggle. All user-facing strings use `t()`
 - **Accessibility**: MVP — semantic HTML, keyboard nav, `prefers-reduced-motion` respected globally
 - **Color tokens**: Semantic naming via Tailwind (`text-t-muted`, `border-b-DEFAULT`, `bg-surface-1`) — NEVER raw Tailwind colors
 
@@ -56,7 +56,7 @@ Creative worldbuilders — writers, game designers, and AI enthusiasts who use B
 | primary-glow-strong | rgba(192,254,4,0.4) | Strong glow (hover, hero) |
 | danger | #F24723 | Error, dead agents, world events |
 | warning | #FFB800 | Trade actions, caution |
-| info | #0EA5E9 | Speak actions, informational |
+| info | #0EA5E9 | Speak actions, informational, **Oracle narrator accent** |
 
 ### Component Patterns
 
@@ -94,3 +94,19 @@ Creative worldbuilders — writers, game designers, and AI enthusiasts who use B
 Glow levels: 8px (subtle) → 12px (medium) → 16px (strong) → 24px (hero), using `--color-primary-glow` / `--color-primary-glow-strong`
 
 All animations respect `prefers-reduced-motion: reduce`. Never use bounce or elastic easing.
+
+### Oracle Drawer
+
+Right-side slide-out drawer for the omniscient narrator (ORACLE). Uses `info` (#0EA5E9) as identity accent, distinct from `primary` lime. Visual direction: "signal from beyond" — the feel of establishing a transmission link with an omniscient entity.
+
+**Key patterns**:
+- Position: `fixed right-0 top-14 bottom-14 w-[420px] z-overlay`
+- Easing: `ease-out-expo` (cubic-bezier(0.16, 1, 0.3, 1)) — registered as design token
+- Registered animation utilities: `animate-oracle-slide-left`, `animate-oracle-slide-right`, `animate-oracle-chromatic-in`, `animate-oracle-border-pulse`, `animate-transmission-sweep`
+- Canvas effects: `OracleWaveform` (signal visualizer, 28px), `OracleParticles` (floating terminal glyphs, α up to 0.14)
+- Edge scan: CSS `@property --oracle-scan-y` animated gradient, 3px beam with `drop-shadow` glow during thinking (stays in `globals.css`)
+- ControlBar button: `aria-expanded` toggle, info glow when active
+- Header: info-tinted border (`border-info/15`), label glow, tick counter in `text-info/40`
+- Empty state hero: `text-sm` label flanked by gradient signal lines, 16px info glow halo
+- Oracle messages: `bg-info/[0.05]`, `border-l-info/30` — stronger presence than standard chat
+- Suggestion chips: `hover:text-info hover:bg-info/[0.04]` — info identity on interaction

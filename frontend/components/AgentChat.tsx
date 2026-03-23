@@ -35,7 +35,11 @@ export default function AgentChat({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
+    // Defer scroll to after browser paint so scrollHeight includes new content
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
   }, [messages]);
 
   const handleSend = useCallback(async (e: React.FormEvent) => {

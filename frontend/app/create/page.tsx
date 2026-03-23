@@ -50,8 +50,8 @@ export default function CreatePage() {
 
   useEffect(() => {
     let mounted = true;
-    fetchAssets("agent").then((d) => { if (mounted) setSavedAgents(d); }).catch(() => {});
-    fetchAssets("event").then((d) => { if (mounted) setSavedEvents(d); }).catch(() => {});
+    fetchAssets("agent").then((d) => { if (mounted) setSavedAgents(d); }).catch(() => { /* asset import is optional — proceed without */ });
+    fetchAssets("event").then((d) => { if (mounted) setSavedEvents(d); }).catch(() => { /* asset import is optional — proceed without */ });
 
     // Load pre-filled data from world detail "Edit" button
     try {
@@ -124,19 +124,32 @@ export default function CreatePage() {
 
   async function handleSubmit() {
     if (!world.name.trim()) return;
+
+    const hasNamedAgent = agents.some((a) => a.name.trim());
+    if (!hasNamedAgent) {
+      setError(t("validation_need_agent"));
+      return;
+    }
+
+    const parsedLocations = world.locations
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [name, ...desc] = line.split(":");
+        return { name: name.trim(), description: desc.join(":").trim() };
+      })
+      .filter((loc) => loc.name);
+
+    if (parsedLocations.length === 0) {
+      setError(t("validation_need_location"));
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      const locations = world.locations
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => {
-          const [name, ...desc] = line.split(":");
-          return { name: name.trim(), description: desc.join(":").trim() };
-        })
-        .filter((loc) => loc.name);
-
+      const locations = parsedLocations;
       const firstLocation = locations[0]?.name || "";
 
       const data = {
@@ -279,6 +292,7 @@ export default function CreatePage() {
               value={world.rules}
               onChange={(e) => setWorld({ ...world, rules: e.target.value })}
             />
+            <span className="text-micro text-t-dim tracking-wider mt-1 block">{t("hint_one_per_line")}</span>
           </div>
           <div>
             <label htmlFor="world-locations" className={labelClass}>{t("locations")}</label>
@@ -299,6 +313,7 @@ export default function CreatePage() {
               value={world.initial_events}
               onChange={(e) => setWorld({ ...world, initial_events: e.target.value })}
             />
+            <span className="text-micro text-t-dim tracking-wider mt-1 block">{t("hint_one_per_line")}</span>
           </div>
         </div>
 

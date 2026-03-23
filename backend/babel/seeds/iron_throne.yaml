@@ -1,6 +1,18 @@
 name: "铁王座"
 description: "大陆唯一的王座空悬，老王暴毙，遗诏失踪。红堡的每一面墙壁都长着耳朵，每一道阴影里都藏着刀。权力不会真空——它只会流向最不择手段的人。"
 
+time:
+  unit: "hour"
+  ticks_per_unit: 1
+  start: "08:00"
+  day_cycle: true
+  day_length: 24
+  periods:
+    - { name: "night", start: 22, end: 6 }
+    - { name: "morning", start: 6, end: 12 }
+    - { name: "afternoon", start: 12, end: 18 }
+    - { name: "evening", start: 18, end: 22 }
+
 rules:
   - "权力来自血统、军队和信息，三者缺一不可"
   - "任何公开的承诺都可以被秘密的交易推翻"

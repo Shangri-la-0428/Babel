@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { AgentData, WorldState, SavedSeedData, generateSeed, fetchAssets, enrichEntity } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
-import { StatusDot, Badge } from "./ui";
+import { StatusDot } from "./ui";
 
 type Tab = "agents" | "items" | "locations" | "world";
 
@@ -15,6 +15,7 @@ function AgentRow({
   onToggle,
   onChat,
   onExtract,
+  onItemClick,
   enrichedDetails,
   enriching,
   enrichError,
@@ -26,6 +27,7 @@ function AgentRow({
   onToggle: () => void;
   onChat: () => void;
   onExtract: () => void;
+  onItemClick: (itemName: string) => void;
   enrichedDetails: Record<string, unknown> | null;
   enriching: boolean;
   enrichError: boolean;
@@ -34,6 +36,18 @@ function AgentRow({
   const { t } = useLocale();
   const isDead = agent.status === "dead";
   const isSupporting = agent.role === "supporting";
+
+  // Auto-enrich when expanded and no enrichment exists
+  const autoEnrichRef = useRef(false);
+  useEffect(() => {
+    if (expanded && !enrichedDetails && !enriching && !enrichError && !autoEnrichRef.current) {
+      autoEnrichRef.current = true;
+      onEnrich();
+    }
+    if (!expanded) {
+      autoEnrichRef.current = false;
+    }
+  }, [expanded, enrichedDetails, enriching, enrichError, onEnrich]);
 
   return (
     <div
@@ -117,7 +131,13 @@ function AgentRow({
             {(agent.inventory || []).length > 0 ? (
               <div className="flex flex-wrap gap-1">
                 {(agent.inventory || []).map((item, i) => (
-                  <Badge key={i} variant="warning">{item}</Badge>
+                  <button
+                    key={i}
+                    onClick={() => onItemClick(item)}
+                    className="text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium text-warning border-warning hover:bg-warning/10 active:scale-[0.97] transition-[colors,transform]"
+                  >
+                    {item}
+                  </button>
                 ))}
               </div>
             ) : (
@@ -249,6 +269,18 @@ function ItemRow({
   const { t } = useLocale();
   const detail = cachedDetail?.data;
   const description = (detail?.description as string) || "";
+
+  // Auto-enrich when expanded and no enrichment exists
+  const autoEnrichRef = useRef(false);
+  useEffect(() => {
+    if (expanded && !enrichedDetails && !enriching && !enrichError && !autoEnrichRef.current) {
+      autoEnrichRef.current = true;
+      onEnrich();
+    }
+    if (!expanded) {
+      autoEnrichRef.current = false;
+    }
+  }, [expanded, enrichedDetails, enriching, enrichError, onEnrich]);
 
   return (
     <div className="border border-b-DEFAULT hover:border-b-hover transition-colors">
@@ -393,6 +425,18 @@ function LocationRow({
 }) {
   const { t } = useLocale();
 
+  // Auto-enrich when expanded and no enrichment exists
+  const autoEnrichRef = useRef(false);
+  useEffect(() => {
+    if (expanded && !enrichedDetails && !enriching && !enrichError && !autoEnrichRef.current) {
+      autoEnrichRef.current = true;
+      onEnrich();
+    }
+    if (!expanded) {
+      autoEnrichRef.current = false;
+    }
+  }, [expanded, enrichedDetails, enriching, enrichError, onEnrich]);
+
   return (
     <div className="border border-b-DEFAULT hover:border-b-hover transition-colors">
       <button
@@ -534,7 +578,7 @@ export default function AssetPanel({
       const map = new Map<string, SavedSeedData>();
       assets.forEach((a) => map.set(a.name, a));
       setItemCache(map);
-    }).catch(() => {});
+    }).catch(() => { /* item cache is optional — proceed without */ });
     return () => { mounted = false; };
   }, []);
 
@@ -667,6 +711,7 @@ export default function AssetPanel({
                   onToggle={() => setExpandedAgent(expandedAgent === id ? null : id)}
                   onChat={() => onChat(id, agent.name)}
                   onExtract={() => onExtractAgent(id)}
+                  onItemClick={(itemName) => { setTab("items"); setExpandedItem(itemName); }}
                   enrichedDetails={enrichCache.get(id) || null}
                   enriching={enrichingEntity === id}
                   enrichError={enrichError === id}

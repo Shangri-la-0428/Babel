@@ -15,7 +15,7 @@ Next.js 14 frontend for BABEL — AI World State Machine.
 |-------|-------------|
 | `/` | Home — browse world seeds, view details, launch simulations |
 | `/create` | Create a custom world with agents, rules, locations, events |
-| `/sim?id=<session_id>` | Live simulation — event feed, agent panel, chat, controls |
+| `/sim?id=<session_id>` | Live simulation — event feed, agent panel, chat, Oracle narrator drawer, controls |
 | `/assets` | Saved asset library — agents, items, locations, events |
 
 ## Development

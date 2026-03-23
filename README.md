@@ -93,6 +93,8 @@ docker compose up --build
 | POST | `/api/worlds/{id}/step` | 单步执行 / Single tick |
 | POST | `/api/worlds/{id}/inject` | 注入自定义事件 / Inject custom event |
 | POST | `/api/worlds/{id}/chat` | 与角色对话 / Chat with agent |
+| POST | `/api/worlds/{id}/oracle` | 与全知旁白对话 / Chat with omniscient narrator |
+| GET | `/api/worlds/{id}/oracle/history` | 获取旁白对话历史 / Get narrator history |
 | GET | `/api/worlds/{id}/state` | 获取当前状态 / Get state |
 | GET | `/api/worlds/{id}/events` | 获取事件历史 / Get events |
 | GET | `/api/worlds/{id}/replay` | 获取完整回放 / Get full replay |

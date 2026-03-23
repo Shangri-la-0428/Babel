@@ -1,6 +1,9 @@
 """BABEL — Prompt templates for LLM calls."""
 
+from __future__ import annotations
+
 import json
+from typing import Any
 
 SYSTEM_PROMPT = """\
 You are a world simulation engine's action resolver. NOT a storyteller.
@@ -67,6 +70,8 @@ def build_user_prompt(
     recent_events: list[str],
     available_locations: list[str],
     urgent_events: list[str] | None = None,
+    world_time_display: str = "",
+    world_time_period: str = "",
 ) -> str:
     rules_text = "\n".join(f"- {r}" for r in world_rules)
     goals_text = "\n".join(f"- {g}" for g in agent_goals)
@@ -108,7 +113,7 @@ Inventory: {inv_text}
 {memory_text}
 
 [Current Situation]
-Tick: {tick}
+{f"Time: {world_time_display}" + (f" ({world_time_period})" if world_time_period else "") + chr(10) if world_time_display else ""}Tick: {tick}
 Visible agents:
 {agents_text}
 
@@ -339,3 +344,111 @@ Name: {entity_name}
 
 [Instruction]
 Generate enriched details for this {entity_type} as JSON. Match the schema for "{entity_type}" exactly. Only JSON, nothing else."""
+
+
+# ── Oracle Prompt (omniscient narrator) ──────────────
+
+ORACLE_SYSTEM_PROMPT = """\
+You are ORACLE — the omniscient narrator of this world simulation called BABEL.
+You exist outside the world. You see all agents, all events, all memories, all rules.
+You speak to the USER (the world's architect), not to any agent inside the world.
+
+Rules:
+- Respond in plain text. Never output JSON or markdown code blocks.
+- Reference agents by name and locations precisely.
+- Be authoritative — you KNOW, you do not guess.
+- Help the user understand dynamics, suggest interventions, predict consequences.
+- Speak in the language the user writes in.
+- Keep responses focused and insightful (2-6 sentences unless the user asks for detail).
+- You may speculate about what agents might do, but mark it as prediction.
+- Do NOT role-play as any agent. You are the narrator, not a character.\
+"""
+
+
+def build_oracle_prompt(
+    world_name: str,
+    world_description: str,
+    world_rules: list[str],
+    agents: dict[str, Any],
+    recent_events: list[str],
+    enriched_details: dict[str, dict],
+    conversation_history: list[dict],
+    user_message: str,
+    narrator_persona: str = "",
+    world_time_display: str = "",
+) -> str:
+    """Build the user prompt for the Oracle narrator."""
+    rules_text = "\n".join(f"- {r}" for r in world_rules) if world_rules else "(no rules)"
+
+    # Agent states — full omniscient view
+    agent_lines = []
+    for aid, agent in agents.items():
+        goals = ", ".join(agent.get("goals", []) if isinstance(agent.get("goals"), list) else [])
+        inv = ", ".join(agent.get("inventory", []) if isinstance(agent.get("inventory"), list) else [])
+        memory_list = agent.get("memory", [])
+        if isinstance(memory_list, list):
+            mem = "; ".join(memory_list[-5:]) if memory_list else "(none)"
+        else:
+            mem = "(none)"
+        role = agent.get("role", "main")
+        status = agent.get("status", "idle")
+        agent_lines.append(
+            f"- {agent.get('name', aid)} [{aid}] | {agent.get('personality', '')} | "
+            f"Location: {agent.get('location', '?')} | Goals: {goals or '(none)'} | "
+            f"Inventory: {inv or '(empty)'} | Status: {status} | Role: {role}\n"
+            f"  Recent memory: {mem}"
+        )
+    agents_text = "\n".join(agent_lines) if agent_lines else "(no agents)"
+
+    events_text = "(no events yet)"
+    if recent_events:
+        events_text = "\n".join(f"- {e}" for e in recent_events[-15:])
+
+    # Enriched details summary
+    details_text = ""
+    if enriched_details:
+        parts = []
+        for key, val in enriched_details.items():
+            desc = val.get("description", "")
+            if desc:
+                parts.append(f"- {key}: {desc}")
+        if parts:
+            details_text = "\n[Enriched Details]\n" + "\n".join(parts)
+
+    # Conversation history
+    conv_text = ""
+    if conversation_history:
+        lines = []
+        for msg in conversation_history[-10:]:
+            role = "USER" if msg.get("role") == "user" else "ORACLE"
+            lines.append(f"{role}: {msg.get('content', '')}")
+        conv_text = "\n[Conversation History]\n" + "\n".join(lines)
+
+    persona_line = ""
+    if narrator_persona:
+        persona_line = f"\n[Narrator Persona]\n{narrator_persona}\n"
+
+    time_line = f"\nTime: {world_time_display}" if world_time_display else ""
+
+    return f"""\
+[World]
+Name: {world_name}
+{world_description}
+{time_line}
+
+[World Rules]
+{rules_text}
+
+[All Agents — Omniscient View]
+{agents_text}
+
+[Recent Events (chronological)]
+{events_text}
+{details_text}
+{conv_text}
+{persona_line}
+[User Message]
+"{user_message}"
+
+[Instruction]
+Respond as ORACLE. You see all, know all. Help the user understand and co-author this world."""

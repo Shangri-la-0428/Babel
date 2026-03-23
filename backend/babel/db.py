@@ -170,6 +170,28 @@ async def _migrate_v4(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+# ── V5: Narrator Messages table ──
+
+SCHEMA_V5 = """
+CREATE TABLE IF NOT EXISTS narrator_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tick INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+CREATE INDEX IF NOT EXISTS idx_narrator_session ON narrator_messages(session_id, created_at);
+"""
+
+
+async def _migrate_v5(db: aiosqlite.Connection) -> None:
+    """Create narrator_messages table if it doesn't exist."""
+    await db.executescript(SCHEMA_V5)
+    await db.commit()
+
+
 async def init_db(db_path: str | Path | None = None) -> None:
     path = str(db_path or DB_PATH)
     async with aiosqlite.connect(path) as db:
@@ -178,14 +200,8 @@ async def init_db(db_path: str | Path | None = None) -> None:
         await _migrate_v2(db)
         await _migrate_v3(db)
         await _migrate_v4(db)
+        await _migrate_v5(db)
         await db.commit()
-
-
-async def get_db(db_path: str | Path | None = None) -> aiosqlite.Connection:
-    path = str(db_path or DB_PATH)
-    db = await aiosqlite.connect(path)
-    db.row_factory = aiosqlite.Row
-    return db
 
 
 async def save_session(session) -> None:
@@ -361,6 +377,7 @@ async def delete_session(session_id: str) -> bool:
         await db.execute("DELETE FROM world_snapshots WHERE session_id = ?", (session_id,))
         await db.execute("DELETE FROM agent_memories WHERE session_id = ?", (session_id,))
         await db.execute("DELETE FROM entity_details WHERE session_id = ?", (session_id,))
+        await db.execute("DELETE FROM narrator_messages WHERE session_id = ?", (session_id,))
         await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         await db.commit()
         return True
@@ -757,4 +774,42 @@ async def load_all_entity_details(session_id: str) -> list[dict]:
             d = dict(row)
             d["details"] = json.loads(d["details"])
             results.append(d)
+        return results
+
+
+# ── Narrator Messages (Oracle) ──
+
+
+async def save_narrator_message(
+    session_id: str, role: str, content: str, tick: int
+) -> str:
+    """Save a narrator message. Returns the message ID."""
+    import uuid
+
+    msg_id = uuid.uuid4().hex[:8]
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        await db.execute(
+            """INSERT INTO narrator_messages (id, session_id, role, content, tick)
+               VALUES (?, ?, ?, ?, ?)""",
+            (msg_id, session_id, role, content, tick),
+        )
+        await db.commit()
+    return msg_id
+
+
+async def load_narrator_messages(
+    session_id: str, limit: int = 20
+) -> list[dict]:
+    """Load recent narrator messages for a session."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT * FROM narrator_messages
+               WHERE session_id = ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (session_id, limit),
+        )
+        rows = await cursor.fetchall()
+        results = [dict(row) for row in rows]
+        results.reverse()
         return results

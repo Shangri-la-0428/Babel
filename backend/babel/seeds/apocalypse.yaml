@@ -1,6 +1,19 @@
 name: "末日方舟"
 description: "2012年，全球板块剧烈运动引发超级地震与巨型海啸，文明在72小时内崩塌。幸存者聚集在一艘搁浅的远洋邮轮上，海水仍在上涨，余震不断。物资在减少，信任在瓦解，下一波灾难随时可能到来。"
 
+time:
+  unit: "hour"
+  ticks_per_unit: 2
+  start: "06:00"
+  day_cycle: true
+  day_length: 24
+  periods:
+    - { name: "night", start: 21, end: 5 }
+    - { name: "dawn", start: 5, end: 7 }
+    - { name: "morning", start: 7, end: 12 }
+    - { name: "afternoon", start: 12, end: 17 }
+    - { name: "dusk", start: 17, end: 21 }
+
 rules:
   - "淡水和食物是最稀缺的资源，所有分配必须经过方舟委员会同意"
   - "任何人不得私藏超过三天份额的物资，违者流放"

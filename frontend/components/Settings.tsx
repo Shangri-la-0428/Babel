@@ -33,10 +33,15 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
     if (!settings.apiKey || !settings.apiBase) return;
     setLoadingModels(true);
     setTestStatus("idle");
-    const result = await fetchModels(settings.apiBase, settings.apiKey);
-    setModels(result);
-    setTestStatus(result.length > 0 ? "ok" : "error");
-    setLoadingModels(false);
+    try {
+      const result = await fetchModels(settings.apiBase, settings.apiKey);
+      setModels(result);
+      setTestStatus(result.length > 0 ? "ok" : "error");
+    } catch {
+      setTestStatus("error");
+    } finally {
+      setLoadingModels(false);
+    }
   }
 
   function handleSave() {

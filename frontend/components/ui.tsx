@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, memo, useEffect, useRef } from "react";
 import { useLocale } from "@/lib/locale-context";
 
 // ── StatusDot ──
@@ -110,7 +110,10 @@ export function EmptyState({
 }) {
   return (
     <div className={`border border-b-DEFAULT p-8 flex flex-col items-center gap-4 ${className}`}>
-      <div className="text-micro text-t-dim tracking-widest">{label}</div>
+      <div className="text-micro text-t-dim tracking-widest">
+        {label}
+        <span className="inline-block w-[0.55em] h-[1.1em] bg-t-dim ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite]" aria-hidden="true" />
+      </div>
       {children}
     </div>
   );
@@ -126,3 +129,122 @@ export function SkeletonLine({ className = "" }: { className?: string }) {
     />
   );
 }
+
+// ── DecodeText ──
+// Glitch/decode transmission effect. Progressively reveals text with
+// random block characters, like a signal being decoded from noise.
+
+const GLITCH_CHARS = "█▓▒░▀▄│─╬";
+
+// ── GlitchReveal ──
+// Dramatic decode animation for display titles. Glitch characters
+// decode into final text, all in the same color (no dim overlay).
+// Used for hero titles and system boot moments.
+
+const GLITCH_SET = "█▓▒░▀▄│─╬";
+
+export const GlitchReveal = memo(function GlitchReveal({
+  text,
+  duration = 600,
+  className = "",
+}: {
+  text: string;
+  duration?: number;
+  className?: string;
+}) {
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const frameRef = useRef(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof window === "undefined") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      el.textContent = text;
+      return;
+    }
+
+    const start = performance.now();
+
+    function tick(now: number) {
+      const p = Math.min((now - start) / duration, 1);
+      const count = Math.floor(text.length * p);
+
+      let display = text.slice(0, count);
+      for (let i = count; i < text.length; i++) {
+        display +=
+          text[i] === " "
+            ? " "
+            : GLITCH_SET[((now / 40 + i * 11) | 0) % GLITCH_SET.length];
+      }
+
+      if (el) el.textContent = display;
+      if (p < 1) frameRef.current = requestAnimationFrame(tick);
+    }
+
+    frameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameRef.current);
+  }, [text, duration]);
+
+  return <span ref={containerRef} className={className}>{text}</span>;
+});
+
+// ── DecodeText ──
+// Glitch/decode transmission effect. Progressively reveals text with
+// random block characters, like a signal being decoded from noise.
+
+export const DecodeText = memo(function DecodeText({
+  text,
+  duration = 800,
+}: {
+  text: string;
+  duration?: number;
+}) {
+  const spanRef = useRef<HTMLSpanElement>(null);
+  const glitchRef = useRef<HTMLSpanElement>(null);
+  const frameRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (spanRef.current) spanRef.current.textContent = text;
+      if (glitchRef.current) glitchRef.current.textContent = "";
+      return;
+    }
+
+    const start = performance.now();
+    function tick(now: number) {
+      const p = Math.min((now - start) / duration, 1);
+      const count = Math.floor(text.length * p);
+
+      if (spanRef.current) spanRef.current.textContent = text.slice(0, count);
+
+      if (p >= 1) {
+        if (glitchRef.current) glitchRef.current.textContent = "";
+        return;
+      }
+
+      if (glitchRef.current) {
+        const remaining = text.slice(count);
+        let glitched = "";
+        for (let i = 0; i < remaining.length; i++) {
+          glitched +=
+            remaining[i] === " "
+              ? " "
+              : GLITCH_CHARS[((now / 50 + i * 7) | 0) % GLITCH_CHARS.length];
+        }
+        glitchRef.current.textContent = glitched;
+      }
+
+      frameRef.current = requestAnimationFrame(tick);
+    }
+    frameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameRef.current);
+  }, [text, duration]);
+
+  return (
+    <>
+      <span ref={spanRef} />
+      <span ref={glitchRef} className="text-t-dim" />
+    </>
+  );
+});

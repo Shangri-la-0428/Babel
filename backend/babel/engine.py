@@ -12,7 +12,9 @@ from pydantic import ValidationError
 from .db import (
     get_last_node_id, save_snapshot, save_timeline_node,
     load_entity_details, save_entity_details, load_events,
+    load_events_filtered,
 )
+from .clock import world_time
 from .llm import get_agent_action, enrich_entity
 from .memory import (
     EPOCH_INTERVAL,
@@ -33,11 +35,9 @@ from .models import (
     AgentState,
     AgentStatus,
     Event,
-    LLMResponse,
     Session,
     SessionStatus,
     TimelineNode,
-    WorldSeed,
     WorldSnapshot,
 )
 from .validator import apply_action, validate_action
@@ -69,43 +69,6 @@ class Engine:
         self.tick_delay = tick_delay
         self._running = False
         self._enrichment_queue: list[tuple[str, str]] = []  # (entity_type, entity_id)
-
-    @classmethod
-    def from_seed(
-        cls,
-        world_seed: WorldSeed,
-        **kwargs: Any,
-    ) -> Engine:
-        session = Session(world_seed=world_seed)
-        session.init_agents()
-        # Record initial events
-        for text in world_seed.initial_events:
-            event = Event(
-                session_id=session.id,
-                tick=0,
-                agent_id=None,
-                agent_name=None,
-                action_type="world_event",
-                action={"content": text},
-                result=f"[WORLD] {text}",
-                importance=IMPORTANCE_MAP.get("world_event", 0.9),
-            )
-            session.events.append(event)
-        return cls(session=session, **kwargs)
-
-    async def run(self, max_ticks: int = 50) -> None:
-        """Run the simulation loop."""
-        self._running = True
-        self.session.status = SessionStatus.RUNNING
-
-        while self._running and self.session.tick < max_ticks:
-            await self.tick()
-            if not self._running:
-                break
-            await asyncio.sleep(self.tick_delay)
-
-        self.session.status = SessionStatus.ENDED
-        self._running = False
 
     async def tick(self) -> list[Event]:
         """Execute one tick of the simulation."""
@@ -212,6 +175,9 @@ class Engine:
                 if last_error:
                     extra_events.append(f"[SYSTEM] Previous action was invalid: {last_error}. Try again.")
 
+                # Compute world time
+                wt = world_time(self.session.tick, self.session.world_seed.time)
+
                 response = await get_agent_action(
                     world_rules=self.session.world_seed.rules,
                     agent_name=agent.name,
@@ -228,6 +194,8 @@ class Engine:
                     api_key=self.api_key,
                     api_base=self.api_base,
                     urgent_events=self.session.urgent_events or None,
+                    world_time_display=wt.display,
+                    world_time_period=wt.period,
                 )
 
                 # Validate
@@ -395,7 +363,6 @@ class Engine:
             # Gather relevant events
             relevant_event_strings: list[str] = []
             if entity_type == "agent":
-                from .db import load_events_filtered
                 events = await load_events_filtered(
                     session_id=session.id,
                     agent_id=entity_id,

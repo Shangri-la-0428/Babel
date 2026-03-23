@@ -23,7 +23,7 @@ export default function Nav({ activePage, showSettings, onToggleSettings }: NavP
       {activePage === "home" ? (
         <span className="font-sans text-subheading font-bold tracking-widest text-primary">BABEL</span>
       ) : (
-        <a href="/" className="font-sans text-subheading font-bold tracking-widest text-primary hover:drop-shadow-[0_0_8px_var(--color-primary-glow-strong)] transition-[filter]">BABEL</a>
+        <a href="/" className="font-sans text-subheading font-bold tracking-widest text-primary hover:drop-shadow-[0_0_8px_var(--color-primary-glow-strong)] hover:animate-[logo-glitch_300ms_ease] transition-[filter]">BABEL</a>
       )}
       <div className="flex items-center gap-6">
         {LINKS.map((link) =>

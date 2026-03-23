@@ -69,29 +69,29 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
   /* Fetch latest event per branch */
   const fetchedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    let mounted = true;
+    const controller = new AbortController();
     sorted.forEach(async (b) => {
       if (fetchedRef.current.has(b.id)) return;
       fetchedRef.current.add(b.id);
       try {
         const evts = await getSessionEvents(b.id, 1);
-        if (mounted) setLatestEvents((p) => ({ ...p, [b.id]: evts.length > 0 ? evts[0].result : "" }));
+        if (!controller.signal.aborted) setLatestEvents((p) => ({ ...p, [b.id]: evts.length > 0 ? evts[0].result : "" }));
       } catch { /* network error — skip */ }
     });
-    return () => { mounted = false; };
+    return () => { controller.abort(); };
   }, [sorted]);
 
   /* Fetch more events when branch is expanded */
   useEffect(() => {
     if (!expanded || branchEvents[expanded]) return;
-    let mounted = true;
+    const controller = new AbortController();
     (async () => {
       try {
         const evts = await getSessionEvents(expanded, 8);
-        if (mounted) setBranchEvents((p) => ({ ...p, [expanded]: evts }));
+        if (!controller.signal.aborted) setBranchEvents((p) => ({ ...p, [expanded]: evts }));
       } catch { /* network error — skip */ }
     })();
-    return () => { mounted = false; };
+    return () => { controller.abort(); };
   }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Delete handler */
@@ -156,7 +156,7 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
       <div ref={containerRef} className="overflow-x-auto overflow-y-hidden px-2">
         {sorted.length === 0 ? (
           <div className="px-6 py-10 flex flex-col items-center gap-2">
-            <div className="text-micro text-t-dim tracking-widest">{"// NO BRANCHES"}</div>
+            <div className="text-micro text-t-dim tracking-widest">{"// " + t("no_branches").toUpperCase()}</div>
             <div className="text-detail text-t-muted normal-case tracking-normal">
               {t("timeline_empty")}
             </div>
@@ -188,7 +188,7 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
             {/* Origin */}
             <circle cx={ORIGIN_X} cy={originY} r={ORIGIN_R} fill={C_PRIMARY} />
             <text x={ORIGIN_X} y={originY - ORIGIN_R - 8} textAnchor="middle" fill={C_MUTED}
-              style={{ fontSize: 10, fontFamily: "var(--font-mono, monospace)", letterSpacing: "0.1em" }}>SEED</text>
+              style={{ fontSize: 10, fontFamily: "var(--font-mono, monospace)", letterSpacing: "0.1em" }}>{t("seed_origin").toUpperCase()}</text>
 
             {/* Branches */}
             {sorted.map((branch, i) => {

@@ -7,7 +7,7 @@ import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
 import Settings from "@/components/Settings";
 import Timeline from "@/components/Timeline";
-import { StatusDot, ErrorBanner, EmptyState, SkeletonLine } from "@/components/ui";
+import { StatusDot, ErrorBanner, EmptyState, SkeletonLine, GlitchReveal } from "@/components/ui";
 
 interface SessionRecord {
   id: string;
@@ -48,6 +48,7 @@ export default function Home() {
   const { locale, toggle, t } = useLocale();
   const [seeds, setSeeds] = useState<SeedInfo[]>([]);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const [oracleGreetIdx] = useState(() => Math.floor(Math.random() * 4));
   const [loading, setLoading] = useState(false);
   const [seedsLoading, setSeedsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -203,7 +204,7 @@ export default function Home() {
       .finally(() => setSeedsLoading(false));
     getSessions()
       .then((data) => setSessions(Array.isArray(data) ? data : []))
-      .catch(() => {});
+      .catch(() => { /* session list is supplementary — seed list still works */ });
   }, []);
 
   async function handleSelectSeed(seed: SeedInfo) {
@@ -298,7 +299,7 @@ export default function Home() {
               {t("back")}
             </button>
             <span className="text-t-dim">|</span>
-            <span className="font-sans text-subheading font-bold tracking-widest text-primary">BABEL</span>
+            <a href="/" className="font-sans text-subheading font-bold tracking-widest text-primary hover:drop-shadow-[0_0_8px_var(--color-primary-glow-strong)] hover:animate-[logo-glitch_300ms_ease] transition-[filter]">BABEL</a>
             <span className="text-t-dim">/</span>
             <span className="text-body font-semibold text-primary truncate max-w-[300px] drop-shadow-[0_0_8px_var(--color-primary-glow)]">{selectedSeed.name}</span>
           </div>
@@ -687,10 +688,15 @@ export default function Home() {
           <div className="max-w-5xl mx-auto w-full flex items-end justify-between gap-6">
             <div>
               <h1 className="font-sans font-bold text-[clamp(2.5rem,5vw,4rem)] tracking-tight leading-[0.9] text-primary drop-shadow-[0_0_24px_var(--color-primary-glow-strong)]">
-                BABEL
+                <GlitchReveal text="BABEL" duration={700} />
               </h1>
               <p className="mt-3 text-body text-t-muted normal-case tracking-normal">
                 {t("tagline")}
+              </p>
+              <p className="mt-2 text-micro text-info/70 tracking-wider hover:text-info transition-colors">
+                {"// ORACLE: "}{t(
+                  (["oracle_greet_0", "oracle_greet_1", "oracle_greet_2", "oracle_greet_3"] as const)[oracleGreetIdx]
+                )}
               </p>
             </div>
             <div className="flex items-center gap-4 shrink-0 pb-0.5">

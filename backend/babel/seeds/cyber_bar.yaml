@@ -1,6 +1,19 @@
 name: "赛博酒吧"
 description: "2077年，新东京地下酒吧。霓虹灯永远闪烁，雨永远在下。每个人都有秘密，信息比子弹更值钱。"
 
+time:
+  unit: "hour"
+  ticks_per_unit: 4
+  start: "22:00"
+  day_cycle: true
+  day_length: 24
+  periods:
+    - { name: "night", start: 22, end: 6 }
+    - { name: "dawn", start: 6, end: 8 }
+    - { name: "morning", start: 8, end: 12 }
+    - { name: "afternoon", start: 12, end: 18 }
+    - { name: "evening", start: 18, end: 22 }
+
 rules:
   - "所有交易使用加密货币 eddies"
   - "酒吧内禁止使用致命武器"

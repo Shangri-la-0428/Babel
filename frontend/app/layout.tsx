@@ -34,6 +34,11 @@ export default function RootLayout({
           Skip to content
         </a>
         <LocaleProvider>{children}</LocaleProvider>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `console.log("%c▓▓ BABEL ▓▓%c World State Machine // Online\\n%cSeed + AI Runtime = Emergent Worlds","background:#C0FE04;color:#000;font-weight:bold;padding:4px 12px;font-size:14px;font-family:monospace","color:#C0FE04;font-size:12px;font-family:monospace;padding:4px 0","color:#757575;font-size:11px;font-family:monospace")`,
+          }}
+        />
       </body>
     </html>
   );

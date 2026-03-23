@@ -20,6 +20,8 @@ from .prompts import (
     build_perturbation_prompt,
     ENRICHMENT_SYSTEM,
     build_enrichment_prompt,
+    ORACLE_SYSTEM_PROMPT,
+    build_oracle_prompt,
 )
 
 # Suppress litellm debug noise
@@ -46,14 +48,29 @@ def get_api_base() -> str | None:
     return os.environ.get("BABEL_API_BASE") or os.environ.get("OPENAI_API_BASE")
 
 
-async def call_llm(
-    user_prompt: str,
+# ── Shared LLM helpers ───────────────────────────────
+
+
+def _parse_json(text: str) -> dict:
+    """Parse JSON from LLM output, stripping markdown code blocks."""
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(l for l in lines if not l.strip().startswith("```"))
+    return json.loads(text.strip())
+
+
+async def _complete(
+    system: str,
+    user: str,
+    *,
     model: str | None = None,
     api_key: str | None = None,
     api_base: str | None = None,
     temperature: float = 0.8,
-) -> dict:
-    """Call LLM and return raw parsed JSON dict."""
+    max_tokens: int = 512,
+    json_mode: bool = False,
+) -> str:
+    """Low-level LLM completion. Returns raw content string."""
     model = model or get_model()
     api_key = api_key or get_api_key()
     api_base = api_base or get_api_base()
@@ -62,36 +79,34 @@ async def call_llm(
     kwargs: dict = {
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
         ],
         "temperature": temperature,
-        "max_tokens": 512,
+        "max_tokens": max_tokens,
     }
-
     if api_key:
         kwargs["api_key"] = api_key
-
     if api_base:
         kwargs["api_base"] = api_base
-
-    # Force JSON output where supported
-    if "gpt" in model or "o1" in model or "o3" in model or "o4" in model:
+    if json_mode and ("gpt" in model or "o1" in model or "o3" in model or "o4" in model):
         kwargs["response_format"] = {"type": "json_object"}
 
     response = await litellm.acompletion(**kwargs)
-    content = response.choices[0].message.content.strip()
+    return response.choices[0].message.content.strip()
 
-    # Parse JSON — handle markdown code blocks
-    if content.startswith("```"):
-        lines = content.split("\n")
-        # Remove first and last lines (```json and ```)
-        content = "\n".join(
-            line for line in lines
-            if not line.strip().startswith("```")
-        )
 
-    return json.loads(content)
+async def _complete_json(
+    system: str,
+    user: str,
+    **kwargs,
+) -> dict:
+    """LLM completion that returns parsed JSON dict."""
+    raw = await _complete(system, user, json_mode=True, **kwargs)
+    return _parse_json(raw)
+
+
+# ── Public API ────────────────────────────────────────
 
 
 async def get_agent_action(
@@ -110,6 +125,8 @@ async def get_agent_action(
     api_key: str | None = None,
     api_base: str | None = None,
     urgent_events: list[str] | None = None,
+    world_time_display: str = "",
+    world_time_period: str = "",
 ) -> LLMResponse:
     """Get a validated agent action from the LLM."""
     user_prompt = build_user_prompt(
@@ -125,9 +142,14 @@ async def get_agent_action(
         recent_events=recent_events,
         available_locations=available_locations,
         urgent_events=urgent_events,
+        world_time_display=world_time_display,
+        world_time_period=world_time_period,
     )
 
-    raw = await call_llm(user_prompt, model=model, api_key=api_key, api_base=api_base)
+    raw = await _complete_json(
+        SYSTEM_PROMPT, user_prompt,
+        model=model, api_key=api_key, api_base=api_base,
+    )
 
     try:
         return LLMResponse(**raw)
@@ -154,11 +176,6 @@ async def chat_with_agent(
     api_base: str | None = None,
 ) -> str:
     """Have an agent reply to a user message in character."""
-    model = model or get_model()
-    api_key = api_key or get_api_key()
-    api_base = api_base or get_api_base()
-    model = _ensure_provider_prefix(model, api_base)
-
     user_prompt = build_chat_prompt(
         agent_name=agent_name,
         agent_personality=agent_personality,
@@ -169,24 +186,11 @@ async def chat_with_agent(
         agent_description=agent_description,
         user_message=user_message,
     )
-
-    kwargs: dict = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": CHAT_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.9,
-        "max_tokens": 512,
-    }
-
-    if api_key:
-        kwargs["api_key"] = api_key
-    if api_base:
-        kwargs["api_base"] = api_base
-
-    response = await litellm.acompletion(**kwargs)
-    return response.choices[0].message.content.strip()
+    return await _complete(
+        CHAT_SYSTEM_PROMPT, user_prompt,
+        model=model, api_key=api_key, api_base=api_base,
+        temperature=0.9,
+    )
 
 
 async def generate_world_event(
@@ -199,50 +203,18 @@ async def generate_world_event(
     api_base: str | None = None,
 ) -> str:
     """Use LLM to generate a world event for perturbation."""
-    model = model or get_model()
-    api_key = api_key or get_api_key()
-    api_base = api_base or get_api_base()
-    model = _ensure_provider_prefix(model, api_base)
-
     user_prompt = build_perturbation_prompt(
         world_description=world_description,
         world_rules=world_rules,
         locations=locations,
         recent_events=recent_events,
     )
-
-    kwargs: dict = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": PERTURBATION_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 1.0,
-        "max_tokens": 256,
-    }
-
-    if api_key:
-        kwargs["api_key"] = api_key
-    if api_base:
-        kwargs["api_base"] = api_base
-
-    response = await litellm.acompletion(**kwargs)
-    content = response.choices[0].message.content.strip()
-    # Strip any accidental quotes or markdown
-    content = content.strip('"\'`')
-    return content
-
-
-def _strip_json(text: str) -> str:
-    """Strip markdown code block wrappers from JSON text."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(
-            line for line in lines
-            if not line.strip().startswith("```")
-        )
-    return text.strip()
+    content = await _complete(
+        PERTURBATION_SYSTEM_PROMPT, user_prompt,
+        model=model, api_key=api_key, api_base=api_base,
+        temperature=1.0, max_tokens=256,
+    )
+    return content.strip('"\'`')
 
 
 async def detect_new_character(
@@ -260,51 +232,20 @@ async def detect_new_character(
     Never raises — failures are silently swallowed so injection is not blocked.
     """
     try:
-        model = model or get_model()
-        api_key = api_key or get_api_key()
-        api_base = api_base or get_api_base()
-        model = _ensure_provider_prefix(model, api_base)
-
         user_prompt = build_character_detect_prompt(
             content=content,
             existing_names=existing_names,
             locations=locations,
             world_desc=world_desc,
         )
-
-        kwargs: dict = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": CHARACTER_DETECT_SYSTEM},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.3,
-            "max_tokens": 256,
-        }
-
-        if api_key:
-            kwargs["api_key"] = api_key
-        if api_base:
-            kwargs["api_base"] = api_base
-
-        # Force JSON output where supported
-        if "gpt" in model or "o1" in model or "o3" in model or "o4" in model:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        response = await litellm.acompletion(**kwargs)
-        raw = _strip_json(response.choices[0].message.content.strip())
-        data = json.loads(raw)
-
+        data = await _complete_json(
+            CHARACTER_DETECT_SYSTEM, user_prompt,
+            model=model, api_key=api_key, api_base=api_base,
+            temperature=0.3, max_tokens=256,
+        )
         result = data.get("result")
-        if result is None:
+        if not isinstance(result, dict) or not result.get("name"):
             return None
-
-        # Validate required fields
-        if not isinstance(result, dict):
-            return None
-        if not result.get("name"):
-            return None
-
         return {
             "name": result["name"],
             "description": result.get("description", ""),
@@ -313,6 +254,41 @@ async def detect_new_character(
         }
     except Exception:
         return None
+
+
+async def chat_with_oracle(
+    world_name: str,
+    world_description: str,
+    world_rules: list[str],
+    agents: dict,
+    recent_events: list[str],
+    enriched_details: dict,
+    conversation_history: list[dict],
+    user_message: str,
+    narrator_persona: str = "",
+    world_time_display: str = "",
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> str:
+    """Have the omniscient Oracle narrator respond to the user."""
+    user_prompt = build_oracle_prompt(
+        world_name=world_name,
+        world_description=world_description,
+        world_rules=world_rules,
+        agents=agents,
+        recent_events=recent_events,
+        enriched_details=enriched_details,
+        conversation_history=conversation_history,
+        user_message=user_message,
+        narrator_persona=narrator_persona,
+        world_time_display=world_time_display,
+    )
+    return await _complete(
+        ORACLE_SYSTEM_PROMPT, user_prompt,
+        model=model, api_key=api_key, api_base=api_base,
+        temperature=0.85, max_tokens=1024,
+    )
 
 
 async def enrich_entity(
@@ -331,11 +307,6 @@ async def enrich_entity(
     (or empty dict) on failure.
     """
     try:
-        model = model or get_model()
-        api_key = api_key or get_api_key()
-        api_base = api_base or get_api_base()
-        model = _ensure_provider_prefix(model, api_base)
-
         user_prompt = build_enrichment_prompt(
             entity_type=entity_type,
             entity_name=entity_name,
@@ -343,28 +314,10 @@ async def enrich_entity(
             relevant_events=relevant_events,
             world_desc=world_desc,
         )
-
-        kwargs: dict = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": ENRICHMENT_SYSTEM},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.7,
-            "max_tokens": 512,
-        }
-
-        if api_key:
-            kwargs["api_key"] = api_key
-        if api_base:
-            kwargs["api_base"] = api_base
-
-        # Force JSON output where supported
-        if "gpt" in model or "o1" in model or "o3" in model or "o4" in model:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        response = await litellm.acompletion(**kwargs)
-        raw = _strip_json(response.choices[0].message.content.strip())
-        return json.loads(raw)
+        return await _complete_json(
+            ENRICHMENT_SYSTEM, user_prompt,
+            model=model, api_key=api_key, api_base=api_base,
+            temperature=0.7,
+        )
     except Exception:
         return current_details or {}

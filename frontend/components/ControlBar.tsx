@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/lib/locale-context";
 
 interface ControlBarProps {
@@ -13,6 +14,9 @@ interface ControlBarProps {
   sessionId?: string;
   model?: string;
   wsStatus?: "connecting" | "connected" | "disconnected";
+  worldTime?: { display: string; period: string; is_night: boolean } | null;
+  onOracle?: () => void;
+  oracleOpen?: boolean;
 }
 
 function PlayIcon() {
@@ -41,6 +45,23 @@ function StepIcon() {
   );
 }
 
+function DigitCascade({ value, padTo = 3 }: { value: number; padTo?: number }) {
+  const str = String(value).padStart(padTo, "0");
+  return (
+    <span className="inline-flex overflow-hidden">
+      {str.split("").map((digit, i) => (
+        <span
+          key={`${i}-${digit}`}
+          className="inline-block animate-[digit-drop_250ms_cubic-bezier(0.16,1,0.3,1)_both]"
+          style={{ animationDelay: `${i * 50}ms` }}
+        >
+          {digit}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export default function ControlBar({
   tick,
   status,
@@ -52,12 +73,32 @@ export default function ControlBar({
   sessionId,
   model,
   wsStatus,
+  worldTime,
+  onOracle,
+  oracleOpen,
 }: ControlBarProps) {
   const { t } = useLocale();
   const isRunning = status === "running";
+  const prevStatusRef = useRef(status);
+  const [showBoot, setShowBoot] = useState(false);
+
+  useEffect(() => {
+    if (prevStatusRef.current !== "running" && status === "running") {
+      setShowBoot(true);
+      const timer = setTimeout(() => setShowBoot(false), 700);
+      return () => clearTimeout(timer);
+    }
+    prevStatusRef.current = status;
+  }, [status]);
 
   return (
-    <div className="flex items-center gap-3 px-4 h-14 bg-surface-1 border-t border-b-DEFAULT shrink-0" role="toolbar" aria-label={t("aria_controls")}>
+    <div className="flex items-center gap-3 px-4 h-14 bg-surface-1 border-t border-b-DEFAULT shrink-0 relative overflow-hidden" role="toolbar" aria-label={t("aria_controls")}>
+      {showBoot && (
+        <span
+          className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/8 to-transparent bg-[length:200%_100%] animate-[boot-sweep_700ms_cubic-bezier(0.16,1,0.3,1)_both] pointer-events-none"
+          aria-hidden="true"
+        />
+      )}
       {/* Run / Pause */}
       {isRunning ? (
         <button
@@ -89,15 +130,41 @@ export default function ControlBar({
         <StepIcon /> {t("step")}
       </button>
 
+      {/* Oracle toggle */}
+      {onOracle && (
+        <button
+          onClick={onOracle}
+          aria-expanded={!!oracleOpen}
+          className={`inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] ${
+            oracleOpen
+              ? "border-info text-info shadow-[0_0_12px_rgba(14,165,233,0.3)]"
+              : "border-b-DEFAULT text-t-muted hover:border-b-hover hover:text-t-DEFAULT"
+          }`}
+        >
+          {t("oracle")}
+        </button>
+      )}
+
       {/* Divider */}
       <div className="w-px h-6 bg-b-DEFAULT" />
 
-      {/* Tick counter */}
+      {/* Tick counter + world time */}
       <div className="flex items-baseline gap-2">
         <span className="text-micro text-t-muted tracking-widest">{t("tick")}</span>
-        <span key={tick} className="text-heading font-bold text-primary tabular-nums animate-tick-bump">
-          {String(tick).padStart(3, "0")}
+        <span key={tick} className="text-heading font-bold text-primary tabular-nums">
+          <DigitCascade value={tick} />
         </span>
+        {worldTime && worldTime.display && !worldTime.display.startsWith("Tick") && (
+          <>
+            <span className="text-t-dim mx-1">|</span>
+            <span className="text-detail text-t-secondary tabular-nums">{worldTime.display}</span>
+            {worldTime.period && (
+              <span className={`text-micro tracking-wider px-1.5 py-0.5 border ${worldTime.is_night ? "text-info border-info" : "text-warning border-warning"}`}>
+                {worldTime.period.toUpperCase()}
+              </span>
+            )}
+          </>
+        )}
       </div>
 
       {/* Spacer */}

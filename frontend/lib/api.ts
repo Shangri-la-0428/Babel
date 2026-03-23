@@ -96,6 +96,13 @@ export interface EventData {
   agent_role?: string;
 }
 
+export interface WorldTimeInfo {
+  display: string;   // "Day 1, 22:15" or "Tick 15"
+  period: string;    // "night", "morning", etc.
+  day: number;
+  is_night: boolean;
+}
+
 export interface WorldState {
   session_id: string;
   name: string;
@@ -107,6 +114,7 @@ export interface WorldState {
   agents: Record<string, AgentData>;
   recent_events: EventData[];
   entity_details?: Record<string, Record<string, unknown>>;
+  world_time?: WorldTimeInfo;
 }
 
 export interface SeedInfo {
@@ -287,7 +295,7 @@ export async function getSessionEvents(
 export async function injectEvent(
   sessionId: string,
   content: string
-): Promise<{ event_id: string }> {
+): Promise<{ id: string; tick: number; result: string; new_agent?: { agent_id: string; name: string } }> {
   const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/inject`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -333,6 +341,68 @@ export async function enrichEntity(
       body: JSON.stringify({ entity_type: entityType, entity_id: entityId }),
       timeout: LONG_TIMEOUT,
     },
+  );
+  assertOk(res);
+  const data = await res.json();
+  return data.details || data;
+}
+
+export async function getEntityDetails(
+  sessionId: string,
+  entityType: "agent" | "item" | "location",
+  entityId: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await fetchWithTimeout(
+      `${API_BASE}/api/worlds/${sessionId}/entity-details?entity_type=${encodeURIComponent(entityType)}&entity_id=${encodeURIComponent(entityId)}`,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.details || null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Oracle (Omniscient Narrator) ──
+
+export interface OracleMessage {
+  id: string;
+  role: "user" | "oracle";
+  content: string;
+  tick: number;
+  created_at: string;
+}
+
+export async function chatWithOracle(
+  sessionId: string,
+  message: string,
+  opts: { model?: string; api_key?: string; api_base?: string; signal?: AbortSignal } = {},
+): Promise<{ reply: string; message_id: string }> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/oracle`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      model: opts.model ?? null,
+      api_key: opts.api_key ?? null,
+      api_base: opts.api_base ?? null,
+    }),
+    timeout: LONG_TIMEOUT,
+    signal: opts.signal,
+  });
+  assertOk(res);
+  return res.json();
+}
+
+export async function getOracleHistory(
+  sessionId: string,
+  limit: number = 50,
+  signal?: AbortSignal,
+): Promise<OracleMessage[]> {
+  const res = await fetchWithTimeout(
+    `${API_BASE}/api/worlds/${sessionId}/oracle/history?limit=${limit}`,
+    { signal },
   );
   assertOk(res);
   return res.json();

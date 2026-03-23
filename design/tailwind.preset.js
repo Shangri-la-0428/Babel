@@ -94,9 +94,10 @@ module.exports = {
       },
 
       transitionTimingFunction: {
-        'default': 'cubic-bezier(0.4, 0, 0.2, 1)',
-        'in':      'cubic-bezier(0.4, 0, 1, 1)',
-        'out':     'cubic-bezier(0, 0, 0.2, 1)',
+        'default':  'cubic-bezier(0.4, 0, 0.2, 1)',
+        'in':       'cubic-bezier(0.4, 0, 1, 1)',
+        'out':      'cubic-bezier(0, 0, 0.2, 1)',
+        'out-expo': 'cubic-bezier(0.16, 1, 0.3, 1)',
       },
 
       zIndex: {
@@ -116,7 +117,12 @@ module.exports = {
         'blink':        'blink 1s step-end infinite',
         'marquee':      'marquee 16s linear infinite',
         'shimmer':      'shimmer 1.5s ease infinite',
-        'tick-bump':    'tick-bump 300ms cubic-bezier(0, 0, 0.2, 1)',
+        'tick-bump':           'tick-bump 300ms cubic-bezier(0, 0, 0.2, 1)',
+        'oracle-slide-left':   'oracle-slide-left 250ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'oracle-slide-right':  'oracle-slide-right 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'oracle-chromatic-in': 'oracle-chromatic-in 350ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'oracle-border-pulse': 'oracle-border-pulse 2s ease infinite',
+        'transmission-sweep':  'transmission-sweep 400ms cubic-bezier(0.16, 1, 0.3, 1) both',
       },
 
       // Keyframes for pure-value animations.
@@ -151,6 +157,28 @@ module.exports = {
           '0%':   { transform: 'scale(1)' },
           '40%':  { transform: 'scale(1.08)' },
           '100%': { transform: 'scale(1)' },
+        },
+        'oracle-slide-left': {
+          from: { opacity: '0', transform: 'translateX(-8px)' },
+          to:   { opacity: '1', transform: 'translateX(0)' },
+        },
+        'oracle-slide-right': {
+          from: { opacity: '0', transform: 'translateX(12px)' },
+          to:   { opacity: '1', transform: 'translateX(0)' },
+        },
+        'oracle-border-pulse': {
+          '0%, 100%': { borderLeftColor: 'rgba(14, 165, 233, 0.15)' },
+          '50%':      { borderLeftColor: 'rgba(14, 165, 233, 0.6)' },
+        },
+        'oracle-chromatic-in': {
+          '0%':   { textShadow: '-2px 0 rgba(14,165,233,0.5), 2px 0 rgba(192,254,4,0.25)', opacity: '0', transform: 'translateX(-8px)' },
+          '50%':  { textShadow: '-0.5px 0 rgba(14,165,233,0.15), 0.5px 0 rgba(192,254,4,0.06)', opacity: '1' },
+          '100%': { textShadow: 'none', opacity: '1', transform: 'translateX(0)' },
+        },
+        'transmission-sweep': {
+          '0%':   { transform: 'scaleX(0)', transformOrigin: 'left', opacity: '1' },
+          '40%':  { transform: 'scaleX(1)', transformOrigin: 'left', opacity: '0.6' },
+          '100%': { transform: 'scaleX(1)', opacity: '0' },
         },
       },
     },

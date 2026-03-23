@@ -61,18 +61,6 @@ class ResourceSeed(BaseModel):
     description: str = ""
 
 
-class ItemSeed(BaseModel):
-    name: str
-    description: str = ""
-    tags: list[str] = Field(default_factory=list)
-
-
-class EventSeed(BaseModel):
-    content: str
-    description: str = ""
-    tags: list[str] = Field(default_factory=list)
-
-
 class AgentSeed(BaseModel):
     id: str
     name: str
@@ -83,6 +71,22 @@ class AgentSeed(BaseModel):
     location: str = ""
 
 
+class TimeConfig(BaseModel):
+    unit: str = "tick"                    # hour | day | minute | tick
+    ticks_per_unit: int = 1               # how many ticks make one time unit
+    start: str = ""                       # narrative start time, e.g. "2077-11-15 22:00"
+    day_cycle: bool = False               # enable day/night cycle
+    day_length: int = 24                  # units per full day
+    periods: list[dict[str, Any]] = Field(default_factory=list)
+    # periods example: [{"name": "night", "start": 22, "end": 6}, ...]
+
+
+class NarratorConfig(BaseModel):
+    persona: str = ""                # custom persona e.g. "A weary bard"
+    auto_commentary: bool = False    # auto-generate commentary
+    commentary_interval: int = 5    # every N ticks
+
+
 class WorldSeed(BaseModel):
     name: str
     description: str = ""
@@ -91,6 +95,8 @@ class WorldSeed(BaseModel):
     resources: list[ResourceSeed] = Field(default_factory=list)
     agents: list[AgentSeed] = Field(default_factory=list)
     initial_events: list[str] = Field(default_factory=list)
+    time: TimeConfig = Field(default_factory=TimeConfig)
+    narrator: NarratorConfig = Field(default_factory=NarratorConfig)
 
     @classmethod
     def from_yaml(cls, path: str) -> WorldSeed:

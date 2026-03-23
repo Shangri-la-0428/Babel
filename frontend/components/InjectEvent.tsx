@@ -28,11 +28,15 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
       setFlash("ok");
       setTimeout(() => setFlash(false), 600);
       // Auto-step so agents react to the injected event
-      await stepWorld(sessionId, {
-        model: settings.model || undefined,
-        api_key: settings.apiKey || undefined,
-        api_base: settings.apiBase || undefined,
-      });
+      try {
+        await stepWorld(sessionId, {
+          model: settings.model || undefined,
+          api_key: settings.apiKey || undefined,
+          api_base: settings.apiBase || undefined,
+        });
+      } catch {
+        // Step failed but injection succeeded — don't show error flash
+      }
     } catch {
       setFlash("err");
       setTimeout(() => setFlash(false), 1200);
@@ -45,19 +49,24 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
   return (
     <form onSubmit={handleSubmit} className="flex items-center gap-2 px-4 py-3 border-t border-b-DEFAULT bg-surface-1" aria-label={t("inject")}>
       <span className="text-micro text-t-dim tracking-widest select-none shrink-0" aria-hidden="true">{"// INJECT"}</span>
-      <input
-        ref={inputRef}
-        type="text"
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        placeholder={t("inject_placeholder")}
-        aria-label={t("inject_placeholder")}
-        maxLength={2000}
-        disabled={disabled || sending}
-        className={`flex-1 h-9 px-3 bg-void border text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-[colors,box-shadow] disabled:opacity-30 ${
-          flash === "ok" ? "border-primary shadow-[0_0_12px_var(--color-primary-glow-strong)]" : flash === "err" ? "border-danger shadow-[0_0_12px_var(--color-danger-glow)]" : "border-b-DEFAULT"
-        }`}
-      />
+      <div className="flex-1 relative">
+        <input
+          ref={inputRef}
+          type="text"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder={t("inject_placeholder")}
+          aria-label={t("inject_placeholder")}
+          maxLength={2000}
+          disabled={disabled || sending}
+          className={`w-full h-9 px-3 bg-void border text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-[colors,box-shadow] disabled:opacity-30 ${
+            flash === "ok" ? "border-primary shadow-[0_0_12px_var(--color-primary-glow-strong)]" : flash === "err" ? "border-danger shadow-[0_0_12px_var(--color-danger-glow)]" : "border-b-DEFAULT"
+          }`}
+        />
+        {flash === "ok" && (
+          <span className="absolute inset-0 bg-gradient-to-r from-primary/15 to-transparent animate-[transmission-sweep_500ms_cubic-bezier(0.16,1,0.3,1)_both] pointer-events-none" aria-hidden="true" />
+        )}
+      </div>
       <button
         type="submit"
         disabled={disabled || sending || !content.trim()}
