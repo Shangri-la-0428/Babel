@@ -71,9 +71,23 @@ docker compose up --build
 
 1. **种子 Seed** — 定义世界：名称、描述、规则、地点、角色（性格/目标）
 2. **启动 Launch** — 引擎初始化角色状态，记录初始事件
-3. **推演 Tick Loop** — 每轮，每个角色接收上下文（世界规则 + 自身状态 + 近期事件 + 可见角色），LLM 返回结构化 JSON 行动
-4. **验证 Validate** — 行动合法性验证（物品/地点/目标必须存在），失败重试 + 兜底
-5. **演化 Evolve** — 状态变更应用，事件记录，世界推进
+3. **推演 Tick Loop** — 每轮，每个角色接收上下文（世界规则 + 自身状态 + 近期事件 + 可见角色 + 关系 + 信念 + 当前目标），LLM 返回结构化 JSON 行动
+4. **验证 Validate** — 行动合法性验证（物品/地点/目标/关系必须合法），失败重试 + 兜底
+5. **目标追踪 Goal Tracking** — 每次行动后评估目标进度，停滞自动重规划，完成自动切换
+6. **记忆演化 Memory** — 事件生成记忆，重要度评分，LLM 语义压缩，信念提炼
+7. **演化 Evolve** — 状态变更应用，关系更新，事件记录，世界推进
+
+### 核心系统 / Core Systems
+
+| 系统 | 说明 |
+|------|------|
+| **世界权威层** | 关系模型、移动邻接校验、物品来源校验、同位置交互要求 |
+| **记忆系统 v2** | 信念提炼（规则驱动）、LLM 语义压缩、重要度评分（关系/自身/目标加权） |
+| **目标系统** | GoalState 生命周期（active → completed/stalled）、进度追踪、LLM 重规划 |
+| **世界内核协议** | DecisionSource 可插拔决策接口、结构化事件、语义记忆 |
+| **Oracle 创世助手** | 对话式世界创建，LLM 生成完整 WorldSeed，一键启动 |
+
+*Core Systems: World Authority (relations, topology, validation), Memory v2 (beliefs, LLM compression, importance scoring), Goal System (tracking, replanning), World Kernel Protocol (pluggable DecisionSource, structured events), Oracle Creative (conversational world creation).*
 
 ### 反循环保护 / Anti-Loop Protection
 
@@ -93,7 +107,7 @@ docker compose up --build
 | POST | `/api/worlds/{id}/step` | 单步执行 / Single tick |
 | POST | `/api/worlds/{id}/inject` | 注入自定义事件 / Inject custom event |
 | POST | `/api/worlds/{id}/chat` | 与角色对话 / Chat with agent |
-| POST | `/api/worlds/{id}/oracle` | 与全知旁白对话 / Chat with omniscient narrator |
+| POST | `/api/worlds/{id}/oracle` | 与全知旁白对话 / Chat with narrator (`mode=narrate\|create`) |
 | GET | `/api/worlds/{id}/oracle/history` | 获取旁白对话历史 / Get narrator history |
 | GET | `/api/worlds/{id}/state` | 获取当前状态 / Get state |
 | GET | `/api/worlds/{id}/events` | 获取事件历史 / Get events |
@@ -104,11 +118,12 @@ docker compose up --build
 ### WebSocket 消息 / Messages
 
 ```json
-{"type": "connected",     "data": {/* 完整状态 */}}
-{"type": "event",         "data": {/* 角色行动 */}}
+{"type": "connected",     "data": {/* 完整状态 (含 agents.active_goal, relations) */}}
+{"type": "event",         "data": {/* 角色行动 (含 structured) */}}
 {"type": "tick",          "data": {"tick": 42, "status": "running"}}
 {"type": "state_update",  "data": {/* 完整状态 */}}
 {"type": "stopped",       "data": {"tick": 50}}
+{"type": "agent_added",   "data": {/* 新角色检测 */}}
 ```
 
 ## 种子格式 / Seed Format
@@ -122,13 +137,17 @@ rules:
 locations:
   - name: "地点A"
     description: "描述"
+    connections: ["地点B"]     # 可达位置（双向）
+  - name: "地点B"
+    description: "描述"
+    connections: ["地点A"]
 agents:
   - id: "agent_1"
     name: "角色名"
     description: "角色描述"
     personality: "性格特征"
     goals:
-      - "目标一"
+      - "目标一"              # 第一个目标自动成为 active_goal
     inventory:
       - "物品一"
     location: "地点A"

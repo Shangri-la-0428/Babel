@@ -13,6 +13,8 @@ const TYPE_STYLES: Record<string, string> = {
   observe:     "text-t-muted border-surface-3",
   wait:        "text-t-dim border-surface-3",
   world_event: "text-danger border-danger",
+  goal_complete: "text-primary border-primary",
+  goal_replan: "text-warning border-warning",
 };
 
 // Left-edge accent per action type — subtle signal stripe
@@ -25,6 +27,17 @@ const ACCENT_BORDER: Record<string, string> = {
   wait:        "border-l-transparent",
   world_event: "border-l-danger/60",
 };
+
+// Detect goal/relation signals from event result text
+function getEventSignals(event: EventData): { goalComplete?: boolean; goalReplan?: boolean; relationChange?: "up" | "down" } {
+  const r = event.result.toLowerCase();
+  const signals: { goalComplete?: boolean; goalReplan?: boolean; relationChange?: "up" | "down" } = {};
+  // Trade events imply relation changes
+  if (event.action_type === "trade") {
+    signals.relationChange = r.includes("fail") || r.includes("refuse") ? "down" : "up";
+  }
+  return signals;
+}
 
 const EventItem = memo(function EventItem({
   event,
@@ -40,6 +53,7 @@ const EventItem = memo(function EventItem({
   const isSupporting = event.agent_role === "supporting";
   const style = TYPE_STYLES[event.action_type] || "text-t-muted border-surface-3";
   const accent = ACCENT_BORDER[event.action_type] || "border-l-transparent";
+  const signals = getEventSignals(event);
 
   return (
     <div
@@ -68,11 +82,22 @@ const EventItem = memo(function EventItem({
       <span className="text-detail text-t-secondary normal-case tracking-normal leading-normal break-words min-w-0">
         {isNew ? <DecodeText text={event.result} /> : event.result}
       </span>
-      <span
-        className={`text-micro tracking-wider px-2 py-0.5 border whitespace-nowrap ${style}`}
-        aria-label={event.action_type.replace(/_/g, " ")}
-      >
-        {event.action_type}
+      <span className="flex items-center gap-1.5">
+        {signals.relationChange && (
+          <span
+            className={`text-micro tracking-wider ${signals.relationChange === "up" ? "text-primary" : "text-danger"}`}
+            title={signals.relationChange === "up" ? "Relation +" : "Relation -"}
+            aria-hidden="true"
+          >
+            {signals.relationChange === "up" ? "▲" : "▼"}
+          </span>
+        )}
+        <span
+          className={`text-micro tracking-wider px-2 py-0.5 border whitespace-nowrap ${style}`}
+          aria-label={event.action_type.replace(/_/g, " ")}
+        >
+          {event.action_type}
+        </span>
       </span>
       {onSeed && (
         <button

@@ -254,6 +254,41 @@ const translations = {
   validation_need_agent: { cn: "至少需要一个有名字的角色", en: "At least one agent with a name is required" },
   validation_need_location: { cn: "至少需要一个地点", en: "At least one location is required" },
 
+  // Goal system
+  active_goal: { cn: "当前目标", en: "ACTIVE GOAL" },
+  core_goals: { cn: "核心目标", en: "CORE GOALS" },
+  goal_progress: { cn: "进度", en: "PROGRESS" },
+  goal_status_active: { cn: "进行中", en: "ACTIVE" },
+  goal_status_completed: { cn: "已完成", en: "DONE" },
+  goal_status_stalled: { cn: "停滞", en: "STALLED" },
+  goal_status_failed: { cn: "失败", en: "FAILED" },
+  goal_stalled_ticks: { cn: "停滞 {0} 轮", en: "Stalled {0} ticks" },
+  goal_completed: { cn: "目标完成", en: "GOAL_COMPLETE" },
+  goal_replanned: { cn: "目标重规划", en: "GOAL_REPLAN" },
+
+  // Beliefs
+  beliefs: { cn: "信念", en: "BELIEFS" },
+
+  // Relations
+  relation_ally: { cn: "盟友", en: "ALLY" },
+  relation_trust: { cn: "信任", en: "TRUST" },
+  relation_neutral: { cn: "中立", en: "NEUTRAL" },
+  relation_rival: { cn: "对手", en: "RIVAL" },
+  relation_hostile: { cn: "敌对", en: "HOSTILE" },
+  relations_dynamic: { cn: "动态关系", en: "RELATIONS" },
+
+  // Oracle creative mode
+  oracle_mode_narrate: { cn: "叙述", en: "NARRATE" },
+  oracle_mode_create: { cn: "创世", en: "CREATE" },
+  oracle_create_empty: { cn: "描述你想创造的世界。ORACLE 会帮你生成完整的世界种子。", en: "Describe the world you want to create. ORACLE will generate a complete world seed." },
+  oracle_create_placeholder: { cn: "描述你的世界构想...", en: "Describe your world idea..." },
+  oracle_seed_generated: { cn: "世界种子已生成", en: "World seed generated" },
+  oracle_create_world: { cn: "创建世界", en: "CREATE WORLD" },
+  oracle_creating: { cn: "创建中...", en: "CREATING..." },
+  oracle_seed_agents: { cn: "角色", en: "AGENTS" },
+  oracle_seed_locations: { cn: "地点", en: "LOCATIONS" },
+  oracle_seed_rules: { cn: "规则", en: "RULES" },
+
   // Oracle (omniscient narrator)
   oracle: { cn: "ORACLE", en: "ORACLE" },
   oracle_label: { cn: "// ORACLE", en: "// ORACLE" },

@@ -1,15 +1,31 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
-import { AgentData, WorldState, SavedSeedData, generateSeed, fetchAssets, enrichEntity } from "@/lib/api";
+import { AgentData, WorldState, SavedSeedData, RelationData, generateSeed, fetchAssets, enrichEntity } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import { StatusDot } from "./ui";
 
 type Tab = "agents" | "items" | "locations" | "world";
 
 // ── Agent list item (expandable) ──
+const RELATION_COLORS: Record<string, string> = {
+  ally: "text-primary border-primary",
+  trust: "text-info border-info",
+  neutral: "text-t-muted border-surface-3",
+  rival: "text-warning border-warning",
+  hostile: "text-danger border-danger",
+};
+
+const GOAL_STATUS_COLORS: Record<string, string> = {
+  active: "text-primary border-primary",
+  completed: "text-info border-info",
+  stalled: "text-warning border-warning",
+  failed: "text-danger border-danger",
+};
+
 function AgentRow({
   agent,
+  agentId,
   isActive,
   expanded,
   onToggle,
@@ -20,8 +36,11 @@ function AgentRow({
   enriching,
   enrichError,
   onEnrich,
+  relations,
+  agentNames,
 }: {
   agent: AgentData;
+  agentId: string;
   isActive: boolean;
   expanded: boolean;
   onToggle: () => void;
@@ -32,6 +51,8 @@ function AgentRow({
   enriching: boolean;
   enrichError: boolean;
   onEnrich: () => void;
+  relations: RelationData[];
+  agentNames: Record<string, string>;
 }) {
   const { t } = useLocale();
   const isDead = agent.status === "dead";
@@ -110,10 +131,46 @@ function AgentRow({
             </div>
           )}
 
-          {/* Goals */}
+          {/* Active Goal */}
+          {agent.active_goal && (
+            <div className="px-4 py-2 border-b border-b-DEFAULT">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-micro text-t-muted tracking-widest">{t("active_goal")}</span>
+                <span className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium ${GOAL_STATUS_COLORS[agent.active_goal.status] || GOAL_STATUS_COLORS.active}`}>
+                  {t(`goal_status_${agent.active_goal.status}` as Parameters<typeof t>[0])}
+                </span>
+              </div>
+              <div className="text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed mb-2">
+                {agent.active_goal.text}
+              </div>
+              {/* Progress bar */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-1 bg-surface-3 overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      agent.active_goal.status === "stalled" ? "bg-warning" : "bg-primary"
+                    }`}
+                    style={{ width: `${Math.round(agent.active_goal.progress * 100)}%` }}
+                  />
+                </div>
+                <span className="text-micro text-t-dim tracking-wider tabular-nums shrink-0">
+                  {Math.round(agent.active_goal.progress * 100)}%
+                </span>
+              </div>
+              {agent.active_goal.stall_count > 0 && (
+                <div className="text-micro text-warning tracking-wider mt-1">
+                  {t("goal_stalled_ticks", String(agent.active_goal.stall_count))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Core Goals */}
           {(agent.goals || []).length > 0 && (
             <div className="px-4 py-2 border-b border-b-DEFAULT">
-              <div className="text-micro text-t-muted tracking-widest mb-1">{t("goals_label")}</div>
+              <div className="text-micro text-t-muted tracking-widest mb-1">
+                {agent.active_goal ? t("core_goals") : t("goals_label")}
+              </div>
               <div className="flex flex-col gap-1">
                 {(agent.goals || []).map((goal, i) => (
                   <div key={i} className="flex items-baseline gap-2">
@@ -121,6 +178,35 @@ function AgentRow({
                     <span className="text-detail text-t-secondary normal-case tracking-normal">{goal}</span>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Dynamic Relations */}
+          {relations.length > 0 && (
+            <div className="px-4 py-2 border-b border-b-DEFAULT">
+              <div className="text-micro text-t-muted tracking-widest mb-1">{t("relations_dynamic")}</div>
+              <div className="flex flex-col gap-1">
+                {relations.map((rel, i) => {
+                  const otherId = rel.source === agentId ? rel.target : rel.source;
+                  const otherName = agentNames[otherId] || otherId;
+                  const colors = RELATION_COLORS[rel.type] || RELATION_COLORS.neutral;
+                  return (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-detail text-t-DEFAULT normal-case tracking-normal">{otherName}</span>
+                      <span className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium ${colors}`}>
+                        {t(`relation_${rel.type}` as Parameters<typeof t>[0])}
+                      </span>
+                      <div className="flex-1 h-0.5 bg-surface-3 overflow-hidden min-w-[40px]">
+                        <div
+                          className={`h-full ${rel.type === "hostile" ? "bg-danger" : rel.type === "rival" ? "bg-warning" : "bg-primary"}`}
+                          style={{ width: `${Math.round(rel.strength * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-micro text-t-dim tabular-nums shrink-0">{Math.round(rel.strength * 100)}%</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -632,8 +718,18 @@ export default function AssetPanel({
     }
   }
 
-  const agents = state?.agents || {};
-  const locations = state?.locations || [];
+  const agents = state?.agents ?? {};
+  const locations = state?.locations ?? [];
+  const allRelations = state?.relations ?? [];
+
+  // Build agent name lookup
+  const agentNames = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    if (state?.agents) {
+      Object.entries(state.agents).forEach(([id, a]) => { map[id] = a.name; });
+    }
+    return map;
+  }, [state?.agents]);
 
   // Aggregate items from all agents (memoized — only recomputes when state changes)
   const items = useMemo<ItemInfo[]>(() => {
@@ -706,6 +802,7 @@ export default function AssetPanel({
                 <AgentRow
                   key={id}
                   agent={agent}
+                  agentId={id}
                   isActive={id === activeAgentId}
                   expanded={expandedAgent === id}
                   onToggle={() => setExpandedAgent(expandedAgent === id ? null : id)}
@@ -716,6 +813,8 @@ export default function AssetPanel({
                   enriching={enrichingEntity === id}
                   enrichError={enrichError === id}
                   onEnrich={() => handleEnrich("agent", id)}
+                  relations={allRelations.filter(r => r.source === id || r.target === id)}
+                  agentNames={agentNames}
                 />
               ))
             )}

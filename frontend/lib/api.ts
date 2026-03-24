@@ -73,6 +73,22 @@ export function saveSettings(settings: BabelSettings): void {
 
 // ── Types ──
 
+export interface ActiveGoal {
+  text: string;
+  status: string;       // active | completed | failed | stalled
+  progress: number;     // 0.0-1.0
+  stall_count: number;
+  started_tick: number;
+}
+
+export interface RelationData {
+  source: string;
+  target: string;
+  type: string;         // ally | hostile | neutral | rival | trust
+  strength: number;     // 0.0-1.0
+  last_tick: number;
+}
+
 export interface AgentData {
   name: string;
   description: string;
@@ -83,6 +99,8 @@ export interface AgentData {
   status: string;
   memory?: string[];
   role?: "main" | "supporting";
+  active_goal?: ActiveGoal | null;
+  immediate_intent?: string;
 }
 
 export interface EventData {
@@ -115,6 +133,7 @@ export interface WorldState {
   recent_events: EventData[];
   entity_details?: Record<string, Record<string, unknown>>;
   world_time?: WorldTimeInfo;
+  relations?: RelationData[];
 }
 
 export interface SeedInfo {
@@ -377,13 +396,14 @@ export interface OracleMessage {
 export async function chatWithOracle(
   sessionId: string,
   message: string,
-  opts: { model?: string; api_key?: string; api_base?: string; signal?: AbortSignal } = {},
-): Promise<{ reply: string; message_id: string }> {
+  opts: { model?: string; api_key?: string; api_base?: string; signal?: AbortSignal; mode?: string } = {},
+): Promise<{ reply: string; message_id: string; mode?: string; seed?: Record<string, unknown> }> {
   const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/oracle`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       message,
+      mode: opts.mode ?? "narrate",
       model: opts.model ?? null,
       api_key: opts.api_key ?? null,
       api_base: opts.api_base ?? null,
