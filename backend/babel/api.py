@@ -182,6 +182,9 @@ def _event_dict(e: Event) -> dict:
         "action_type": e.action_type if isinstance(e.action_type, str) else e.action_type.value,
         "action": e.action,
         "result": e.result,
+        "structured": e.structured if hasattr(e, "structured") else {},
+        "location": e.location if hasattr(e, "location") else "",
+        "importance": e.importance if hasattr(e, "importance") else 0.5,
     }
 
 

@@ -13,6 +13,13 @@ All notable changes to BABEL.
 - **WebSocket hardening**: malformed JSON in WebSocket handler no longer crashes; broadcast copies client set before iteration
 - 20 new robustness tests (`test_robustness.py`), 188 total passing
 
+### Phase 10b: Test Coverage Hardening
+- **API integration tests** (`test_api_integration.py`, 59 tests) — full HTTP endpoint coverage via httpx AsyncClient: CRUD, inject, human control, assets, 404 errors, multi-step composite flows
+- **DB roundtrip tests** (`test_db_roundtrip.py`, 28 tests) — save/load for all 8 DB tables, cascade delete, pagination, filtering, migration idempotency
+- **Engine lifecycle tests** (`test_engine_lifecycle.py`, 27 tests) — start/stop/pause, tick mechanics, dead agent filtering, event callbacks, urgent events, decision source switching, error recovery fallback
+- **Bug fix**: `_event_dict()` now serializes `structured`, `location`, `importance` fields (Phase 4 data was invisible to frontend)
+- 302 total tests passing
+
 ### Phase 9: Psyche Integration Assessment
 - Technical assessment document (`backend/docs/PSYCHE_ASSESSMENT.md`)
 - Mapped Psyche virtual endocrine (6 hormones), innate drives (5 Maslow levels), autonomic states to BABEL interfaces

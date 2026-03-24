@@ -255,7 +255,7 @@ State flows through WebSocket: `connected → event → tick → state_update �
 
 ## Testing
 
-188 backend tests across 7 files:
+302 backend tests across 10 files:
 
 | File | Coverage |
 |------|----------|
@@ -266,5 +266,8 @@ State flows through WebSocket: `connected → event → tick → state_update �
 | `test_stability.py` | 100-tick stability (item conservation, relations, memory, goals) |
 | `test_human_decision.py` | HumanDecisionSource protocol, control, timeout, engine integration |
 | `test_robustness.py` | Seed validation, self-interaction blocking, dead agents, concurrency, DB/WS safety |
+| `test_api_integration.py` | All API endpoints (CRUD, inject, human control, assets, 404 errors, composite flows) |
+| `test_db_roundtrip.py` | Save/load roundtrip for all 8 DB tables, cascade delete, pagination, migration |
+| `test_engine_lifecycle.py` | Start/stop/pause, tick mechanics, agent filtering, error recovery, decision source switching |
 
 Run: `cd backend && .venv/bin/python -m pytest tests/ -v`
