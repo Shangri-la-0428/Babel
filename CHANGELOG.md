@@ -4,6 +4,15 @@ All notable changes to BABEL.
 
 ## [Unreleased]
 
+### Phase 10: Robustness Hardening
+- **Concurrency safety**: `asyncio.Lock` per-session + global lock for `_engines` dict — protects inject, take-control, step, tick from race conditions
+- **Seed validation**: `validate_seed()` — rejects duplicate agent IDs, duplicate locations, agents at nonexistent locations, empty seeds. Called in `create_world` and `create_from_seed`
+- **Self-interaction blocking**: SPEAK/TRADE with yourself now returns validation error
+- **Engine safety**: all-agents-dead tick returns immediately; outer try-except in `_resolve_agent_action` prevents any exception from crashing a tick
+- **DB safety**: `delete_session` wrapped in explicit transaction for atomicity; narrator message UUIDs lengthened to full 32-char hex
+- **WebSocket hardening**: malformed JSON in WebSocket handler no longer crashes; broadcast copies client set before iteration
+- 20 new robustness tests (`test_robustness.py`), 188 total passing
+
 ### Phase 9: Psyche Integration Assessment
 - Technical assessment document (`backend/docs/PSYCHE_ASSESSMENT.md`)
 - Mapped Psyche virtual endocrine (6 hormones), innate drives (5 Maslow levels), autonomic states to BABEL interfaces

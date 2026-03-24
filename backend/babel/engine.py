@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import random
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 from pydantic import ValidationError
 
@@ -100,6 +103,8 @@ class Engine:
 
         # Get alive agents in random order
         alive_ids = list(self.session.agent_ids)
+        if not alive_ids:
+            return tick_events
         random.shuffle(alive_ids)
 
         for agent_id in alive_ids:
@@ -264,6 +269,14 @@ class Engine:
 
     async def _resolve_agent_action(self, agent: AgentState) -> Event:
         """Resolve agent action via DecisionSource protocol."""
+        try:
+            return await self._resolve_agent_action_inner(agent)
+        except Exception as e:
+            logger.warning("Agent action resolve failed for %s: %s", agent.agent_id, e)
+            return await self._make_wait_event(agent, f"Resolve error: {e}")
+
+    async def _resolve_agent_action_inner(self, agent: AgentState) -> Event:
+        """Inner implementation — any unhandled exception falls back to WAIT."""
         # Ensure active_goal is set for agents with goals
         if agent.goals and not agent.active_goal:
             agent.active_goal = GoalState(
@@ -364,6 +377,7 @@ class Engine:
                 return await self._make_wait_event(agent, f"LLM error: {last_error}")
 
             except Exception as e:
+                logger.warning("Unexpected error during agent action for %s: %s", agent.agent_id, e)
                 err_str = str(e)
                 if "AuthenticationError" in err_str or "API key" in err_str:
                     return await self._make_wait_event(agent, "API Key 无效或未配置，请在 Settings 中检查")
@@ -448,8 +462,8 @@ class Engine:
             for aid in session.agent_ids:
                 try:
                     await extract_beliefs(aid, session)
-                except Exception:
-                    pass  # Best-effort — never block simulation
+                except Exception as e:
+                    logger.debug("Belief extraction failed for agent %s: %s", aid, e)
 
         # ── Passive enrichment: enrich entities from high-importance events ──
         await self._passive_enrichment(tick_events)
@@ -523,7 +537,8 @@ class Engine:
                     text=new_goal_text,
                     started_tick=self.session.tick,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug("Goal replan failed for %s: %s", agent.name, e)
                 # LLM failed — select next core goal
                 agent.active_goal = self._select_next_goal(agent)
 
@@ -678,8 +693,8 @@ class Engine:
                     details=enriched,
                     tick=session.tick,
                 )
-        except Exception:
-            pass  # Best-effort — never block simulation
+        except Exception as e:
+            logger.debug("Passive enrichment failed: %s", e)
 
     async def _emit(self, event: Event) -> None:
         if self.on_event:
@@ -690,5 +705,5 @@ class Engine:
     async def _emit_safe(self, event: Event) -> None:
         try:
             await self._emit(event)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Event emit failed: %s", e)

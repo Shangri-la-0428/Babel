@@ -51,8 +51,8 @@ const SETTINGS_KEY = "babel_settings";
 
 const DEFAULT_SETTINGS: BabelSettings = {
   apiKey: "",
-  apiBase: "https://api.aigocode.com/v1",
-  model: "gpt-5.4",
+  apiBase: "https://api.openai.com/v1",
+  model: "gpt-4o-mini",
   tickDelay: 3.0,
 };
 

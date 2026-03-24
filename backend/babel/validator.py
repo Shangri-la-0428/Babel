@@ -68,12 +68,18 @@ def validate_action(
         if action.target:
             resolved = _resolve_agent_target(action.target, agent, session)
             if resolved:
+                # Block self-interaction
+                if resolved == agent.agent_id:
+                    errors.append(
+                        f"Cannot {action.type.value} with yourself."
+                    )
+
                 # Normalize target to the canonical agent_id
                 action.target = resolved
                 target_agent = session.agents[resolved]
 
-                # Same-location check
-                if target_agent.location != agent.location:
+                # Same-location check (skip if self — always same location)
+                if resolved != agent.agent_id and target_agent.location != agent.location:
                     errors.append(
                         f"Cannot {action.type.value} with {target_agent.name} — "
                         f"they are at '{target_agent.location}', you are at '{agent.location}'. "
@@ -273,3 +279,37 @@ def _resolve_name(agent_id: str | None, session: Session) -> str:
         return "nobody"
     agent = session.agents.get(agent_id)
     return agent.name if agent else agent_id
+
+
+def validate_seed(seed) -> list[str]:
+    """Validate a WorldSeed before creating a session. Returns list of errors."""
+    errors: list[str] = []
+
+    # Must have at least one agent
+    if not seed.agents:
+        errors.append("World seed must have at least one agent.")
+
+    # Check duplicate location names
+    loc_names = [loc.name for loc in seed.locations]
+    seen_locs: set[str] = set()
+    for name in loc_names:
+        if name in seen_locs:
+            errors.append(f"Duplicate location name: '{name}'")
+        seen_locs.add(name)
+
+    # Check duplicate agent IDs
+    seen_ids: set[str] = set()
+    for agent in seed.agents:
+        if agent.id in seen_ids:
+            errors.append(f"Duplicate agent ID: '{agent.id}'")
+        seen_ids.add(agent.id)
+
+    # Check agent locations exist
+    for agent in seed.agents:
+        if agent.location and agent.location not in seen_locs:
+            errors.append(
+                f"Agent '{agent.id}' placed at unknown location '{agent.location}'. "
+                f"Valid locations: {loc_names}"
+            )
+
+    return errors

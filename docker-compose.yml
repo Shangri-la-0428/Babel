@@ -5,7 +5,7 @@ services:
       - "8000:8000"
     environment:
       - BABEL_API_KEY=${BABEL_API_KEY}
-      - BABEL_MODEL=${BABEL_MODEL:-gpt-5.4}
+      - BABEL_MODEL=${BABEL_MODEL:-gpt-4o-mini}
       - BABEL_API_BASE=${BABEL_API_BASE}
       - BABEL_DB_PATH=/app/data/babel.db
     volumes:

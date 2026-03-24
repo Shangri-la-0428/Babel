@@ -152,7 +152,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
               <input
                 id="settings-model"
                 className={inputCls}
-                placeholder="gpt-5.4"
+                placeholder="gpt-4o-mini"
                 value={settings.model}
                 onChange={(e) => update({ model: e.target.value })}
               />

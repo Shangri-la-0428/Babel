@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import aiosqlite
 
@@ -434,15 +437,22 @@ async def delete_session(session_id: str) -> bool:
         cursor = await db.execute("SELECT id FROM sessions WHERE id = ?", (session_id,))
         if not await cursor.fetchone():
             return False
-        await db.execute("DELETE FROM events WHERE session_id = ?", (session_id,))
-        await db.execute("DELETE FROM agent_states WHERE session_id = ?", (session_id,))
-        await db.execute("DELETE FROM timeline_nodes WHERE session_id = ?", (session_id,))
-        await db.execute("DELETE FROM world_snapshots WHERE session_id = ?", (session_id,))
-        await db.execute("DELETE FROM agent_memories WHERE session_id = ?", (session_id,))
-        await db.execute("DELETE FROM entity_details WHERE session_id = ?", (session_id,))
-        await db.execute("DELETE FROM narrator_messages WHERE session_id = ?", (session_id,))
-        await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        await db.commit()
+        # All deletes in a single transaction for atomicity
+        await db.execute("BEGIN")
+        try:
+            await db.execute("DELETE FROM events WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM agent_states WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM timeline_nodes WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM world_snapshots WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM agent_memories WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM entity_details WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM narrator_messages WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            await db.commit()
+        except Exception as e:
+            logger.warning("Session delete failed, rolling back session %s: %s", session_id, e)
+            await db.rollback()
+            raise
         return True
 
 
@@ -867,7 +877,7 @@ async def save_narrator_message(
     """Save a narrator message. Returns the message ID."""
     import uuid
 
-    msg_id = uuid.uuid4().hex[:8]
+    msg_id = uuid.uuid4().hex
     async with aiosqlite.connect(str(DB_PATH)) as db:
         await db.execute(
             """INSERT INTO narrator_messages (id, session_id, role, content, tick)

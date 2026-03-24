@@ -7,7 +7,10 @@ from an AgentContext can drive agents (LLM, human, script, other AI).
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
 
@@ -174,8 +177,8 @@ class HumanDecisionSource:
         if self._on_waiting:
             try:
                 await self._on_waiting(agent_id, context)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("on_waiting callback failed for agent %s: %s", agent_id, e)
 
         try:
             return await self._asyncio.wait_for(future, timeout=self._timeout)

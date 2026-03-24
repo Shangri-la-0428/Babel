@@ -195,7 +195,7 @@ BABEL 使用 [litellm](https://github.com/BerriAI/litellm)，支持 OpenAI、Ant
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `BABEL_API_KEY` | LLM API 密钥 | — |
-| `BABEL_MODEL` | 模型标识符 | `gpt-5.4` |
+| `BABEL_MODEL` | 模型标识符 | `gpt-4o-mini` |
 | `BABEL_API_BASE` | 自定义 API 端点 | — |
 
 ## 技术栈 / Tech Stack

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,12 +29,17 @@ from .engine import Engine
 from .llm import chat_with_agent, chat_with_oracle, detect_new_character, enrich_entity, generate_seed_draft
 from .memory import create_memory_from_event, update_agent_memory
 from .models import AgentRole, AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedType, Session, SessionStatus, WorldSeed
+from .validator import validate_seed
 
 
 # ── State ──────────────────────────────────────────────
 
 # Active engines keyed by session_id
 _engines: dict[str, Engine] = {}
+# Per-session locks for mutation safety
+_engine_locks: dict[str, asyncio.Lock] = {}
+# Global lock protects _engines / _engine_locks dicts themselves
+_global_lock = asyncio.Lock()
 # WebSocket connections keyed by session_id
 _ws_clients: dict[str, set[WebSocket]] = {}
 
@@ -63,6 +71,11 @@ app.add_middleware(
 )
 
 SEEDS_DIR = Path(__file__).parent / "seeds"
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 # ── Request Models ─────────────────────────────────────
@@ -146,12 +159,15 @@ class OracleChatRequest(BaseModel):
 async def broadcast(session_id: str, msg_type: str, data: Any) -> None:
     """Send a message to all WebSocket clients for a session."""
     clients = _ws_clients.get(session_id, set())
+    # Copy to avoid mutation during iteration
+    snapshot = list(clients)
     dead: set[WebSocket] = set()
     payload = json.dumps({"type": msg_type, "data": data}, ensure_ascii=False)
-    for ws in clients:
+    for ws in snapshot:
         try:
             await ws.send_text(payload)
-        except Exception:
+        except Exception as e:
+            logger.debug("WebSocket send failed, removing client: %s", e)
             dead.add(ws)
     clients -= dead
 
@@ -181,8 +197,9 @@ def make_event_callback(session_id: str):
 
 async def _get_engine(session_id: str) -> Engine | None:
     """Get engine from memory, or restore from DB if the server restarted."""
-    if session_id in _engines:
-        return _engines[session_id]
+    async with _global_lock:
+        if session_id in _engines:
+            return _engines[session_id]
 
     # Try to restore from DB
     data = await load_session(session_id)
@@ -237,8 +254,16 @@ async def _get_engine(session_id: str) -> Engine | None:
         session=session,
         on_event=make_event_callback(session_id),
     )
-    _engines[session_id] = engine
+    async with _global_lock:
+        _engines[session_id] = engine
     return engine
+
+
+def _get_session_lock(session_id: str) -> asyncio.Lock:
+    """Get or create a per-session lock."""
+    if session_id not in _engine_locks:
+        _engine_locks[session_id] = asyncio.Lock()
+    return _engine_locks[session_id]
 
 
 # ── API Routes ─────────────────────────────────────────
@@ -258,8 +283,8 @@ async def get_seeds() -> list[dict]:
                     "agent_count": len(ws.agents),
                     "location_count": len(ws.locations),
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to parse seed file %s: %s", f.name, e)
     return seeds
 
 
@@ -285,15 +310,19 @@ async def get_seed_detail(filename: str) -> dict:
 async def create_world(req: CreateWorldRequest) -> dict:
     """Create a new world session."""
     world_seed = WorldSeed(**req.model_dump())
+    seed_errors = validate_seed(world_seed)
+    if seed_errors:
+        raise HTTPException(400, f"Invalid world seed: {'; '.join(seed_errors)}")
     session = Session(world_seed=world_seed)
     session.init_agents()
     await save_session(session)
 
     # Store engine (not yet running)
-    _engines[session.id] = Engine(
-        session=session,
-        on_event=make_event_callback(session.id),
-    )
+    async with _global_lock:
+        _engines[session.id] = Engine(
+            session=session,
+            on_event=make_event_callback(session.id),
+        )
 
     return {
         "session_id": session.id,
@@ -312,6 +341,9 @@ async def create_from_seed(filename: str) -> dict:
         raise HTTPException(404, f"Seed file not found: {filename}")
 
     world_seed = WorldSeed.from_yaml(str(path))
+    seed_errors = validate_seed(world_seed)
+    if seed_errors:
+        raise HTTPException(400, f"Invalid seed file '{filename}': {'; '.join(seed_errors)}")
     session = Session(world_seed=world_seed)
     session.init_agents()
 
@@ -332,10 +364,11 @@ async def create_from_seed(filename: str) -> dict:
 
     await save_session(session)
 
-    _engines[session.id] = Engine(
-        session=session,
-        on_event=make_event_callback(session.id),
-    )
+    async with _global_lock:
+        _engines[session.id] = Engine(
+            session=session,
+            on_event=make_event_callback(session.id),
+        )
 
     return {
         "session_id": session.id,
@@ -405,6 +438,7 @@ async def _run_and_save(engine: Engine, max_ticks: int) -> None:
             await broadcast(engine.session.id, "state_update", _serialize_state(engine))
             await asyncio.sleep(engine.tick_delay)
     except Exception as e:
+        logger.warning("Simulation run error for session %s: %s", engine.session.id, e)
         await broadcast(engine.session.id, "error", {"message": str(e)})
     finally:
         engine.stop()
@@ -422,16 +456,17 @@ async def step_world(session_id: str, req: RunRequest | None = None) -> dict:
         raise HTTPException(404, "Session not found")
     if engine.is_running:
         raise HTTPException(400, "Cannot step while running — pause first")
+    lock = _get_session_lock(session_id)
+    async with lock:
+        engine.configure(
+            model=(req.model if req and req.model else None),
+            api_key=(req.api_key if req and req.api_key else None),
+            api_base=(req.api_base if req and req.api_base else None),
+            on_event=make_event_callback(session_id),
+        )
 
-    engine.configure(
-        model=(req.model if req and req.model else None),
-        api_key=(req.api_key if req and req.api_key else None),
-        api_base=(req.api_base if req and req.api_base else None),
-        on_event=make_event_callback(session_id),
-    )
-
-    events = await engine.step()
-    await save_session(engine.session)
+        events = await engine.step()
+        await save_session(engine.session)
 
     return {
         "tick": engine.session.tick,
@@ -481,7 +516,12 @@ async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
     engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
+    lock = _get_session_lock(session_id)
+    async with lock:
+        return await _inject_event_inner(engine, session_id, req)
 
+
+async def _inject_event_inner(engine: Engine, session_id: str, req: InjectEventRequest) -> dict:
     event = Event(
         session_id=session_id,
         tick=engine.session.tick,
@@ -554,8 +594,8 @@ async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
                 "location": new_agent.location,
                 "role": new_agent.role.value,
             }
-    except Exception:
-        pass  # Never block injection on character detection failure
+    except Exception as e:
+        logger.debug("Character detection on inject failed: %s", e)
 
     await save_session(engine.session)
 
@@ -585,26 +625,27 @@ async def take_control(session_id: str, agent_id: str) -> dict:
         raise HTTPException(404, "Session not found")
     if agent_id not in engine.session.agents:
         raise HTTPException(404, f"Agent not found: {agent_id}")
+    lock = _get_session_lock(session_id)
+    async with lock:
+        from .decision import HumanDecisionSource
 
-    from .decision import HumanDecisionSource
+        # Wrap current decision source if not already a HumanDecisionSource
+        if not isinstance(engine.decision_source, HumanDecisionSource):
+            async def _on_waiting(aid: str, ctx: Any) -> None:
+                await broadcast(session_id, "waiting_for_human", {
+                    "agent_id": aid,
+                    "agent_name": ctx.agent_name,
+                    "location": ctx.agent_location,
+                    "inventory": ctx.agent_inventory,
+                    "visible_agents": ctx.visible_agents,
+                    "reachable_locations": ctx.reachable_locations,
+                })
 
-    # Wrap current decision source if not already a HumanDecisionSource
-    if not isinstance(engine.decision_source, HumanDecisionSource):
-        async def _on_waiting(aid: str, ctx: Any) -> None:
-            await broadcast(session_id, "waiting_for_human", {
-                "agent_id": aid,
-                "agent_name": ctx.agent_name,
-                "location": ctx.agent_location,
-                "inventory": ctx.agent_inventory,
-                "visible_agents": ctx.visible_agents,
-                "reachable_locations": ctx.reachable_locations,
-            })
-
-        engine.decision_source = HumanDecisionSource(
-            fallback=engine.decision_source,
-            on_waiting=_on_waiting,
-        )
-    engine.decision_source.take_control(agent_id)
+            engine.decision_source = HumanDecisionSource(
+                fallback=engine.decision_source,
+                on_waiting=_on_waiting,
+            )
+        engine.decision_source.take_control(agent_id)
 
     await broadcast(session_id, "human_control", {
         "agent_id": agent_id, "controlled": True,
@@ -618,15 +659,16 @@ async def release_control(session_id: str, agent_id: str) -> dict:
     engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
+    lock = _get_session_lock(session_id)
+    async with lock:
+        from .decision import HumanDecisionSource
 
-    from .decision import HumanDecisionSource
-
-    if isinstance(engine.decision_source, HumanDecisionSource):
-        engine.decision_source.release_control(agent_id)
-        # If no more human agents, unwrap back to fallback
-        if not engine.decision_source.human_agents:
-            if engine.decision_source._fallback:
-                engine.decision_source = engine.decision_source._fallback
+        if isinstance(engine.decision_source, HumanDecisionSource):
+            engine.decision_source.release_control(agent_id)
+            # If no more human agents, unwrap back to fallback
+            if not engine.decision_source.human_agents:
+                if engine.decision_source._fallback:
+                    engine.decision_source = engine.decision_source._fallback
 
     await broadcast(session_id, "human_control", {
         "agent_id": agent_id, "controlled": False,
@@ -1255,7 +1297,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         # Keep alive — listen for client messages (e.g., ping)
         while True:
             data = await websocket.receive_text()
-            msg = json.loads(data)
+            try:
+                msg = json.loads(data)
+            except (json.JSONDecodeError, ValueError):
+                continue  # ignore malformed messages
             if msg.get("type") == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
     except WebSocketDisconnect:

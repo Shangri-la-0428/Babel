@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 import litellm
 from pydantic import ValidationError
@@ -39,7 +42,7 @@ def _ensure_provider_prefix(model: str, api_base: str | None) -> str:
 
 
 def get_model() -> str:
-    return os.environ.get("BABEL_MODEL", "gpt-5.4")
+    return os.environ.get("BABEL_MODEL", "gpt-4o-mini")
 
 
 def get_api_key() -> str | None:
@@ -262,7 +265,8 @@ async def detect_new_character(
             "personality": result.get("personality", ""),
             "location": result.get("location", ""),
         }
-    except Exception:
+    except Exception as e:
+        logger.debug("Character detection failed: %s", e)
         return None
 
 
@@ -412,7 +416,8 @@ async def enrich_entity(
             model=model, api_key=api_key, api_base=api_base,
             temperature=0.7,
         )
-    except Exception:
+    except Exception as e:
+        logger.debug("Entity enrichment failed for %s/%s: %s", entity_type, entity_name, e)
         return current_details or {}
 
 
@@ -445,6 +450,7 @@ async def generate_seed_draft(
     try:
         seed = WorldSeed.model_validate(raw)
     except Exception as e:
+        logger.warning("Generated seed failed validation: %s", e)
         raise ValueError(f"Generated seed failed validation: {e}") from e
 
     # Verify bidirectional connections

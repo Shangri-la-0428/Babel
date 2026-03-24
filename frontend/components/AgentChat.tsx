@@ -5,8 +5,6 @@ import { chatWithAgent, BabelSettings } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import Modal from "./Modal";
 
-let msgCounter = 0;
-
 interface ChatMessage {
   id: number;
   role: "user" | "agent";
@@ -33,6 +31,7 @@ export default function AgentChat({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const msgCounter = useRef(0);
 
   useEffect(() => {
     // Defer scroll to after browser paint so scrollHeight includes new content
@@ -48,7 +47,7 @@ export default function AgentChat({
 
     const userMsg = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { id: ++msgCounter, role: "user", text: userMsg }]);
+    setMessages((prev) => [...prev, { id: ++msgCounter.current, role: "user", text: userMsg }]);
     setLoading(true);
 
     try {
@@ -57,11 +56,11 @@ export default function AgentChat({
         api_key: settings.apiKey || undefined,
         api_base: settings.apiBase || undefined,
       });
-      setMessages((prev) => [...prev, { id: ++msgCounter, role: "agent", text: res.reply || "..." }]);
+      setMessages((prev) => [...prev, { id: ++msgCounter.current, role: "agent", text: res.reply || "..." }]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        { id: ++msgCounter, role: "agent", text: `[${t("chat_failed")}]` },
+        { id: ++msgCounter.current, role: "agent", text: `[${t("chat_failed")}]` },
       ]);
     } finally {
       setLoading(false);

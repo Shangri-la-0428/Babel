@@ -319,7 +319,8 @@ async def consolidate_memories(
                 api_key=api_key,
                 api_base=api_base,
             )
-        except Exception:
+        except Exception as e:
+            logger.debug("LLM memory summarization failed, using fallback: %s", e)
             # Fallback: original concat approach
             entity = tag.split(":", 1)[1] if ":" in tag else tag
             summary = f"[Summary about {entity}] " + " | ".join(
