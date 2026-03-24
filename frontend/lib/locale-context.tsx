@@ -24,6 +24,11 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     if (detected !== "cn") setLocale(detected);
   }, []);
 
+  // Sync <html lang> with locale
+  useEffect(() => {
+    document.documentElement.lang = locale === "cn" ? "zh-CN" : "en";
+  }, [locale]);
+
   const toggle = useCallback(() => {
     setLocale((prev) => {
       const next = prev === "cn" ? "en" : "cn";

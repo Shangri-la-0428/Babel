@@ -46,6 +46,10 @@ export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg"
     // Save previously focused element to restore on close
     returnFocusRef.current = document.activeElement;
 
+    // Lock background scroll
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     document.addEventListener("keydown", handleKeyDown);
 
     // Auto-focus first focusable element inside the modal
@@ -55,6 +59,7 @@ export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg"
     }
 
     return () => {
+      document.body.style.overflow = prev;
       document.removeEventListener("keydown", handleKeyDown);
       // Restore focus
       if (returnFocusRef.current instanceof HTMLElement) {

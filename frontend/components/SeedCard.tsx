@@ -1,10 +1,11 @@
 "use client";
 
+import { memo } from "react";
 import { SavedSeedData } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import { TYPE_STYLES } from "./SeedDataView";
 
-export default function SeedCard({
+export default memo(function SeedCard({
   seed,
   onDelete,
   onSelect,
@@ -15,12 +16,10 @@ export default function SeedCard({
 }) {
   const { t } = useLocale();
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       className="bg-surface-1 border border-b-DEFAULT p-4 flex flex-col gap-3 hover:border-b-hover transition-colors group cursor-pointer text-left w-full"
       onClick={() => onSelect?.(seed)}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect?.(seed); } }}
     >
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -72,6 +71,6 @@ export default function SeedCard({
           </button>
         )}
       </div>
-    </div>
+    </button>
   );
-}
+})

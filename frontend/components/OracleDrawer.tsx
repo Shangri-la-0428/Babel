@@ -3,9 +3,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { chatWithOracle, getOracleHistory, createWorld, OracleMessage, BabelSettings } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
-import { DecodeText } from "./ui";
 import { OracleWaveform } from "./OracleWaveform";
 import { OracleParticles } from "./OracleParticles";
+import OracleHeader from "./OracleHeader";
+import OracleChat from "./OracleChat";
 
 type OracleMode = "narrate" | "create";
 
@@ -16,106 +17,6 @@ interface OracleDrawerProps {
   onClose: () => void;
   tick: number;
 }
-
-// Seed preview card for creative mode
-function SeedCard({
-  seed,
-  onCreateWorld,
-  creating,
-  t,
-}: {
-  seed: Record<string, unknown>;
-  onCreateWorld: () => void;
-  creating: boolean;
-  t: (key: string, ...args: string[]) => string;
-}) {
-  const agents = (seed.agents as Array<{ name: string; personality?: string }>) || [];
-  const locations = (seed.locations as Array<{ name: string }>) || [];
-  const rules = (seed.rules as string[]) || [];
-  const seedName = String(seed.name || "UNTITLED");
-  const seedDesc = seed.description ? String(seed.description) : "";
-
-  return (
-    <div className="border border-info/30 bg-info/[0.03] animate-oracle-slide-left">
-      {/* Seed header */}
-      <div className="px-3 py-2 border-b border-info/15 flex items-center justify-between">
-        <span className="text-micro text-info tracking-widest">
-          {seedName}
-        </span>
-        <span className="text-micro text-info/40 tracking-wider">SEED</span>
-      </div>
-
-      {/* Description */}
-      {seedDesc && (
-        <div className="px-3 py-2 border-b border-info/10">
-          <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
-            {seedDesc}
-          </div>
-        </div>
-      )}
-
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-px bg-info/10 border-b border-info/10">
-        <div className="bg-void px-3 py-2">
-          <div className="text-micro text-info/50 tracking-widest">{t("oracle_seed_agents")}</div>
-          <div className="text-body font-semibold text-info mt-0.5">{agents.length}</div>
-        </div>
-        <div className="bg-void px-3 py-2">
-          <div className="text-micro text-info/50 tracking-widest">{t("oracle_seed_locations")}</div>
-          <div className="text-body font-semibold text-info mt-0.5">{locations.length}</div>
-        </div>
-        <div className="bg-void px-3 py-2">
-          <div className="text-micro text-info/50 tracking-widest">{t("oracle_seed_rules")}</div>
-          <div className="text-body font-semibold text-info mt-0.5">{rules.length}</div>
-        </div>
-      </div>
-
-      {/* Agent names */}
-      {agents.length > 0 && (
-        <div className="px-3 py-2 border-b border-info/10">
-          <div className="flex flex-wrap gap-1">
-            {agents.map((a, i) => (
-              <span key={i} className="text-micro tracking-wider px-2 py-0.5 border border-info/20 text-info/70">
-                {a.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Location names */}
-      {locations.length > 0 && (
-        <div className="px-3 py-2 border-b border-info/10">
-          <div className="flex flex-wrap gap-1">
-            {locations.map((loc, i) => (
-              <span key={i} className="text-micro tracking-wider px-2 py-0.5 border border-surface-3 text-t-muted">
-                {loc.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Create button */}
-      <div className="px-3 py-2">
-        <button
-          onClick={onCreateWorld}
-          disabled={creating}
-          className="w-full h-9 text-micro font-medium tracking-wider bg-info text-void border border-info hover:bg-transparent hover:text-info hover:shadow-[0_0_16px_rgba(14,165,233,0.3)] active:scale-[0.97] disabled:opacity-30 disabled:pointer-events-none transition-[colors,box-shadow,transform]"
-        >
-          {creating ? t("oracle_creating") : t("oracle_create_world")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-const SUGGESTIONS = [
-  "oracle_suggest_summary",
-  "oracle_suggest_tension",
-  "oracle_suggest_inject",
-  "oracle_suggest_predict",
-] as const;
 
 export default function OracleDrawer({
   sessionId,
@@ -151,7 +52,6 @@ export default function OracleDrawer({
     getOracleHistory(sessionId, 50, controller.signal)
       .then((history) => {
         if (!controller.signal.aborted) {
-          // Guard: don't overwrite in-progress messages from optimistic sends
           setMessages((prev) => prev.length > 0 ? prev : history);
           setHistoryLoaded(true);
         }
@@ -160,7 +60,7 @@ export default function OracleDrawer({
     return () => { controller.abort(); };
   }, [sessionId, historyLoaded]);
 
-  // Abort in-flight send on unmount + cleanup focus timer
+  // Abort in-flight send on unmount + cleanup timers
   useEffect(() => {
     return () => {
       sendControllerRef.current?.abort();
@@ -225,15 +125,12 @@ export default function OracleDrawer({
     setInput("");
     setError(null);
 
-    // Abort any previous in-flight request
     sendControllerRef.current?.abort();
     const controller = new AbortController();
     sendControllerRef.current = controller;
 
-    // Trigger transmission sweep
     setSendCount((c) => c + 1);
 
-    // Optimistic user message
     const userMsg: OracleMessage = {
       id: `tmp-u-${Date.now()}`,
       role: "user",
@@ -262,18 +159,14 @@ export default function OracleDrawer({
       latestMsgId.current = res.message_id;
       setMessages((prev) => [...prev, oracleMsg]);
 
-      // Handle seed generation in creative mode
       if (res.mode === "create" && res.seed) {
         setGeneratedSeed(res.seed);
       }
     } catch {
-      // Check our own signal — fetchWithTimeout converts AbortError to
-      // Error("Request timed out"), so name-based checks are unreliable.
       if (!controller.signal.aborted) {
         setError(t("oracle_failed"));
       }
     } finally {
-      // Only clear loading if this is still the active request
       if (sendControllerRef.current === controller) {
         setLoading(false);
         sendControllerRef.current = null;
@@ -288,12 +181,16 @@ export default function OracleDrawer({
 
   const handleDismissError = useCallback(() => setError(null), []);
 
+  const handleModeChange = useCallback((newMode: OracleMode) => {
+    setMode(newMode);
+    if (newMode === "create") setGeneratedSeed(null);
+  }, []);
+
   const handleCreateWorld = useCallback(async () => {
     if (!generatedSeed || creatingSeed) return;
     setCreatingSeed(true);
     try {
       const result = await createWorld(generatedSeed as Parameters<typeof createWorld>[0]);
-      // Navigate to the new world
       window.location.href = `/sim?id=${result.session_id}`;
     } catch {
       setError(t("failed_create"));
@@ -314,45 +211,13 @@ export default function OracleDrawer({
       aria-label={t("oracle")}
       aria-hidden={!open}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-info/15 bg-surface-1 shrink-0">
-        <span className="text-micro text-info tracking-widest drop-shadow-[0_0_8px_rgba(14,165,233,0.3)]">{t("oracle_label")}</span>
-        <div className="flex items-center gap-3">
-          {/* Mode toggle */}
-          <div className="flex border border-info/20">
-            <button
-              onClick={() => setMode("narrate")}
-              className={`text-micro tracking-wider px-2.5 py-1 transition-colors ${
-                mode === "narrate"
-                  ? "bg-info/10 text-info"
-                  : "text-t-dim hover:text-info/60"
-              }`}
-            >
-              {t("oracle_mode_narrate")}
-            </button>
-            <button
-              onClick={() => { setMode("create"); setGeneratedSeed(null); }}
-              className={`text-micro tracking-wider px-2.5 py-1 border-l border-info/20 transition-colors ${
-                mode === "create"
-                  ? "bg-info/10 text-info"
-                  : "text-t-dim hover:text-info/60"
-              }`}
-            >
-              {t("oracle_mode_create")}
-            </button>
-          </div>
-          <span className="text-micro text-info/40 tracking-wider tabular-nums">
-            {t("oracle_at_tick")} {String(tick).padStart(3, "0")}
-          </span>
-          <button
-            onClick={onClose}
-            className="text-micro text-t-muted hover:text-t-DEFAULT transition-colors tracking-wider"
-            aria-label={t("close")}
-          >
-            {t("close")}
-          </button>
-        </div>
-      </div>
+      <OracleHeader
+        mode={mode}
+        onModeChange={handleModeChange}
+        tick={tick}
+        onClose={onClose}
+        t={t as (key: string, ...args: string[]) => string}
+      />
 
       {/* Signal Waveform */}
       <OracleWaveform state={waveformState} open={open} />
@@ -360,101 +225,25 @@ export default function OracleDrawer({
       {/* Messages + Particle Field */}
       <div className="flex-1 min-h-0 relative">
         <OracleParticles thinking={loading} open={open} />
-        <div ref={scrollRef} className="h-full overflow-y-auto p-4 flex flex-col gap-4 relative z-[1]" aria-live={historyLoaded ? "polite" : "off"} aria-relevant="additions">
-        {messages.length === 0 && !loading && (
-          <div className="flex flex-col items-center justify-center h-full gap-5">
-            {/* Signal lock label — flanked by gradient rules */}
-            <div className="flex items-center gap-3 w-full max-w-[320px] opacity-0 animate-fade-in">
-              <div className="flex-1 h-px bg-gradient-to-r from-transparent to-info/20" />
-              <div className="text-sm text-info tracking-widest drop-shadow-[0_0_16px_rgba(14,165,233,0.45)]">
-                {mode === "create" ? t("oracle_mode_create") : t("oracle_label")}
-              </div>
-              <div className="flex-1 h-px bg-gradient-to-r from-info/20 to-transparent" />
-            </div>
-            <div className="text-detail text-t-muted text-center normal-case tracking-normal max-w-[300px] opacity-0 animate-[fade-in_300ms_ease_80ms_both]">
-              {mode === "create" ? t("oracle_create_empty") : t("oracle_empty")}
-            </div>
-            {/* Suggestion chips — only in narrate mode */}
-            {mode === "narrate" && (
-              <div className="flex flex-wrap justify-center gap-2 mt-1">
-                {SUGGESTIONS.map((key, i) => (
-                  <button
-                    key={key}
-                    onClick={() => handleSend(t(key))}
-                    style={{ animationDelay: `${160 + i * 60}ms` }}
-                    className="text-micro tracking-wider px-3 py-2 border border-info/20 text-t-muted hover:border-info/40 hover:text-info hover:bg-info/[0.04] active:scale-[0.97] transition-[colors,transform] opacity-0 animate-[fade-in_200ms_ease_both]"
-                  >
-                    {t(key)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={
-              msg.role === "user"
-                ? "ml-10 text-right animate-oracle-slide-right"
-                : "mr-4 border-l-2 border-l-info/30 pl-3 pr-2 py-1 bg-info/[0.05] animate-oracle-chromatic-in"
-            }
-          >
-            <span className={`text-micro tracking-wider block mb-1 ${
-              msg.role === "user" ? "text-t-dim" : "text-info"
-            }`}>
-              {msg.role === "user" ? t("you") : t("oracle")}
-            </span>
-            <span className={`text-detail normal-case tracking-normal leading-relaxed break-words block ${
-              msg.role === "user" ? "text-t-secondary" : "text-t-DEFAULT"
-            }`}>
-              {msg.id === latestMsgId.current ? (
-                <DecodeText text={msg.content} />
-              ) : (
-                msg.content
-              )}
-            </span>
-          </div>
-        ))}
-
-        {/* Seed preview card — shown when creative mode generates a seed */}
-        {generatedSeed && mode === "create" && (
-          <SeedCard
-            seed={generatedSeed}
-            onCreateWorld={handleCreateWorld}
-            creating={creatingSeed}
-            t={t as (key: string, ...args: string[]) => string}
-          />
-        )}
-
-        {loading && (
-          <div className="mr-4 border-l-2 border-l-info/30 pl-3 pr-2 py-1 bg-info/[0.05] animate-oracle-slide-left">
-            <span className="text-micro tracking-wider text-info block mb-1">{t("oracle")}</span>
-            <span className="text-detail text-info/50 normal-case tracking-normal bg-gradient-to-r from-info/[0.06] via-info/[0.12] to-info/[0.06] bg-[length:200%_100%] animate-shimmer inline-block px-2 py-0.5">
-              {t("oracle_thinking")}
-            </span>
-          </div>
-        )}
-
-        {error && (
-          <div className="text-micro text-danger tracking-wider px-3 py-2 border border-danger animate-slide-down flex items-start gap-2">
-            <span className="flex-1">{error}</span>
-            <button
-              onClick={handleDismissError}
-              className="text-danger/50 hover:text-danger transition-colors shrink-0 leading-none min-w-[36px] min-h-[36px] flex items-center justify-center -mr-2 -my-1"
-              aria-label={t("close")}
-            >
-              ×
-            </button>
-          </div>
-        )}
-        </div>
+        <OracleChat
+          messages={messages}
+          loading={loading}
+          error={error}
+          mode={mode}
+          historyLoaded={historyLoaded}
+          latestMsgId={latestMsgId.current}
+          generatedSeed={generatedSeed}
+          creatingSeed={creatingSeed}
+          scrollRef={scrollRef}
+          onSend={handleSend}
+          onDismissError={handleDismissError}
+          onCreateWorld={handleCreateWorld}
+          t={t as (key: string, ...args: string[]) => string}
+        />
       </div>
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="flex gap-2 p-4 border-t border-b-DEFAULT shrink-0 relative overflow-hidden">
-        {/* Transmission sweep — info-tinted flash on send */}
         {sendCount > 0 && (
           <span
             key={sendCount}

@@ -91,23 +91,23 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
           {/* Context strip */}
           <div className="flex gap-px bg-b-DEFAULT border-b border-b-DEFAULT">
             <div className="flex-1 bg-void px-3 py-2">
-              <div className="text-[9px] text-t-dim tracking-widest mb-0.5">{t("you_are_here")}</div>
+              <div className="text-[10px] text-t-dim tracking-widest mb-0.5">{t("you_are_here")}</div>
               <div className="text-detail text-t-secondary normal-case tracking-normal">{context.location}</div>
             </div>
             <div className="flex-1 bg-void px-3 py-2">
-              <div className="text-[9px] text-t-dim tracking-widest mb-0.5">{t("your_inventory")}</div>
+              <div className="text-[10px] text-t-dim tracking-widest mb-0.5">{t("your_inventory")}</div>
               <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
                 {context.inventory.length > 0 ? context.inventory.join(", ") : "---"}
               </div>
             </div>
             <div className="flex-1 bg-void px-3 py-2">
-              <div className="text-[9px] text-t-dim tracking-widest mb-0.5">{t("nearby_agents")}</div>
+              <div className="text-[10px] text-t-dim tracking-widest mb-0.5">{t("nearby_agents")}</div>
               <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
                 {sameLocAgents.length > 0 ? sameLocAgents.map((a) => a.name).join(", ") : "---"}
               </div>
             </div>
             <div className="flex-1 bg-void px-3 py-2">
-              <div className="text-[9px] text-t-dim tracking-widest mb-0.5">{t("reachable")}</div>
+              <div className="text-[10px] text-t-dim tracking-widest mb-0.5">{t("reachable")}</div>
               <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
                 {otherLocations.length > 0 ? otherLocations.join(", ") : "---"}
               </div>
@@ -129,6 +129,8 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
                   key={action.key}
                   onClick={() => !isDisabled && handleSelectAction(action.key)}
                   disabled={isDisabled}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  aria-label={t(`action_${action.key}` as any)}
                   className={`bg-void py-3 flex flex-col items-center gap-1.5 transition-colors ${
                     isSelected
                       ? "text-primary shadow-[inset_0_-2px_0_var(--color-primary)]"
@@ -137,8 +139,8 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
                       : "text-t-muted hover:text-t-DEFAULT hover:bg-surface-1"
                   }`}
                 >
-                  <span className="text-body">{action.icon}</span>
-                  <span className="text-[9px] tracking-widest font-medium">
+                  <span className="text-body" aria-hidden="true">{action.icon}</span>
+                  <span className="text-[10px] tracking-widest font-medium">
                     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     {t(`action_${action.key}` as any)}
                   </span>
@@ -153,13 +155,13 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
               {/* Target selector */}
               {actionDef.needsTarget && (
                 <div className="flex-1 bg-void px-3 py-2">
-                  <label className="text-[9px] text-t-dim tracking-widest mb-1 block">
+                  <label className="text-[10px] text-t-dim tracking-widest mb-1 block">
                     {t("action_target")}
                   </label>
                   <select
                     value={target}
                     onChange={(e) => setTarget(e.target.value)}
-                    className="w-full h-8 px-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none"
+                    className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
                   >
                     <option value="">---</option>
                     {"targetType" in actionDef && actionDef.targetType === "agent" &&
@@ -181,7 +183,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
               {/* Content input */}
               {actionDef.needsContent && (
                 <div className="flex-1 bg-void px-3 py-2">
-                  <label className="text-[9px] text-t-dim tracking-widest mb-1 block">
+                  <label className="text-[10px] text-t-dim tracking-widest mb-1 block">
                     {t("action_content")}
                   </label>
                   <input
@@ -189,7 +191,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
                     placeholder="..."
-                    className="w-full h-8 px-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none"
+                    className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && canSubmit) handleSubmit();
                     }}

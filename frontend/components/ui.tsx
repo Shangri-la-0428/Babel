@@ -192,6 +192,51 @@ export const GlitchReveal = memo(function GlitchReveal({
 // Glitch/decode transmission effect. Progressively reveals text with
 // random block characters, like a signal being decoded from noise.
 
+// ── FormLabel ──
+// Standard form/section label. 84+ occurrences of this pattern across codebase.
+
+export function FormLabel({
+  children,
+  htmlFor,
+  className = "",
+}: {
+  children: ReactNode;
+  htmlFor?: string;
+  className?: string;
+}) {
+  return (
+    <label htmlFor={htmlFor} className={`text-micro text-t-muted tracking-widest mb-1.5 block ${className}`}>
+      {children}
+    </label>
+  );
+}
+
+// ── DetailSection ──
+// Bordered section with label + content. Used heavily in AssetPanel for agent/item details.
+
+export function DetailSection({
+  label,
+  children,
+  className = "",
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`px-4 py-2 border-b border-b-DEFAULT ${className}`}>
+      <div className="text-micro text-t-muted tracking-widest mb-1">{label}</div>
+      <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── DecodeText ──
+// Glitch/decode transmission effect. Progressively reveals text with
+// random block characters, like a signal being decoded from noise.
+
 export const DecodeText = memo(function DecodeText({
   text,
   duration = 800,
@@ -212,7 +257,16 @@ export const DecodeText = memo(function DecodeText({
     }
 
     const start = performance.now();
+    let lastPaint = 0;
+    const FRAME_INTERVAL = 33; // ~30fps
+
     function tick(now: number) {
+      if (now - lastPaint < FRAME_INTERVAL) {
+        frameRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      lastPaint = now;
+
       const p = Math.min((now - start) / duration, 1);
       const count = Math.floor(text.length * p);
 

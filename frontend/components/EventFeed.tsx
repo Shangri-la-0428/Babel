@@ -72,7 +72,7 @@ const EventItem = memo(function EventItem({
         {String(event.tick).padStart(3, "0")}
       </span>
       <span
-        className={`text-detail font-medium truncate ${
+        className={`text-detail font-medium truncate min-w-0 ${
           isWorld ? "text-danger" : "text-primary"
         }`}
         title={event.agent_name || undefined}
@@ -87,7 +87,7 @@ const EventItem = memo(function EventItem({
           <span
             className={`text-micro tracking-wider ${signals.relationChange === "up" ? "text-primary" : "text-danger"}`}
             title={signals.relationChange === "up" ? "Relation +" : "Relation -"}
-            aria-hidden="true"
+            aria-label={signals.relationChange === "up" ? "Relation improved" : "Relation worsened"}
           >
             {signals.relationChange === "up" ? "▲" : "▼"}
           </span>

@@ -1,5 +1,19 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import type { Locale } from "@/lib/i18n";
+
+const LABELS: Record<string, Record<Locale, string>> = {
+  system_error: { cn: "// 系统错误", en: "// SYSTEM ERROR" },
+  unexpected: { cn: "发生了意外错误", en: "An unexpected error occurred" },
+  retry: { cn: "重试", en: "RETRY" },
+  home: { cn: "首页", en: "HOME" },
+};
+
+function t(key: string, locale: Locale) {
+  return LABELS[key]?.[locale] ?? key;
+}
+
 export default function GlobalError({
   error,
   reset,
@@ -7,28 +21,37 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [locale, setLocale] = useState<Locale>("cn");
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("babel_locale");
+      if (stored === "en" || stored === "cn") setLocale(stored);
+    } catch { /* SSR / no localStorage */ }
+  }, []);
+
   return (
-    <html lang="en">
-      <body style={{ margin: 0, backgroundColor: "#000", color: "#fff", fontFamily: "monospace" }}>
-        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, padding: 24 }}>
-          <div style={{ fontSize: 11, letterSpacing: "0.1em", color: "#757575", textTransform: "uppercase" }}>
-            {"// SYSTEM ERROR"}
+    <html lang={locale === "cn" ? "zh-CN" : "en"}>
+      <body className="m-0 bg-void text-t-DEFAULT font-mono">
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-6">
+          <div className="text-micro tracking-widest text-t-dim uppercase">
+            {t("system_error", locale)}
           </div>
-          <div style={{ fontSize: 13, color: "#F24723", maxWidth: 400, textAlign: "center" }}>
-            {error.message || "An unexpected error occurred"}
+          <div className="text-detail text-danger max-w-[400px] text-center normal-case tracking-normal">
+            {error.message || t("unexpected", locale)}
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
+          <div className="flex gap-3">
             <button
               onClick={reset}
-              style={{ height: 36, padding: "0 20px", fontSize: 11, fontFamily: "monospace", letterSpacing: "0.05em", textTransform: "uppercase", background: "#C0FE04", color: "#000", border: "1px solid #C0FE04", cursor: "pointer" }}
+              className="h-9 px-5 text-micro font-mono tracking-wider uppercase bg-primary text-void border border-primary cursor-pointer hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
             >
-              RETRY
+              {t("retry", locale)}
             </button>
             <a
               href="/"
-              style={{ height: 36, padding: "0 20px", fontSize: 11, fontFamily: "monospace", letterSpacing: "0.05em", textTransform: "uppercase", background: "transparent", color: "#8A8A8A", border: "1px solid #1C1C1C", cursor: "pointer", display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+              className="h-9 px-5 text-micro font-mono tracking-wider uppercase bg-transparent text-t-muted border border-surface-3 cursor-pointer inline-flex items-center no-underline hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
             >
-              HOME
+              {t("home", locale)}
             </a>
           </div>
         </div>
