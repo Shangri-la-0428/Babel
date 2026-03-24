@@ -38,6 +38,9 @@ function AgentRow({
   onEnrich,
   relations,
   agentNames,
+  isHumanControlled,
+  onTakeControl,
+  onReleaseControl,
 }: {
   agent: AgentData;
   agentId: string;
@@ -53,6 +56,9 @@ function AgentRow({
   onEnrich: () => void;
   relations: RelationData[];
   agentNames: Record<string, string>;
+  isHumanControlled?: boolean;
+  onTakeControl?: () => void;
+  onReleaseControl?: () => void;
 }) {
   const { t } = useLocale();
   const isDead = agent.status === "dead";
@@ -93,6 +99,11 @@ function AgentRow({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-body font-semibold truncate">{agent.name}</span>
+            {isHumanControlled && (
+              <span className="text-micro tracking-wider px-2 py-0.5 border border-primary text-primary shrink-0">
+                {t("human_controlled")}
+              </span>
+            )}
             {isSupporting && (
               <span className="text-micro tracking-wider px-2 py-0.5 border border-t-dim text-t-dim shrink-0">
                 {t("supporting_character")}
@@ -301,6 +312,21 @@ function AgentRow({
           {/* Actions */}
           {!isDead && (
             <div className="flex items-center gap-2 px-4 py-2">
+              {isHumanControlled ? (
+                <button
+                  onClick={onReleaseControl}
+                  className="h-8 px-3 text-micro tracking-wider border border-primary text-primary hover:bg-primary hover:text-void active:scale-[0.97] transition-[colors,transform]"
+                >
+                  {t("release_control")}
+                </button>
+              ) : (
+                <button
+                  onClick={onTakeControl}
+                  className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+                >
+                  {t("take_control")}
+                </button>
+              )}
               <button
                 onClick={onChat}
                 className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
@@ -634,6 +660,9 @@ export default function AssetPanel({
   onChat,
   onExtractAgent,
   onExtractWorld,
+  controlledAgents,
+  onTakeControl,
+  onReleaseControl,
 }: {
   state: WorldState | null;
   activeAgentId: string | null;
@@ -641,6 +670,9 @@ export default function AssetPanel({
   onChat: (agentId: string, agentName: string) => void;
   onExtractAgent: (agentId: string) => void;
   onExtractWorld: () => void;
+  controlledAgents?: Set<string>;
+  onTakeControl?: (agentId: string) => void;
+  onReleaseControl?: (agentId: string) => void;
 }) {
   const { t } = useLocale();
   const [tab, setTab] = useState<Tab>("agents");
@@ -815,6 +847,9 @@ export default function AssetPanel({
                   onEnrich={() => handleEnrich("agent", id)}
                   relations={allRelations.filter(r => r.source === id || r.target === id)}
                   agentNames={agentNames}
+                  isHumanControlled={controlledAgents?.has(id)}
+                  onTakeControl={() => onTakeControl?.(id)}
+                  onReleaseControl={() => onReleaseControl?.(id)}
                 />
               ))
             )}

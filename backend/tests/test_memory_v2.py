@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from babel.engine import DEFAULT_BELIEF_INTERVAL
 from babel.memory import (
-    BELIEF_INTERVAL,
     _compute_importance,
     extract_beliefs,
     get_agent_beliefs,
@@ -482,5 +482,5 @@ class TestConsolidationV2:
 
 class TestConstants:
     def test_belief_interval_is_positive(self):
-        assert BELIEF_INTERVAL > 0
-        assert BELIEF_INTERVAL == 10
+        assert DEFAULT_BELIEF_INTERVAL > 0
+        assert DEFAULT_BELIEF_INTERVAL == 10

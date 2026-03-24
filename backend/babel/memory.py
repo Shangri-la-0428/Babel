@@ -20,9 +20,6 @@ logger = logging.getLogger(__name__)
 # ── Constants ──
 
 MAX_MEMORY_LEGACY = 10  # backwards-compat sliding window size
-SNAPSHOT_INTERVAL = 10
-EPOCH_INTERVAL = 5
-BELIEF_INTERVAL = 10  # extract beliefs every N ticks
 
 IMPORTANCE_MAP = {
     "speak": 0.6,

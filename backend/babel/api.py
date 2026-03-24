@@ -99,6 +99,13 @@ class InjectEventRequest(BaseModel):
     content: str
 
 
+class HumanActionRequest(BaseModel):
+    agent_id: str
+    action_type: str  # "speak", "move", "trade", "observe", "wait", "use_item"
+    target: str = ""
+    content: str = ""
+
+
 class ChatRequest(BaseModel):
     agent_id: str
     message: str
@@ -365,15 +372,14 @@ async def run_world(session_id: str, req: RunRequest) -> dict:
     if engine.is_running:
         raise HTTPException(400, "Already running")
 
-    # Update engine config
-    if req.model:
-        engine.model = req.model
-    if req.api_key:
-        engine.api_key = req.api_key
-    if req.api_base:
-        engine.api_base = req.api_base
-    engine.tick_delay = req.tick_delay
-    engine.on_event = make_event_callback(session_id)
+    # Update engine config via proper API
+    engine.configure(
+        model=req.model or None,
+        api_key=req.api_key or None,
+        api_base=req.api_base or None,
+        tick_delay=req.tick_delay,
+        on_event=make_event_callback(session_id),
+    )
 
     # Run in background
     asyncio.create_task(_run_and_save(engine, req.max_ticks))
@@ -384,10 +390,9 @@ async def run_world(session_id: str, req: RunRequest) -> dict:
 async def _run_and_save(engine: Engine, max_ticks: int) -> None:
     """Run engine and save state periodically."""
     try:
-        engine.session.status = engine.session.status.RUNNING
-        engine._running = True
+        engine.start()
 
-        while engine._running and engine.session.tick < max_ticks:
+        while engine.is_running and engine.session.tick < max_ticks:
             events = await engine.tick()
             # Save state after each tick
             await save_session(engine.session)
@@ -402,8 +407,7 @@ async def _run_and_save(engine: Engine, max_ticks: int) -> None:
     except Exception as e:
         await broadcast(engine.session.id, "error", {"message": str(e)})
     finally:
-        engine.session.status = engine.session.status.ENDED
-        engine._running = False
+        engine.stop()
         await save_session(engine.session)
         await broadcast(engine.session.id, "stopped", {
             "tick": engine.session.tick,
@@ -419,13 +423,12 @@ async def step_world(session_id: str, req: RunRequest | None = None) -> dict:
     if engine.is_running:
         raise HTTPException(400, "Cannot step while running — pause first")
 
-    if req and req.model:
-        engine.model = req.model
-    if req and req.api_key:
-        engine.api_key = req.api_key
-    if req and req.api_base:
-        engine.api_base = req.api_base
-    engine.on_event = make_event_callback(session_id)
+    engine.configure(
+        model=(req.model if req and req.model else None),
+        api_key=(req.api_key if req and req.api_key else None),
+        api_base=(req.api_base if req and req.api_base else None),
+        on_event=make_event_callback(session_id),
+    )
 
     events = await engine.step()
     await save_session(engine.session)
@@ -489,13 +492,11 @@ async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
         result=f"[WORLD] {req.content}",
         importance=0.9,
     )
-    engine.session.events.append(event)
-    if len(engine.session.events) > 30:
-        engine.session.events = engine.session.events[-30:]
+    engine._append_event(event)
     await save_event(event)
 
     # Mark as urgent so agents react on next tick
-    engine.session.urgent_events.append(req.content)
+    engine.inject_urgent_event(req.content)
 
     # Write into ALL alive agents' memory so they react to it
     for aid in engine.session.agent_ids:
@@ -572,6 +573,132 @@ async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
     if new_agent_data:
         result["new_agent"] = new_agent_data
     return result
+
+
+# ── Feature: Human agent control ("Play as Agent") ────
+
+@app.post("/api/worlds/{session_id}/take-control/{agent_id}")
+async def take_control(session_id: str, agent_id: str) -> dict:
+    """Take human control of an agent. Its decisions will wait for human input."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+    if agent_id not in engine.session.agents:
+        raise HTTPException(404, f"Agent not found: {agent_id}")
+
+    from .decision import HumanDecisionSource
+
+    # Wrap current decision source if not already a HumanDecisionSource
+    if not isinstance(engine.decision_source, HumanDecisionSource):
+        async def _on_waiting(aid: str, ctx: Any) -> None:
+            await broadcast(session_id, "waiting_for_human", {
+                "agent_id": aid,
+                "agent_name": ctx.agent_name,
+                "location": ctx.agent_location,
+                "inventory": ctx.agent_inventory,
+                "visible_agents": ctx.visible_agents,
+                "reachable_locations": ctx.reachable_locations,
+            })
+
+        engine.decision_source = HumanDecisionSource(
+            fallback=engine.decision_source,
+            on_waiting=_on_waiting,
+        )
+    engine.decision_source.take_control(agent_id)
+
+    await broadcast(session_id, "human_control", {
+        "agent_id": agent_id, "controlled": True,
+    })
+    return {"agent_id": agent_id, "controlled": True}
+
+
+@app.post("/api/worlds/{session_id}/release-control/{agent_id}")
+async def release_control(session_id: str, agent_id: str) -> dict:
+    """Release human control of an agent. It returns to AI decisions."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    from .decision import HumanDecisionSource
+
+    if isinstance(engine.decision_source, HumanDecisionSource):
+        engine.decision_source.release_control(agent_id)
+        # If no more human agents, unwrap back to fallback
+        if not engine.decision_source.human_agents:
+            if engine.decision_source._fallback:
+                engine.decision_source = engine.decision_source._fallback
+
+    await broadcast(session_id, "human_control", {
+        "agent_id": agent_id, "controlled": False,
+    })
+    return {"agent_id": agent_id, "controlled": False}
+
+
+@app.post("/api/worlds/{session_id}/human-action")
+async def submit_human_action(session_id: str, req: HumanActionRequest) -> dict:
+    """Submit an action for a human-controlled agent."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    from .decision import HumanDecisionSource
+    from .models import ActionOutput, ActionType
+
+    if not isinstance(engine.decision_source, HumanDecisionSource):
+        raise HTTPException(400, "No human-controlled agents in this session")
+    if not engine.decision_source.is_waiting(req.agent_id):
+        raise HTTPException(400, f"Agent {req.agent_id} is not waiting for input")
+
+    try:
+        action_type = ActionType(req.action_type)
+    except ValueError:
+        raise HTTPException(400, f"Invalid action type: {req.action_type}")
+
+    action = ActionOutput(
+        type=action_type,
+        target=req.target or None,
+        content=req.content or "",
+    )
+    accepted = engine.decision_source.submit_action(req.agent_id, action)
+    if not accepted:
+        raise HTTPException(400, "Action not accepted — agent may have timed out")
+
+    return {"accepted": True, "agent_id": req.agent_id, "action_type": req.action_type}
+
+
+@app.get("/api/worlds/{session_id}/human-status")
+async def get_human_status(session_id: str) -> dict:
+    """Get human control status — which agents are controlled, which are waiting."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    from .decision import HumanDecisionSource
+
+    if not isinstance(engine.decision_source, HumanDecisionSource):
+        return {"controlled_agents": [], "waiting_agents": []}
+
+    src = engine.decision_source
+    controlled = list(src.human_agents)
+    waiting = [aid for aid in controlled if src.is_waiting(aid)]
+    # Include context for waiting agents so frontend can render action picker
+    waiting_contexts = {}
+    for aid in waiting:
+        ctx = src.get_pending_context(aid)
+        if ctx:
+            waiting_contexts[aid] = {
+                "agent_name": ctx.agent_name,
+                "location": ctx.agent_location,
+                "inventory": ctx.agent_inventory,
+                "visible_agents": ctx.visible_agents,
+                "reachable_locations": ctx.reachable_locations,
+            }
+
+    return {
+        "controlled_agents": controlled,
+        "waiting_agents": waiting,
+        "waiting_contexts": waiting_contexts,
+    }
 
 
 # ── Feature 2: Chat with agent ────────────────────────

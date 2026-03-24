@@ -408,11 +408,11 @@ class TestEngineDecisionSource(unittest.TestCase):
         engine = Engine(session, decision_source=src)
         assert engine.decision_source is src
 
-    def test_engine_default_no_decision_source(self):
+    def test_engine_default_uses_llm_decision_source(self):
         from babel.engine import Engine
         session = _make_session()
         engine = Engine(session)
-        assert engine.decision_source is None
+        assert isinstance(engine.decision_source, LLMDecisionSource)
 
     def test_engine_build_context(self):
         from babel.engine import Engine

@@ -30,6 +30,10 @@ frontend/    Next.js 14 + Tailwind CSS
 design/      设计系统（tokens, 组件, Tailwind preset）
 ```
 
+详细架构文档见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。变更记录见 [`CHANGELOG.md`](CHANGELOG.md)。
+
+*See [`ARCHITECTURE.md`](ARCHITECTURE.md) for detailed architecture. See [`CHANGELOG.md`](CHANGELOG.md) for changes.*
+
 ## 快速开始 / Quick Start
 
 ### 前置条件 / Prerequisites
@@ -100,20 +104,38 @@ docker compose up --build
 | 方法 | 端点 | 说明 |
 |------|------|------|
 | GET | `/api/seeds` | 获取可用种子列表 / List seed files |
+| GET | `/api/seeds/{filename}` | 获取种子内容 / Get seed content |
 | POST | `/api/worlds` | 从 JSON 创建世界 / Create from JSON |
-| POST | `/api/worlds/from-seed/{file}` | 从 YAML 种子创建 / Create from seed |
-| POST | `/api/worlds/{id}/run` | 启动模拟 / Start simulation |
-| POST | `/api/worlds/{id}/pause` | 暂停 / Pause |
-| POST | `/api/worlds/{id}/step` | 单步执行 / Single tick |
-| POST | `/api/worlds/{id}/inject` | 注入自定义事件 / Inject custom event |
-| POST | `/api/worlds/{id}/chat` | 与角色对话 / Chat with agent |
-| POST | `/api/worlds/{id}/oracle` | 与全知旁白对话 / Chat with narrator (`mode=narrate\|create`) |
-| GET | `/api/worlds/{id}/oracle/history` | 获取旁白对话历史 / Get narrator history |
-| GET | `/api/worlds/{id}/state` | 获取当前状态 / Get state |
-| GET | `/api/worlds/{id}/events` | 获取事件历史 / Get events |
-| GET | `/api/worlds/{id}/replay` | 获取完整回放 / Get full replay |
+| POST | `/api/worlds/from-seed/{filename}` | 从 YAML 种子创建 / Create from seed |
+| POST | `/api/worlds/{session_id}/agents` | 添加角色 / Add agent to world |
+| POST | `/api/worlds/{session_id}/run` | 启动模拟 / Start simulation |
+| POST | `/api/worlds/{session_id}/step` | 单步执行 / Single tick |
+| POST | `/api/worlds/{session_id}/pause` | 暂停 / Pause |
+| GET | `/api/worlds/{session_id}/state` | 获取当前状态 / Get state |
+| GET | `/api/worlds/{session_id}/events` | 获取事件历史 / Get events |
+| POST | `/api/worlds/{session_id}/inject` | 注入自定义事件 / Inject custom event |
+| POST | `/api/worlds/{session_id}/take-control/{agent_id}` | 接管角色 / Take human control |
+| POST | `/api/worlds/{session_id}/release-control/{agent_id}` | 释放角色 / Release to AI |
+| POST | `/api/worlds/{session_id}/human-action` | 提交人类行动 / Submit human action |
+| GET | `/api/worlds/{session_id}/human-status` | 人类控制状态 / Human control status |
+| POST | `/api/worlds/{session_id}/chat` | 与角色对话 / Chat with agent |
+| POST | `/api/worlds/{session_id}/oracle` | 与旁白对话 / Chat with narrator (`mode=narrate\|create`) |
+| GET | `/api/worlds/{session_id}/oracle/history` | 旁白对话历史 / Narrator history |
+| POST | `/api/worlds/{session_id}/enrich` | 实体细节生成 / Generate entity details |
+| GET | `/api/worlds/{session_id}/entity-details` | 获取实体细节 / Get entity details |
+| GET | `/api/worlds/{session_id}/replay` | 获取完整回放 / Full replay |
+| GET | `/api/worlds/{session_id}/timeline` | 时间线节点 / Timeline nodes |
+| GET | `/api/worlds/{session_id}/snapshots` | 快照列表 / World snapshots |
+| GET | `/api/worlds/{session_id}/agents/{agent_id}/memories` | 角色记忆 / Agent memories |
+| POST | `/api/worlds/{session_id}/reconstruct` | 从快照重建 / Reconstruct from snapshot |
 | GET | `/api/sessions` | 获取所有会话 / List sessions |
-| WS | `/ws/{id}` | 实时事件流 / Real-time stream |
+| DELETE | `/api/sessions/{session_id}` | 删除会话 / Delete session |
+| GET | `/api/assets` | 资产库列表 / List saved assets |
+| GET | `/api/assets/{seed_id}` | 获取资产 / Get asset |
+| POST | `/api/assets` | 保存资产 / Save asset |
+| DELETE | `/api/assets/{seed_id}` | 删除资产 / Delete asset |
+| POST | `/api/assets/extract/{type}` | 提取资产 / Extract asset (agent/item/location/event/world) |
+| WS | `/ws/{session_id}` | 实时事件流 / Real-time stream |
 
 ### WebSocket 消息 / Messages
 
@@ -124,6 +146,8 @@ docker compose up --build
 {"type": "state_update",  "data": {/* 完整状态 */}}
 {"type": "stopped",       "data": {"tick": 50}}
 {"type": "agent_added",   "data": {/* 新角色检测 */}}
+{"type": "waiting_for_human", "data": {/* 等待人类操作 */}}
+{"type": "human_control", "data": {"agent_id": "...", "controlled": true}}
 ```
 
 ## 种子格式 / Seed Format

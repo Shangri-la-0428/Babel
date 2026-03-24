@@ -8,6 +8,7 @@ import {
   EventData,
   BabelSettings,
   SavedSeedData,
+  HumanWaitingContext,
   getState,
   runWorld,
   pauseWorld,
@@ -15,6 +16,9 @@ import {
   createWebSocket,
   loadSettings,
   generateSeed,
+  takeControl,
+  releaseControl,
+  submitHumanAction,
 } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import EventFeed from "@/components/EventFeed";
@@ -29,6 +33,7 @@ const WorldRadar = dynamic(() => import("@/components/WorldRadar"), { ssr: false
 const SeedPreview = lazy(() => import("@/components/SeedPreview"));
 const AgentChat = lazy(() => import("@/components/AgentChat"));
 const OracleDrawer = lazy(() => import("@/components/OracleDrawer"));
+const ActionPicker = lazy(() => import("@/components/ActionPicker"));
 
 const MAX_EVENTS = 500;
 
@@ -51,6 +56,8 @@ function SimContent() {
   const [seedPreview, setSeedPreview] = useState<SavedSeedData | null>(null);
   const [oracleOpen, setOracleOpen] = useState(false);
   const [oracleEverOpened, setOracleEverOpened] = useState(false);
+  const [controlledAgents, setControlledAgents] = useState<Set<string>>(new Set());
+  const [waitingAgent, setWaitingAgent] = useState<{ id: string; context: HumanWaitingContext } | null>(null);
   const { locale, toggle, t } = useLocale();
   const [wsRetryExhausted, setWsRetryExhausted] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -147,6 +154,31 @@ function SimContent() {
             getState(sessionId).then((s) => {
               setState(s);
             }).catch(() => { /* state refresh is best-effort — WS will sync */ });
+            break;
+
+          case "waiting_for_human":
+            setWaitingAgent({
+              id: data.data.agent_id,
+              context: {
+                agent_name: data.data.agent_name,
+                location: data.data.location,
+                inventory: data.data.inventory || [],
+                visible_agents: data.data.visible_agents || [],
+                reachable_locations: data.data.reachable_locations || [],
+              },
+            });
+            break;
+
+          case "human_control":
+            setControlledAgents((prev) => {
+              const next = new Set(prev);
+              if (data.data.controlled) {
+                next.add(data.data.agent_id);
+              } else {
+                next.delete(data.data.agent_id);
+              }
+              return next;
+            });
             break;
 
           case "error":
@@ -302,6 +334,47 @@ function SimContent() {
     });
   }, []);
   const handleCloseOracle = useCallback(() => setOracleOpen(false), []);
+
+  const handleTakeControl = useCallback(async (agentId: string) => {
+    if (!sessionId) return;
+    try {
+      await takeControl(sessionId, agentId);
+      setControlledAgents((prev) => new Set(prev).add(agentId));
+    } catch {
+      setError(t("control_failed"));
+    }
+  }, [sessionId, t]);
+
+  const handleReleaseControl = useCallback(async (agentId: string) => {
+    if (!sessionId) return;
+    try {
+      await releaseControl(sessionId, agentId);
+      setControlledAgents((prev) => {
+        const next = new Set(prev);
+        next.delete(agentId);
+        return next;
+      });
+      if (waitingAgent?.id === agentId) setWaitingAgent(null);
+    } catch {
+      setError(t("control_failed"));
+    }
+  }, [sessionId, waitingAgent, t]);
+
+  const handleSubmitHumanAction = useCallback(async (actionType: string, target: string, content: string) => {
+    if (!sessionId || !waitingAgent) return;
+    try {
+      await submitHumanAction(sessionId, waitingAgent.id, actionType, target, content);
+      setWaitingAgent(null);
+    } catch {
+      setError(t("human_action_failed"));
+    }
+  }, [sessionId, waitingAgent, t]);
+
+  const handleCancelWaiting = useCallback(() => {
+    // Don't dismiss — the agent is still waiting. User can release control instead.
+    // But we can hide the picker temporarily.
+    setWaitingAgent(null);
+  }, []);
 
   const activeAgentId = useMemo(
     () => (events.length > 0 ? events[events.length - 1]?.agent_id : null),
@@ -474,6 +547,9 @@ function SimContent() {
           onChat={handleOpenChat}
           onExtractAgent={handleGenerateAgentSeed}
           onExtractWorld={handleGenerateWorldSeed}
+          controlledAgents={controlledAgents}
+          onTakeControl={handleTakeControl}
+          onReleaseControl={handleReleaseControl}
         />
       </main>
 
@@ -509,6 +585,17 @@ function SimContent() {
             agentName={chatAgent.name}
             settings={settings}
             onClose={handleCloseChat}
+          />
+        </Suspense>
+      )}
+
+      {/* Human Action Picker (lazy) */}
+      {waitingAgent && (
+        <Suspense fallback={null}>
+          <ActionPicker
+            context={waitingAgent.context}
+            onSubmit={handleSubmitHumanAction}
+            onCancel={handleCancelWaiting}
           />
         </Suspense>
       )}

@@ -277,6 +277,28 @@ const translations = {
   relation_hostile: { cn: "敌对", en: "HOSTILE" },
   relations_dynamic: { cn: "动态关系", en: "RELATIONS" },
 
+  // Human control ("Play as Agent")
+  take_control: { cn: "接管", en: "CONTROL" },
+  release_control: { cn: "释放", en: "RELEASE" },
+  human_controlled: { cn: "人类控制中", en: "HUMAN" },
+  waiting_for_action: { cn: "等待你的指令…", en: "Awaiting your command…" },
+  action_speak: { cn: "对话", en: "SPEAK" },
+  action_move: { cn: "移动", en: "MOVE" },
+  action_trade: { cn: "交易", en: "TRADE" },
+  action_observe: { cn: "观察", en: "OBSERVE" },
+  action_wait: { cn: "等待", en: "WAIT" },
+  action_use_item: { cn: "使用物品", en: "USE ITEM" },
+  action_target: { cn: "目标", en: "TARGET" },
+  action_content: { cn: "内容", en: "CONTENT" },
+  action_submit: { cn: "执行", en: "EXECUTE" },
+  action_cancel: { cn: "取消", en: "CANCEL" },
+  human_action_failed: { cn: "行动提交失败", en: "Failed to submit action" },
+  control_failed: { cn: "控制操作失败", en: "Control operation failed" },
+  you_are_here: { cn: "你在这里", en: "YOU ARE HERE" },
+  your_inventory: { cn: "你的物品", en: "YOUR INVENTORY" },
+  nearby_agents: { cn: "附近的角色", en: "NEARBY AGENTS" },
+  reachable: { cn: "可到达", en: "REACHABLE" },
+
   // Oracle creative mode
   oracle_mode_narrate: { cn: "叙述", en: "NARRATE" },
   oracle_mode_create: { cn: "创世", en: "CREATE" },

@@ -15,12 +15,9 @@ from .db import (
     load_events_filtered,
 )
 from .clock import world_time
-from .llm import get_agent_action, enrich_entity, replan_goal
+from .llm import enrich_entity, replan_goal
 from .memory import (
-    BELIEF_INTERVAL,
-    EPOCH_INTERVAL,
     IMPORTANCE_MAP,
-    SNAPSHOT_INTERVAL,
     consolidate_memories,
     create_memory_from_event,
     detect_repetition,
@@ -53,9 +50,18 @@ EVENT_WINDOW = 30
 # Type for event callback (used by API/WebSocket to push events)
 EventCallback = Callable[[Event], Any]
 
+# Default intervals (can be overridden per-engine)
+DEFAULT_SNAPSHOT_INTERVAL = 10
+DEFAULT_EPOCH_INTERVAL = 5
+DEFAULT_BELIEF_INTERVAL = 10
+
 
 class Engine:
-    """World simulation engine. Drives the tick loop."""
+    """World simulation engine. Drives the tick loop.
+
+    All agent decisions go through the DecisionSource protocol.
+    Defaults to LLMDecisionSource if none is provided.
+    """
 
     def __init__(
         self,
@@ -66,6 +72,9 @@ class Engine:
         on_event: EventCallback | None = None,
         tick_delay: float = 2.0,
         decision_source: DecisionSource | None = None,
+        snapshot_interval: int = DEFAULT_SNAPSHOT_INTERVAL,
+        epoch_interval: int = DEFAULT_EPOCH_INTERVAL,
+        belief_interval: int = DEFAULT_BELIEF_INTERVAL,
     ):
         self.session = session
         self.model = model
@@ -73,9 +82,16 @@ class Engine:
         self.api_base = api_base
         self.on_event = on_event
         self.tick_delay = tick_delay
-        self.decision_source = decision_source
+        # Always have a decision source — LLM is the default, not a special case
+        self.decision_source: DecisionSource = decision_source or LLMDecisionSource(
+            model=model, api_key=api_key, api_base=api_base,
+        )
         self._running = False
         self._enrichment_queue: list[tuple[str, str]] = []  # (entity_type, entity_id)
+        # Configurable intervals
+        self.snapshot_interval = snapshot_interval
+        self.epoch_interval = epoch_interval
+        self.belief_interval = belief_interval
 
     async def tick(self) -> list[Event]:
         """Execute one tick of the simulation."""
@@ -144,6 +160,11 @@ class Engine:
         """Execute a single tick (for manual stepping)."""
         return await self.tick()
 
+    def start(self) -> None:
+        """Mark engine as running. Called before the tick loop."""
+        self.session.status = SessionStatus.RUNNING
+        self._running = True
+
     def pause(self) -> None:
         self._running = False
         self.session.status = SessionStatus.PAUSED
@@ -155,6 +176,35 @@ class Engine:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    def configure(
+        self,
+        model: str | None = None,
+        api_key: str | None = None,
+        api_base: str | None = None,
+        tick_delay: float | None = None,
+        on_event: EventCallback | None = None,
+    ) -> None:
+        """Update engine configuration. Propagates LLM config to decision source."""
+        if model is not None:
+            self.model = model
+        if api_key is not None:
+            self.api_key = api_key
+        if api_base is not None:
+            self.api_base = api_base
+        if tick_delay is not None:
+            self.tick_delay = tick_delay
+        if on_event is not None:
+            self.on_event = on_event
+        # Sync LLM config to decision source if it's the default LLM type
+        if isinstance(self.decision_source, LLMDecisionSource):
+            self.decision_source.model = self.model
+            self.decision_source.api_key = self.api_key
+            self.decision_source.api_base = self.api_base
+
+    def inject_urgent_event(self, content: str) -> None:
+        """Queue an urgent event for agents to react to on next tick."""
+        self.session.urgent_events.append(content)
 
     def _append_event(self, event: Event) -> None:
         """Append event to session and enforce rolling window."""
@@ -213,7 +263,7 @@ class Engine:
         return ctx
 
     async def _resolve_agent_action(self, agent: AgentState) -> Event:
-        """Resolve agent action via DecisionSource or direct LLM call."""
+        """Resolve agent action via DecisionSource protocol."""
         # Ensure active_goal is set for agents with goals
         if agent.goals and not agent.active_goal:
             agent.active_goal = GoalState(
@@ -243,74 +293,23 @@ class Engine:
                 if last_error:
                     extra_events.append(f"[SYSTEM] Previous action was invalid: {last_error}. Try again.")
 
-                # ── Decision via DecisionSource (Phase 4 path) ──
-                if self.decision_source is not None:
-                    ctx = self._build_context(
-                        agent,
-                        memories=memories,
-                        beliefs=beliefs,
-                        recent_events=extra_events,
-                    )
-                    action_output = await self.decision_source.decide(ctx)
-                    from .models import LLMResponse, StateChanges
-                    # Construct a minimal LLMResponse wrapper
-                    sc = StateChanges()
-                    if action_output.type == ActionType.MOVE and action_output.target:
-                        sc.location = action_output.target
-                    response = LLMResponse(
-                        thinking="(decision source)",
-                        action=action_output,
-                        state_changes=sc,
-                    )
-                else:
-                    # ── Legacy direct-LLM path ──
-                    # Compute world time
-                    wt = world_time(self.session.tick, self.session.world_seed.time)
-
-                    # Build relations context for this agent
-                    agent_relations = []
-                    for rel in self.session.relations:
-                        if rel.source == agent.agent_id:
-                            target_a = self.session.agents.get(rel.target)
-                            if target_a and target_a.status not in (AgentStatus.DEAD, AgentStatus.GONE):
-                                agent_relations.append({
-                                    "name": target_a.name,
-                                    "type": rel.type,
-                                    "strength": rel.strength,
-                                })
-
-                    # Build reachable locations (if topology defined)
-                    reachable = self.session.location_connections(agent.location)
-
-                    # Build active goal dict for prompt
-                    active_goal_dict = (
-                        agent.active_goal.model_dump()
-                        if agent.active_goal else None
-                    )
-
-                    response = await get_agent_action(
-                        world_rules=self.session.world_seed.rules,
-                        agent_name=agent.name,
-                        agent_personality=agent.personality,
-                        agent_goals=agent.goals,
-                        agent_location=agent.location,
-                        agent_inventory=agent.inventory,
-                        agent_memory=memory_strings if memory_strings else agent.memory,
-                        tick=self.session.tick,
-                        visible_agents=visible,
-                        recent_events=extra_events,
-                        available_locations=self.session.location_names,
-                        model=self.model,
-                        api_key=self.api_key,
-                        api_base=self.api_base,
-                        urgent_events=self.session.urgent_events or None,
-                        world_time_display=wt.display,
-                        world_time_period=wt.period,
-                        agent_relations=agent_relations or None,
-                        reachable_locations=reachable or None,
-                        agent_beliefs=beliefs or None,
-                        active_goal=active_goal_dict,
-                    )
+                # ── Single path: always through DecisionSource ──
+                ctx = self._build_context(
+                    agent,
+                    memories=memories,
+                    beliefs=beliefs,
+                    recent_events=extra_events,
+                )
+                action_output = await self.decision_source.decide(ctx)
+                from .models import LLMResponse, StateChanges
+                sc = StateChanges()
+                if action_output.type == ActionType.MOVE and action_output.target:
+                    sc.location = action_output.target
+                response = LLMResponse(
+                    thinking="(decision source)",
+                    action=action_output,
+                    state_changes=sc,
+                )
 
                 # Validate
                 errors = validate_action(response, agent, self.session)
@@ -421,7 +420,7 @@ class Engine:
         await save_timeline_node(node)
 
         # Snapshot: every N ticks or on significant events
-        if session.tick % SNAPSHOT_INTERVAL == 0 or has_significant:
+        if session.tick % self.snapshot_interval == 0 or has_significant:
             snapshot = WorldSnapshot(
                 session_id=session.id,
                 node_id=node.id,
@@ -434,8 +433,8 @@ class Engine:
             )
             await save_snapshot(snapshot)
 
-        # Memory consolidation: every EPOCH_INTERVAL ticks
-        if session.tick % EPOCH_INTERVAL == 0:
+        # Memory consolidation: every epoch_interval ticks
+        if session.tick % self.epoch_interval == 0:
             for aid in session.agent_ids:
                 await consolidate_memories(
                     session, aid,
@@ -444,8 +443,8 @@ class Engine:
                     api_base=self.api_base,
                 )
 
-        # Belief extraction: every BELIEF_INTERVAL ticks
-        if session.tick % BELIEF_INTERVAL == 0:
+        # Belief extraction: every belief_interval ticks
+        if session.tick % self.belief_interval == 0:
             for aid in session.agent_ids:
                 try:
                     await extract_beliefs(aid, session)

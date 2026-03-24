@@ -428,6 +428,69 @@ export async function getOracleHistory(
   return res.json();
 }
 
+// ── Human Agent Control ("Play as Agent") ──
+
+export interface HumanWaitingContext {
+  agent_name: string;
+  location: string;
+  inventory: string[];
+  visible_agents: { id: string; name: string; location: string }[];
+  reachable_locations: string[];
+}
+
+export interface HumanStatusResponse {
+  controlled_agents: string[];
+  waiting_agents: string[];
+  waiting_contexts: Record<string, HumanWaitingContext>;
+}
+
+export async function takeControl(sessionId: string, agentId: string): Promise<void> {
+  const res = await fetchWithTimeout(
+    `${API_BASE}/api/worlds/${sessionId}/take-control/${agentId}`,
+    { method: "POST" },
+  );
+  assertOk(res);
+}
+
+export async function releaseControl(sessionId: string, agentId: string): Promise<void> {
+  const res = await fetchWithTimeout(
+    `${API_BASE}/api/worlds/${sessionId}/release-control/${agentId}`,
+    { method: "POST" },
+  );
+  assertOk(res);
+}
+
+export async function submitHumanAction(
+  sessionId: string,
+  agentId: string,
+  actionType: string,
+  target: string = "",
+  content: string = "",
+): Promise<void> {
+  const res = await fetchWithTimeout(
+    `${API_BASE}/api/worlds/${sessionId}/human-action`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent_id: agentId,
+        action_type: actionType,
+        target,
+        content,
+      }),
+    },
+  );
+  assertOk(res);
+}
+
+export async function getHumanStatus(sessionId: string): Promise<HumanStatusResponse> {
+  const res = await fetchWithTimeout(
+    `${API_BASE}/api/worlds/${sessionId}/human-status`,
+  );
+  assertOk(res);
+  return res.json();
+}
+
 export function createWebSocket(sessionId: string): WebSocket {
   const wsBase = API_BASE.replace(/^http/, "ws");
   return new WebSocket(`${wsBase}/ws/${sessionId}`);

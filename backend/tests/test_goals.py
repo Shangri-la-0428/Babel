@@ -433,30 +433,29 @@ class TestEngineInitGoal(unittest.TestCase):
         self.assertEqual(alice.active_goal.text, "find the artifact")
 
     @patch("babel.memory.save_memory", new_callable=AsyncMock)
-    @patch("babel.engine.get_agent_action", new_callable=AsyncMock)
     @patch("babel.engine.retrieve_relevant_memories", new_callable=AsyncMock)
     @patch("babel.engine.get_relevant_events", new_callable=AsyncMock)
     @patch("babel.engine.get_agent_beliefs", new_callable=AsyncMock)
     def test_resolve_initializes_missing_active_goal(
-        self, mock_beliefs, mock_events, mock_memories, mock_action,
+        self, mock_beliefs, mock_events, mock_memories,
         mock_save_memory,
     ):
         from babel.engine import Engine
-        from babel.models import LLMResponse, ActionOutput, StateChanges
+        from babel.decision import ScriptedDecisionSource
+        from babel.models import ActionOutput
 
         session = _make_session()
-        engine = Engine(session)
+        # Use ScriptedDecisionSource (no LLM needed)
+        src = ScriptedDecisionSource(actions=[
+            ActionOutput(type=ActionType.WAIT, content="waiting"),
+        ])
+        engine = Engine(session, decision_source=src)
         alice = session.agents["a1"]
         alice.active_goal = None  # simulate loaded session without goal
 
         mock_memories.return_value = []
         mock_events.return_value = []
         mock_beliefs.return_value = []
-        mock_action.return_value = LLMResponse(
-            thinking="test",
-            action=ActionOutput(type=ActionType.WAIT, content="waiting"),
-            state_changes=StateChanges(),
-        )
 
         asyncio.get_event_loop().run_until_complete(
             engine._resolve_agent_action(alice)
