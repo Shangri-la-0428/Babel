@@ -17,17 +17,24 @@ interface Props {
  * Used when launching a world from Home or Create page.
  */
 export default function WorldBootOverlay({ worldName, onComplete }: Props) {
-  const [phase, setPhase] = useState<"decode" | "sweep" | "done">("decode");
+  const [phase, setPhase] = useState<"link" | "decode" | "sweep" | "done">("link");
 
-  // Transition decode → sweep after GlitchReveal duration
+  // Transition link → decode after brief establishing phase
   useEffect(() => {
     if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       const t = setTimeout(onComplete, 400);
       return () => clearTimeout(t);
     }
-    const t = setTimeout(() => setPhase("sweep"), DECODE_DURATION);
+    const t = setTimeout(() => setPhase("decode"), 400);
     return () => clearTimeout(t);
   }, []);
+
+  // Transition decode → sweep after GlitchReveal duration
+  useEffect(() => {
+    if (phase !== "decode") return;
+    const t = setTimeout(() => setPhase("sweep"), DECODE_DURATION);
+    return () => clearTimeout(t);
+  }, [phase]);
 
   // After sweep, fire onComplete
   useEffect(() => {
@@ -47,7 +54,11 @@ export default function WorldBootOverlay({ worldName, onComplete }: Props) {
     >
       {/* System status label */}
       <div className="text-micro text-t-dim tracking-widest mb-4 animate-[fade-in_200ms_ease_both]">
-        <GlitchReveal text="// INITIALIZING WORLD" duration={400} />
+        {phase === "link" ? (
+          <GlitchReveal text="// ESTABLISHING LINK" duration={300} />
+        ) : (
+          <GlitchReveal text="// INITIALIZING WORLD" duration={400} />
+        )}
       </div>
 
       {/* World name — glitch decode via shared GlitchReveal */}

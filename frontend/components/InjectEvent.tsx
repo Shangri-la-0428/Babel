@@ -62,9 +62,13 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
           className={`w-full h-9 px-3 bg-void border text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-[colors,box-shadow] disabled:opacity-30 ${
             flash === "ok" ? "border-primary shadow-[0_0_12px_var(--color-primary-glow-strong)]" : flash === "err" ? "border-danger shadow-[0_0_12px_var(--color-danger-glow)]" : "border-b-DEFAULT"
           }`}
+          style={flash === "err" ? { animation: "crt-glitch 300ms ease both" } : undefined}
         />
         {flash === "ok" && (
           <span className="absolute inset-0 bg-gradient-to-r from-primary/15 to-transparent animate-[transmission-sweep_500ms_cubic-bezier(0.16,1,0.3,1)_both] pointer-events-none" aria-hidden="true" />
+        )}
+        {sending && (
+          <span className="absolute inset-0 bg-gradient-to-r from-primary/10 via-primary/20 to-primary/10 bg-[length:200%_100%] animate-[boot-sweep_700ms_cubic-bezier(0.16,1,0.3,1)_infinite] pointer-events-none" aria-hidden="true" />
         )}
       </div>
       <button

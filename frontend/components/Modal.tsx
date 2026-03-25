@@ -16,6 +16,12 @@ export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg"
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<Element | null>(null);
   const [closing, setClosing] = useState(false);
+  const [entryGlow, setEntryGlow] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setEntryGlow(false), 400);
+    return () => clearTimeout(t);
+  }, []);
 
   const startClose = useCallback(() => {
     if (closing) return;
@@ -90,11 +96,17 @@ export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg"
     >
       <div
         ref={panelRef}
-        className={`w-full ${width} max-w-[90vw] max-h-[85vh] bg-void border border-b-DEFAULT flex flex-col ${
+        className={`w-full ${width} max-w-[90vw] max-h-[85vh] bg-void border flex flex-col ${
           closing
-            ? "animate-[modal-exit_150ms_ease_both]"
+            ? "animate-[modal-exit_150ms_ease_both] border-b-DEFAULT shadow-none"
             : "animate-[slide-up_150ms_ease]"
-        }`}
+        } ${
+          !closing && entryGlow
+            ? "shadow-[0_0_12px_var(--color-primary-glow)] border-primary"
+            : !closing
+            ? "shadow-none border-b-DEFAULT"
+            : ""
+        } transition-[box-shadow,border-color] duration-300`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

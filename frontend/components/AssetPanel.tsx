@@ -81,12 +81,13 @@ function AgentRow({
       className={`border transition-colors ${
         isSupporting ? "border-dashed opacity-80" : ""
       } ${
-        isActive
-          ? "border-primary shadow-[0_0_0_1px_var(--color-primary)]"
+        isActive && !isDead
+          ? "border-primary shadow-[0_0_0_1px_var(--color-primary)] animate-[event-flash_1.2s_ease]"
           : isDead
           ? "border-b-DEFAULT opacity-40"
           : "border-b-DEFAULT hover:border-b-hover"
       }`}
+      style={isDead ? { animation: 'crt-glitch 300ms ease both' } : undefined}
     >
       {/* Header - clickable */}
       <button
@@ -176,7 +177,7 @@ function AgentRow({
                       <div className="flex-1 h-1 bg-surface-3 overflow-hidden" title={t(labelKey)}>
                         <div
                           className={`h-full transition-all duration-300 ${
-                            val > 70 ? "bg-primary" : val < 30 ? "bg-danger" : "bg-t-dim"
+                            val > 70 ? "bg-primary shadow-[0_0_6px_var(--color-primary-glow)]" : val < 30 ? "bg-danger shadow-[0_0_6px_var(--color-danger-glow)]" : "bg-t-dim"
                           }`}
                           style={{ width: `${val}%` }}
                         />
@@ -324,17 +325,17 @@ function AgentRow({
           {/* Enrichment */}
           <div className="px-4 py-2 border-b border-b-DEFAULT">
             {enrichedDetails ? (
-              <>
-                {enrichedDetails.backstory && (
-                  <>
+              <div className="stagger-in">
+                {!!enrichedDetails.backstory && (
+                  <div>
                     <div className="text-micro text-t-dim tracking-widest mt-1 mb-1">{"// BACKSTORY"}</div>
                     <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
                       {enrichedDetails.backstory as string}
                     </div>
-                  </>
+                  </div>
                 )}
                 {(enrichedDetails.notable_traits as string[])?.length > 0 && (
-                  <>
+                  <div>
                     <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// TRAITS"}</div>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {(enrichedDetails.notable_traits as string[]).map((trait, i) => (
@@ -343,10 +344,10 @@ function AgentRow({
                         </span>
                       ))}
                     </div>
-                  </>
+                  </div>
                 )}
                 {(enrichedDetails.relationships as Array<{name: string; relation: string}>)?.length > 0 && (
-                  <>
+                  <div>
                     <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// RELATIONSHIPS"}</div>
                     {(enrichedDetails.relationships as Array<{name: string; relation: string}>).map((rel, i) => (
                       <div key={i} className="text-detail normal-case tracking-normal">
@@ -355,9 +356,9 @@ function AgentRow({
                         <span className="text-t-secondary">{rel.relation}</span>
                       </div>
                     ))}
-                  </>
+                  </div>
                 )}
-              </>
+              </div>
             ) : (
               <div className="flex items-center gap-3">
                 <button
@@ -745,6 +746,7 @@ export default function AssetPanel({
 }) {
   const { t } = useLocale();
   const [tab, setTab] = useState<Tab>("agents");
+  const prevTabRef = useRef<Tab>("agents");
   const tabIndicatorRef = useRef<HTMLSpanElement>(null);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
@@ -902,7 +904,9 @@ export default function AssetPanel({
       </div>
 
       {/* Content */}
-      <div key={tab} className="flex-1 overflow-y-auto animate-[fade-in_100ms_ease]" role="tabpanel" id={`tabpanel-${tab}`}>
+      <div key={tab} className={`flex-1 overflow-y-auto ${
+        (() => { const tabs: Tab[] = ["agents", "items", "locations", "world"]; const prev = tabs.indexOf(prevTabRef.current); const cur = tabs.indexOf(tab); prevTabRef.current = tab; return cur >= prev ? "animate-[oracle-slide-right_150ms_ease-out_both]" : "animate-oracle-slide-left"; })()
+      }`} role="tabpanel" id={`tabpanel-${tab}`}>
         {/* Agents tab */}
         {tab === "agents" && (
           <div className="p-3 flex flex-col gap-2">

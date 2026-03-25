@@ -84,9 +84,12 @@ export default function OracleChat({
           className={
             msg.role === "user"
               ? "ml-10 text-right animate-oracle-slide-right"
-              : "mr-4 border-l-2 border-l-info/30 pl-3 pr-2 py-1 bg-info/[0.05] animate-oracle-chromatic-in"
+              : "mr-4 border-l-2 border-l-info/30 pl-3 pr-2 py-1 bg-info/[0.05] animate-oracle-chromatic-in relative overflow-hidden"
           }
         >
+          {msg.id === latestMsgId && msg.role !== "user" && (
+            <span className="absolute inset-0 bg-gradient-to-r from-transparent via-info/10 to-transparent bg-[length:200%_100%] animate-[boot-sweep_600ms_cubic-bezier(0.16,1,0.3,1)_both] pointer-events-none" aria-hidden="true" />
+          )}
           <span className={`text-micro tracking-wider block mb-1 ${
             msg.role === "user" ? "text-t-dim" : "text-info"
           }`}>

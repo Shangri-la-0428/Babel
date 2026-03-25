@@ -129,7 +129,7 @@ export default function AssetsPage() {
             ))}
           </div>
         ) : seeds.length === 0 ? (
-          <EmptyState label="// EMPTY">
+          <EmptyState label={t("archive_empty")} variant="scanning">
             <div className="text-body text-t-muted">{t("no_seeds_yet")}</div>
             <div className="text-detail text-t-dim normal-case tracking-normal text-center max-w-md">
               {t("no_seeds_desc")}
@@ -142,7 +142,7 @@ export default function AssetsPage() {
             </a>
           </EmptyState>
         ) : (
-          <div className="grid grid-cols-3 gap-3 stagger-in">
+          <div key={filter} className="grid grid-cols-3 gap-3 stagger-in">
             {seeds.map((seed) => (
               <SeedCard
                 key={seed.id}

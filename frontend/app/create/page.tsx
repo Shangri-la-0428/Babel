@@ -49,6 +49,7 @@ export default function CreatePage() {
   const [showImport, setShowImport] = useState(false);
   const [bootOverlay, setBootOverlay] = useState<{ worldName: string; targetUrl: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [agentAdded, setAgentAdded] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -112,6 +113,8 @@ export default function CreatePage() {
 
   function addAgent() {
     setAgents([...agents, emptyAgent()]);
+    setAgentAdded(true);
+    setTimeout(() => setAgentAdded(false), 500);
   }
 
   function updateAgent(index: number, field: keyof AgentForm, value: string) {
@@ -206,6 +209,7 @@ export default function CreatePage() {
         <button onClick={() => router.push("/")} className="text-micro text-t-muted tracking-wider hover:text-t-DEFAULT transition-colors mb-4">
           {t("back")}
         </button>
+        <div className="text-micro text-t-dim tracking-widest mb-2">{t("world_forge")}</div>
         <h1 className="font-sans text-title font-bold tracking-tight mb-8">{t("create_world")}</h1>
 
         {/* Error banner */}
@@ -223,7 +227,7 @@ export default function CreatePage() {
               {showImport ? t("hide_assets") : t("import_from_assets")}
             </button>
             {showImport && (
-              <div className="border border-b-DEFAULT p-4 flex flex-col gap-4 bg-surface-1 animate-[slide-up_200ms_ease]">
+              <div className="border border-b-DEFAULT p-4 flex flex-col gap-4 bg-surface-1 animate-[slide-up_200ms_ease] stagger-in">
                 {savedAgents.length > 0 && (
                   <div>
                     <div className="text-micro text-t-muted tracking-widest mb-2">
@@ -267,7 +271,7 @@ export default function CreatePage() {
 
         {/* World form */}
         <div className="text-micro text-t-dim tracking-widest mb-4"><GlitchReveal text="// WORLD_SEED" duration={400} /></div>
-        <div className="flex flex-col gap-6 mb-10">
+        <div className="flex flex-col gap-6 mb-10 stagger-in">
           <div>
             <label htmlFor="world-name" className={labelClass}>{t("world_name")}</label>
             <input
@@ -330,20 +334,32 @@ export default function CreatePage() {
           <h2 className="font-sans text-heading font-semibold tracking-tight">{t("agents")}</h2>
           <button
             onClick={addAgent}
-            className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+            className={`h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] ${agentAdded ? "relative overflow-hidden" : ""}`}
           >
             {t("add_agent")}
+            {agentAdded && (
+              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/20 to-transparent bg-[length:200%_100%] animate-transmission-sweep pointer-events-none" aria-hidden="true" />
+            )}
           </button>
         </div>
 
         <div className="flex flex-col gap-4 mb-10">
           {agents.map((agent, i) => (
-            <div key={agent.id} className="bg-surface-1 border border-b-DEFAULT p-5 flex flex-col gap-3 animate-slide-up">
+            <div key={agent.id} data-agent-card className="bg-surface-1 border border-b-DEFAULT p-5 flex flex-col gap-3 animate-slide-up">
               <div className="flex justify-between items-center">
                 <span className="text-micro text-t-muted tracking-widest">{t("agent_n", String(i + 1))}</span>
                 {agents.length > 1 && (
                   <button
-                    onClick={() => removeAgent(i)}
+                    onClick={(e) => {
+                      const card = (e.target as HTMLElement).closest('[data-agent-card]');
+                      if (card) {
+                        (card as HTMLElement).style.animation = 'fade-out 150ms ease both';
+                        (card as HTMLElement).style.transform = 'scale(0.98)';
+                        setTimeout(() => removeAgent(i), 150);
+                      } else {
+                        removeAgent(i);
+                      }
+                    }}
                     className="text-micro text-danger tracking-wider hover:text-danger/80 transition-colors"
                   >
                     {t("remove")}
@@ -425,9 +441,12 @@ export default function CreatePage() {
           <button
             onClick={handleSubmit}
             disabled={loading || !world.name.trim()}
-            className="h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:pointer-events-none transition-[colors,box-shadow,transform]"
+            className={`h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:pointer-events-none transition-[colors,box-shadow,transform] ${loading ? "relative overflow-hidden" : ""}`}
           >
-            {loading ? t("creating") : t("create_launch")}
+            {loading ? t("creating") : t("ignite_world")}
+            {loading && (
+              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/20 to-transparent bg-[length:200%_100%] animate-[boot-sweep_700ms_cubic-bezier(0.16,1,0.3,1)_infinite] pointer-events-none" aria-hidden="true" />
+            )}
           </button>
           <a
             href="/"

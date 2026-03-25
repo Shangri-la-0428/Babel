@@ -25,7 +25,7 @@ export default memo(function SeedCard({
       <div className="flex items-center justify-between">
         <div className="text-body font-semibold truncate">{seed.name}</div>
         <span
-          className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium ${
+          className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium transition-shadow group-hover:shadow-[0_0_6px_currentColor] ${
             TYPE_STYLES[seed.type] || "text-t-muted border-b-DEFAULT"
           }`}
         >
@@ -63,7 +63,11 @@ export default memo(function SeedCard({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onDelete(seed.id);
+              const card = e.currentTarget.closest('button');
+              if (card) {
+                card.style.animation = 'crt-glitch 200ms ease both';
+                setTimeout(() => onDelete?.(seed.id), 200);
+              }
             }}
             className="text-micro text-t-dim tracking-wider hover:text-danger transition-[colors,opacity] opacity-0 group-hover:opacity-100"
           >

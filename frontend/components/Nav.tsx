@@ -21,18 +21,19 @@ export default function Nav({ activePage, showSettings, onToggleSettings }: NavP
   return (
     <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
       {activePage === "home" ? (
-        <span className="font-sans text-subheading font-bold tracking-widest text-primary">BABEL</span>
+        <span className="font-sans text-subheading font-bold tracking-widest text-primary animate-[pulse-glow-text_4s_ease_infinite]">BABEL</span>
       ) : (
-        <a href="/" className="font-sans text-subheading font-bold tracking-widest text-primary hover:drop-shadow-[0_0_8px_var(--color-primary-glow-strong)] hover:animate-[logo-glitch_300ms_ease] transition-[filter]">BABEL</a>
+        <a href="/" className="font-sans text-subheading font-bold tracking-widest text-primary animate-[pulse-glow-text_4s_ease_infinite] hover:drop-shadow-[0_0_8px_var(--color-primary-glow-strong)] hover:animate-[logo-glitch_300ms_ease] transition-[filter]">BABEL</a>
       )}
       <div className="flex items-center gap-6">
         {LINKS.map((link) =>
           link.key === activePage ? (
-            <span key={link.key} className="text-micro text-primary tracking-widest" aria-current="page">
+            <span key={link.key} className="text-micro text-primary tracking-widest flex items-center gap-1.5" aria-current="page">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-glow" aria-hidden="true" />
               {t(link.labelKey)}
             </span>
           ) : (
-            <a key={link.key} href={link.href} className="text-micro text-t-muted tracking-widest hover:text-t-DEFAULT transition-colors">
+            <a key={link.key} href={link.href} className="text-micro text-t-muted tracking-widest hover:text-t-DEFAULT hover:[text-shadow:0_0_6px_var(--color-primary-glow)] transition-[color,text-shadow]">
               {t(link.labelKey)}
             </a>
           )

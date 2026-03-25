@@ -7,7 +7,7 @@ import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
 import Settings from "@/components/Settings";
 import Timeline from "@/components/Timeline";
-import { StatusDot, ErrorBanner, EmptyState, SkeletonLine, GlitchReveal } from "@/components/ui";
+import { StatusDot, ErrorBanner, EmptyState, SkeletonLine, GlitchReveal, DecodeText } from "@/components/ui";
 import WorldBootOverlay from "@/components/WorldBootOverlay";
 
 interface SessionRecord {
@@ -62,6 +62,7 @@ export default function Home() {
   const [editDetail, setEditDetail] = useState<SeedDetail | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [bootOverlay, setBootOverlay] = useState<{ worldName: string; targetUrl: string } | null>(null);
+  const [booting, setBooting] = useState(false);
   const assetTabIndicatorRef = useRef<HTMLSpanElement>(null);
   // Settings saved to localStorage by Settings component; home page only shows/hides the panel
   const noop = () => {};
@@ -210,6 +211,30 @@ export default function Home() {
       .catch(() => { /* session list is supplementary — seed list still works */ });
   }, []);
 
+  // ── First-visit boot sequence ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const visited = localStorage.getItem("babel_visited");
+    if (!visited) {
+      setBooting(true);
+      localStorage.setItem("babel_visited", "1");
+      const timer = setTimeout(() => setBooting(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  // ── Console easter egg ──
+  useEffect(() => {
+    if (seeds.length > 0) {
+      console.log(
+        "%c// PORTAL ACTIVE%c — MONITORING " + seeds.length + " WORLDS",
+        "color:#C0FE04;font-family:monospace;font-size:11px",
+        "color:#757575;font-family:monospace;font-size:11px"
+      );
+    }
+  }, [seeds.length]);
+
   async function handleSelectSeed(seed: SeedInfo) {
     setSelectedSeed(seed);
     setEditDetail(null);
@@ -302,6 +327,19 @@ export default function Home() {
     return (
       <div className="h-screen flex flex-col bg-void">
         {bootEl}
+        {booting && (
+          <div className="fixed inset-0 z-[9999] bg-void flex flex-col items-center justify-center scanlines cursor-pointer" onClick={() => setBooting(false)}>
+            <div className="text-micro text-t-dim tracking-widest mb-4 animate-[fade-in_200ms_ease_both]">
+              <GlitchReveal text="// BABEL WORLD STATE MACHINE" duration={600} />
+            </div>
+            <div className="text-micro text-primary tracking-widest opacity-0 animate-[fade-in_300ms_ease_800ms_both]">
+              <GlitchReveal text="// INITIALIZING PORTAL" duration={500} className="text-micro text-primary tracking-widest" />
+            </div>
+            <div className="mt-6 w-48 h-px overflow-hidden opacity-0 animate-[fade-in_200ms_ease_1200ms_both]">
+              <div className="h-full bg-primary shadow-[0_0_16px_var(--color-primary-glow-strong)] animate-[boot-line-expand_600ms_cubic-bezier(0.16,1,0.3,1)_1400ms_both]" />
+            </div>
+          </div>
+        )}
         {/* Nav — world context */}
         <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
           <div className="flex items-center gap-4">
@@ -356,7 +394,7 @@ export default function Home() {
         )}
 
         {/* Main content — single column */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden animate-[fade-in_0.3s_ease]">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden animate-[seed-detail-enter_300ms_cubic-bezier(0.16,1,0.3,1)_both]">
           {/* World header — compact */}
           <div className="px-6 py-3 border-b border-b-DEFAULT">
             <div className="flex items-start justify-between gap-4 max-w-5xl">
@@ -699,6 +737,19 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-void">
       {bootEl}
+      {booting && (
+        <div className="fixed inset-0 z-[9999] bg-void flex flex-col items-center justify-center scanlines cursor-pointer" onClick={() => setBooting(false)}>
+          <div className="text-micro text-t-dim tracking-widest mb-4 animate-[fade-in_200ms_ease_both]">
+            <GlitchReveal text="// BABEL WORLD STATE MACHINE" duration={600} />
+          </div>
+          <div className="text-micro text-primary tracking-widest opacity-0 animate-[fade-in_300ms_ease_800ms_both]">
+            <GlitchReveal text="// INITIALIZING PORTAL" duration={500} className="text-micro text-primary tracking-widest" />
+          </div>
+          <div className="mt-6 w-48 h-px overflow-hidden opacity-0 animate-[fade-in_200ms_ease_1200ms_both]">
+            <div className="h-full bg-primary shadow-[0_0_16px_var(--color-primary-glow-strong)] animate-[boot-line-expand_600ms_cubic-bezier(0.16,1,0.3,1)_1400ms_both]" />
+          </div>
+        </div>
+      )}
       <Nav activePage="home" showSettings={showSettings} onToggleSettings={() => setShowSettings(!showSettings)} />
 
       {/* Global settings panel */}
@@ -721,20 +772,20 @@ export default function Home() {
                 {t("tagline")}
               </p>
               <p className="mt-2 text-micro text-info/70 tracking-wider hover:text-info transition-colors">
-                {"// ORACLE: "}{t(
+                {"// ORACLE: "}<DecodeText text={t(
                   (["oracle_greet_0", "oracle_greet_1", "oracle_greet_2", "oracle_greet_3"] as const)[oracleGreetIdx]
-                )}
+                )} duration={1200} />
               </p>
             </div>
             <div className="flex items-center gap-4 shrink-0 pb-0.5">
               {!seedsLoading && seeds.length > 0 && (
-                <span className="text-micro text-primary tracking-widest">
+                <span className="text-micro text-primary tracking-widest opacity-0 animate-[fade-in_300ms_ease_400ms_both]">
                   {t("world_count", String(seeds.length))}
                 </span>
               )}
               <a
                 href="/create"
-                className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform] inline-flex items-center"
+                className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform] inline-flex items-center opacity-0 animate-[fade-in_300ms_ease_500ms_both]"
               >
                 {t("create_custom")}
               </a>
@@ -778,7 +829,8 @@ export default function Home() {
                 </a>
               </EmptyState>
             ) : (
-              <div className={`flex flex-col gap-px bg-b-DEFAULT stagger-in transition-opacity duration-slow ${detailLoading ? "opacity-40 pointer-events-none" : ""}`}>
+              <div className={`flex flex-col gap-px bg-b-DEFAULT stagger-in relative overflow-hidden transition-opacity duration-slow ${detailLoading ? "opacity-40 pointer-events-none" : ""}`}>
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/8 to-transparent bg-[length:200%_100%] animate-[boot-sweep_700ms_cubic-bezier(0.16,1,0.3,1)_both] pointer-events-none z-10" aria-hidden="true" />
                 {seeds.map((seed) => {
                   const saveCount = getWorldSessions(seed.name).length;
                   return (

@@ -84,6 +84,15 @@ module.exports = {
         'input':   '48px',
       },
 
+      boxShadow: {
+        'glow-sm':     '0 0 4px var(--color-primary-glow)',
+        'glow-md':     '0 0 8px var(--color-primary-glow)',
+        'glow-lg':     '0 0 16px var(--color-primary-glow-strong)',
+        'glow-xl':     '0 0 24px var(--color-primary-glow-strong)',
+        'glow-info':   '0 0 8px rgba(14, 165, 233, 0.3)',
+        'glow-danger': '0 0 8px var(--color-danger-glow)',
+      },
+
       transitionDuration: {
         'instant': '50ms',
         'fast':    '100ms',
@@ -123,6 +132,8 @@ module.exports = {
         'oracle-chromatic-in': 'oracle-chromatic-in 350ms cubic-bezier(0.16, 1, 0.3, 1) both',
         'oracle-border-pulse': 'oracle-border-pulse 2s ease infinite',
         'transmission-sweep':  'transmission-sweep 400ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'void-breathe':        'void-breathe 8s ease infinite',
+        'idle-scanline':       'idle-scanline 12s linear infinite',
       },
 
       // Keyframes for pure-value animations.
@@ -179,6 +190,14 @@ module.exports = {
           '0%':   { transform: 'scaleX(0)', transformOrigin: 'left', opacity: '1' },
           '40%':  { transform: 'scaleX(1)', transformOrigin: 'left', opacity: '0.6' },
           '100%': { transform: 'scaleX(1)', opacity: '0' },
+        },
+        'void-breathe': {
+          '0%, 100%': { backgroundColor: '#000000' },
+          '50%':      { backgroundColor: '#020202' },
+        },
+        'idle-scanline': {
+          '0%':   { transform: 'translateY(-100%)' },
+          '100%': { transform: 'translateY(100vh)' },
         },
       },
     },

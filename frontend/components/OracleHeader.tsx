@@ -19,7 +19,10 @@ export default function OracleHeader({
 }: OracleHeaderProps) {
   return (
     <div className="flex items-center justify-between px-4 py-3 border-b border-info/15 bg-surface-1 shrink-0">
-      <span className="text-micro text-info tracking-widest drop-shadow-[0_0_8px_rgba(14,165,233,0.3)]">{t("oracle_label")}</span>
+      <span className="text-micro text-info tracking-widest drop-shadow-[0_0_8px_rgba(14,165,233,0.3)] flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-info shadow-[0_0_6px_rgba(14,165,233,0.4)] animate-pulse-glow" aria-hidden="true" />
+        {t("oracle_label")}
+      </span>
       <div className="flex items-center gap-3">
         {/* Mode toggle */}
         <div className="flex border border-info/20">

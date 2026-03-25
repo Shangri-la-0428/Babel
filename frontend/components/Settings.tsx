@@ -68,7 +68,8 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
   const inputCls =
     "w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT focus:border-primary focus:outline-none hover:border-b-hover transition-colors normal-case tracking-normal";
   const labelCls =
-    "text-micro text-t-muted tracking-widest block mb-1.5";
+    "text-micro text-t-muted tracking-widest block mb-1.5 transition-colors duration-150";
+  const groupCls = "group";
 
   return (
     <div className={`border-b bg-surface-1 overflow-hidden transition-[border-color,box-shadow] duration-300 ${
@@ -103,8 +104,8 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
 
         {/* Fields */}
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_200px] gap-4 mb-4">
-          <div>
-            <label htmlFor="settings-api-base" className={labelCls}>{t("api_base_url")}</label>
+          <div className={groupCls}>
+            <label htmlFor="settings-api-base" className={`${labelCls} group-focus-within:text-primary`}>{t("api_base_url")}</label>
             <input
               id="settings-api-base"
               className={inputCls}
@@ -113,8 +114,8 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
               onChange={(e) => update({ apiBase: e.target.value })}
             />
           </div>
-          <div>
-            <label htmlFor="settings-api-key" className={labelCls}>{t("api_key")}</label>
+          <div className={groupCls}>
+            <label htmlFor="settings-api-key" className={`${labelCls} group-focus-within:text-primary`}>{t("api_key")}</label>
             <input
               id="settings-api-key"
               type="password"
@@ -124,8 +125,8 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
               onChange={(e) => update({ apiKey: e.target.value })}
             />
           </div>
-          <div>
-            <label htmlFor="settings-tick-delay" className={labelCls}>{t("tick_delay")}</label>
+          <div className={groupCls}>
+            <label htmlFor="settings-tick-delay" className={`${labelCls} group-focus-within:text-primary`}>{t("tick_delay")}</label>
             <input
               id="settings-tick-delay"
               type="number"
@@ -144,8 +145,8 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
 
         {/* Model selector row */}
         <div className="flex gap-4 items-end mb-5">
-          <div className="flex-1">
-            <label htmlFor="settings-model" className={labelCls}>{t("model")}</label>
+          <div className={`flex-1 ${groupCls}`}>
+            <label htmlFor="settings-model" className={`${labelCls} group-focus-within:text-primary`}>{t("model")}</label>
             {models.length > 0 ? (
               <div className="relative">
                 <select

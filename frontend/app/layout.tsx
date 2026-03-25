@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import dynamic from "next/dynamic";
 import { JetBrains_Mono, Inter } from "next/font/google";
 import { LocaleProvider } from "@/lib/locale-context";
 import "./globals.css";
+
+const AmbientVoid = dynamic(() => import("@/components/AmbientVoid"), { ssr: false });
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -33,6 +36,7 @@ export default function RootLayout({
         <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-4 focus:py-2 focus:bg-primary focus:text-void focus:text-micro focus:tracking-wider">
           Skip to content
         </a>
+        <AmbientVoid />
         <LocaleProvider>{children}</LocaleProvider>
         <script
           dangerouslySetInnerHTML={{

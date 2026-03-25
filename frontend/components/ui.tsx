@@ -99,20 +99,28 @@ export function ErrorBanner({
 // ── EmptyState ──
 // Machine-style "// COMMENT" empty state with optional children (description, CTA).
 
+const EMPTY_VARIANTS = {
+  default: "bg-t-dim",
+  waiting: "bg-primary/60 shadow-[0_0_8px_var(--color-primary-glow)]",
+  scanning: "bg-info/60 shadow-[0_0_8px_rgba(14,165,233,0.3)]",
+};
+
 export function EmptyState({
   label,
   children,
   className = "",
+  variant = "default",
 }: {
   label: string;
   children?: ReactNode;
   className?: string;
+  variant?: "default" | "waiting" | "scanning";
 }) {
   return (
     <div className={`border border-b-DEFAULT p-8 flex flex-col items-center gap-4 ${className}`}>
       <div className="text-micro text-t-dim tracking-widest">
         {label}
-        <span className="inline-block w-[0.55em] h-[1.1em] bg-t-dim ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite]" aria-hidden="true" />
+        <span className={`inline-block w-[0.55em] h-[1.1em] ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite] ${EMPTY_VARIANTS[variant]}`} aria-hidden="true" />
       </div>
       {children}
     </div>
@@ -122,10 +130,14 @@ export function EmptyState({
 // ── SkeletonLine ──
 // Shimmer loading placeholder. Pass h-*, w-*, and margin via className.
 
-export function SkeletonLine({ className = "" }: { className?: string }) {
+export function SkeletonLine({ className = "", variant = "default" }: { className?: string; variant?: "default" | "scan" }) {
   return (
     <div
-      className={`bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%] animate-[shimmer_1.5s_ease_infinite] ${className}`}
+      className={`bg-[length:200%_100%] animate-[shimmer_1.5s_ease_infinite] ${
+        variant === "scan"
+          ? "bg-gradient-to-r from-surface-2 via-info/10 to-surface-2"
+          : "bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2"
+      } ${className}`}
     />
   );
 }
@@ -188,9 +200,25 @@ export const GlitchReveal = memo(function GlitchReveal({
   return <span ref={containerRef} className={className}>{text}</span>;
 });
 
-// ── DecodeText ──
-// Glitch/decode transmission effect. Progressively reveals text with
-// random block characters, like a signal being decoded from noise.
+// ── SystemMessage ──
+// Reusable "// MESSAGE" pattern with optional DecodeText animation.
+// Used for machine-voice status messages throughout the interface.
+
+export function SystemMessage({
+  text,
+  decode = false,
+  className = "",
+}: {
+  text: string;
+  decode?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={`text-micro text-t-dim tracking-widest ${className}`}>
+      {decode ? <DecodeText text={text} duration={800} /> : text}
+    </div>
+  );
+}
 
 // ── FormLabel ──
 // Standard form/section label. 84+ occurrences of this pattern across codebase.
@@ -240,9 +268,12 @@ export function DetailSection({
 export const DecodeText = memo(function DecodeText({
   text,
   duration = 800,
+  glitchIntensity = 1,
 }: {
   text: string;
   duration?: number;
+  /** 0 = subtle (fewer glitch chars), 1 = dramatic (full block chars). Default 1. */
+  glitchIntensity?: number;
 }) {
   const spanRef = useRef<HTMLSpanElement>(null);
   const glitchRef = useRef<HTMLSpanElement>(null);
@@ -281,10 +312,14 @@ export const DecodeText = memo(function DecodeText({
         const remaining = text.slice(count);
         let glitched = "";
         for (let i = 0; i < remaining.length; i++) {
+          // At low intensity, most chars show as dots; at high intensity, full block glyphs
+          const useGlitch = Math.random() < glitchIntensity;
           glitched +=
             remaining[i] === " "
               ? " "
-              : GLITCH_CHARS[((now / 50 + i * 7) | 0) % GLITCH_CHARS.length];
+              : useGlitch
+              ? GLITCH_CHARS[((now / 50 + i * 7) | 0) % GLITCH_CHARS.length]
+              : "·";
         }
         glitchRef.current.textContent = glitched;
       }

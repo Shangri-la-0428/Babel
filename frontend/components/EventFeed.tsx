@@ -57,7 +57,7 @@ const EventItem = memo(function EventItem({
 
   return (
     <div
-      className={`grid grid-cols-[56px_80px_1fr_auto_auto] gap-3 items-baseline px-4 py-3 border-b border-b-DEFAULT border-l-2 ${accent} hover:bg-surface-1 transition-colors group min-w-0 ${
+      className={`grid grid-cols-[56px_80px_1fr_auto_auto] gap-3 items-baseline px-4 py-3 border-b border-b-DEFAULT border-l-2 ${accent} hover:bg-surface-1 transition-[colors,border-left-width] duration-200 group min-w-0 ${
         isSupporting ? "opacity-70" : ""
       } ${
         isNew
@@ -93,7 +93,7 @@ const EventItem = memo(function EventItem({
           </span>
         )}
         <span
-          className={`text-micro tracking-wider px-2 py-0.5 border whitespace-nowrap ${style}`}
+          className={`text-micro tracking-wider px-2 py-0.5 border whitespace-nowrap transition-shadow hover:shadow-[0_0_6px_currentColor] ${style}`}
           aria-label={event.action_type.replace(/_/g, " ")}
         >
           {event.action_type}
@@ -117,7 +117,7 @@ function TickDivider({ tick: tickNum, worldTimeDisplay, isLatest }: { tick: numb
   const { t } = useLocale();
   return (
     <div className="px-4 py-2 border-b border-b-DEFAULT bg-surface-1 text-micro text-t-muted tracking-widest flex items-center gap-3 relative overflow-hidden">
-      <span>{t("tick")} {String(tickNum).padStart(3, "0")}</span>
+      <span className={`hover:text-primary hover:drop-shadow-[0_0_4px_var(--color-primary-glow)] transition-[color,filter] cursor-default ${isLatest ? "animate-reveal-right" : ""}`}>{t("tick")} {String(tickNum).padStart(3, "0")}</span>
       {worldTimeDisplay && !worldTimeDisplay.startsWith("Tick") && (
         <span className="text-t-dim">{worldTimeDisplay}</span>
       )}
@@ -187,6 +187,12 @@ export default function EventFeed({
       {trimmed && (
         <div className="px-4 py-2 border-b border-b-DEFAULT bg-surface-1 text-micro text-t-dim tracking-wider text-center">
           {safeEvents.length - RENDER_WINDOW} {t("events_count")} {t("total")} &middot; {RENDER_WINDOW} {t("events_count")}
+        </div>
+      )}
+      {grouped.length === 0 && (
+        <div className="flex items-center justify-center py-16 text-micro text-t-dim tracking-widest">
+          <span className="inline-block w-2 h-5 bg-primary/60 animate-[blink_1s_step-end_infinite] shadow-[0_0_8px_var(--color-primary-glow)]" aria-hidden="true" />
+          <span className="ml-3">{t("no_events")}</span>
         </div>
       )}
       {grouped.map((group, gi) => (

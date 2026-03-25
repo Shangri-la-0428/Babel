@@ -68,6 +68,39 @@ function SimContent() {
   const [showWorldEnded, setShowWorldEnded] = useState(false);
   const prevRunStatus = useRef(status);
 
+  // Idle personality messages
+  const [idleMessage, setIdleMessage] = useState<string | null>(null);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const idleCycleRef = useRef<ReturnType<typeof setInterval>>();
+  const idleIdxRef = useRef(0);
+
+  const IDLE_KEYS = ["idle_0", "idle_1", "idle_2", "idle_3", "idle_4"] as const;
+
+  const resetIdle = useCallback(() => {
+    setIdleMessage(null);
+    clearTimeout(idleTimerRef.current);
+    clearInterval(idleCycleRef.current);
+    idleTimerRef.current = setTimeout(() => {
+      idleIdxRef.current = 0;
+      setIdleMessage(t(IDLE_KEYS[0]));
+      idleCycleRef.current = setInterval(() => {
+        idleIdxRef.current = (idleIdxRef.current + 1) % IDLE_KEYS.length;
+        setIdleMessage(t(IDLE_KEYS[idleIdxRef.current]));
+      }, 15000);
+    }, 10000);
+  }, [t]);
+
+  useEffect(() => {
+    resetIdle();
+    const events = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"];
+    events.forEach(e => document.addEventListener(e, resetIdle, { passive: true }));
+    return () => {
+      clearTimeout(idleTimerRef.current);
+      clearInterval(idleCycleRef.current);
+      events.forEach(e => document.removeEventListener(e, resetIdle));
+    };
+  }, [resetIdle]);
+
   // Load initial state
   useEffect(() => {
     if (!sessionId) return;
@@ -560,11 +593,11 @@ function SimContent() {
             {events.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-2">
                 <div className="text-micro text-t-dim tracking-widest">
-                  <GlitchReveal text="// AWAITING INPUT" duration={500} />
+                  <GlitchReveal text={t("sim_dormant")} duration={500} />
                   <span className="inline-block w-[0.55em] h-[1.1em] bg-t-dim ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite]" aria-hidden="true" />
                 </div>
                 <div className="text-detail text-t-muted normal-case tracking-normal">
-                  {t("no_events")}
+                  {t("no_signals")}
                 </div>
               </div>
             ) : (
@@ -576,6 +609,11 @@ function SimContent() {
               />
             )}
           </div>
+          {idleMessage && status !== "running" && (
+            <div className="px-4 py-3 text-micro text-t-dim tracking-widest text-center animate-[fade-in_500ms_ease_both]" key={idleMessage}>
+              {idleMessage}
+            </div>
+          )}
           <InjectEvent sessionId={sessionId} settings={settings} disabled={status === "running"} />
         </section>
 

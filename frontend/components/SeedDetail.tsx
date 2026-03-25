@@ -26,8 +26,8 @@ function EnrichedContent({
 
   if (type === "agent") {
     return (
-      <>
-        {details.backstory && (
+      <div className="stagger-in">
+        {!!details.backstory && (
           <>
             <div className="text-micro text-t-dim tracking-widest mt-1 mb-1">{"// " + t("backstory").toUpperCase()}</div>
             <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
@@ -61,14 +61,14 @@ function EnrichedContent({
             ))}
           </>
         )}
-      </>
+      </div>
     );
   }
 
   if (type === "item") {
     return (
-      <>
-        {details.description && (
+      <div className="stagger-in">
+        {!!details.description && (
           <>
             <div className="text-micro text-t-dim tracking-widest mt-1 mb-1">{"// " + t("description").toUpperCase()}</div>
             <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
@@ -76,7 +76,7 @@ function EnrichedContent({
             </div>
           </>
         )}
-        {details.origin && (
+        {!!details.origin && (
           <>
             <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// " + t("origin").toUpperCase()}</div>
             <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
@@ -96,7 +96,7 @@ function EnrichedContent({
             </div>
           </>
         )}
-        {details.significance && (
+        {!!details.significance && (
           <>
             <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// " + t("significance").toUpperCase()}</div>
             <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
@@ -104,14 +104,14 @@ function EnrichedContent({
             </div>
           </>
         )}
-      </>
+      </div>
     );
   }
 
   if (type === "location") {
     return (
-      <>
-        {details.description && (
+      <div className="stagger-in">
+        {!!details.description && (
           <>
             <div className="text-micro text-t-dim tracking-widest mt-1 mb-1">{"// " + t("description").toUpperCase()}</div>
             <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
@@ -119,7 +119,7 @@ function EnrichedContent({
             </div>
           </>
         )}
-        {details.atmosphere && (
+        {!!details.atmosphere && (
           <>
             <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// " + t("atmosphere").toUpperCase()}</div>
             <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
@@ -139,7 +139,7 @@ function EnrichedContent({
             </div>
           </>
         )}
-        {details.history && (
+        {!!details.history && (
           <>
             <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// " + t("history").toUpperCase()}</div>
             <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
@@ -147,7 +147,7 @@ function EnrichedContent({
             </div>
           </>
         )}
-      </>
+      </div>
     );
   }
 

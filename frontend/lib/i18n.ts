@@ -341,6 +341,41 @@ const translations = {
   oracle_greet_1: { cn: "ORACLE 已就绪。选择一个世界开始观察。", en: "ORACLE standing by. Choose a world to observe." },
   oracle_greet_2: { cn: "你的世界在等你。", en: "Your worlds await." },
   oracle_greet_3: { cn: "种子已就位。现实即将萌发。", en: "Seeds in place. Reality ready to emerge." },
+
+  // System voice — loading states
+  scanning_archive: { cn: "// 正在扫描种子存档...", en: "// SCANNING SEED ARCHIVE..." },
+  deep_scan: { cn: "// 深度扫描进行中...", en: "// DEEP SCAN IN PROGRESS..." },
+  loading_world_state: { cn: "// 正在加载世界状态...", en: "// LOADING WORLD STATE..." },
+  establishing_link: { cn: "// 正在建立链接...", en: "// ESTABLISHING LINK..." },
+  decoding_signal: { cn: "// 正在解码信号...", en: "// DECODING SIGNAL..." },
+  syncing_timeline: { cn: "// 正在同步时间线...", en: "// SYNCING TIMELINE..." },
+  parsing_entities: { cn: "// 正在解析实体...", en: "// PARSING ENTITIES..." },
+  calibrating_oracle: { cn: "// 正在校准 ORACLE...", en: "// CALIBRATING ORACLE..." },
+  resolving_state: { cn: "// 正在解析状态...", en: "// RESOLVING STATE..." },
+  compiling_history: { cn: "// 正在编译历史...", en: "// COMPILING HISTORY..." },
+
+  // System voice — empty states
+  sim_dormant: { cn: "// 模拟休眠中 — 等待点火", en: "// SIMULATION DORMANT — AWAITING IGNITION" },
+  no_signals: { cn: "// 暂无信号", en: "// NO SIGNALS DETECTED" },
+  awaiting_input: { cn: "// 等待输入...", en: "// AWAITING INPUT..." },
+  void_quiet: { cn: "// 虚空沉默", en: "// THE VOID IS QUIET" },
+  no_entities: { cn: "// 暂无实体", en: "// NO ENTITIES REGISTERED" },
+  archive_empty: { cn: "// 存档为空", en: "// ARCHIVE EMPTY" },
+  idle_frontier: { cn: "// 前线一切平静", en: "// ALL QUIET ON THE FRONTIER" },
+  agents_await: { cn: "// 角色等待你的指令", en: "// AGENTS AWAIT YOUR COMMAND" },
+
+  // System voice — button labels
+  ignite_world: { cn: "点燃世界", en: "IGNITE WORLD" },
+  forge_world: { cn: "+ 锻造新世界", en: "+ FORGE NEW WORLD" },
+  query_endpoints: { cn: "查询端点", en: "QUERY ENDPOINTS" },
+  world_forge: { cn: "// 世界锻造", en: "// WORLD_FORGE" },
+
+  // System voice — idle messages (sim page)
+  idle_0: { cn: "// 前线一切平静", en: "// ALL QUIET ON THE FRONTIER" },
+  idle_1: { cn: "// 角色等待你的指令", en: "// AGENTS AWAIT YOUR COMMAND" },
+  idle_2: { cn: "// 时间静止。世界等待。", en: "// TIME STANDS STILL. THE WORLD WAITS." },
+  idle_3: { cn: "// 注入事件或推进一步以继续", en: "// INJECT AN EVENT OR STEP TO CONTINUE" },
+  idle_4: { cn: "// ORACLE 在观察。永远在观察。", en: "// ORACLE IS WATCHING. ALWAYS WATCHING." },
 } as const;
 
 export type TransKey = keyof typeof translations;

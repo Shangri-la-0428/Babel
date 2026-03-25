@@ -43,6 +43,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   -webkit-font-smoothing: antialiased;
+  animation: void-breathe 8s ease infinite;
 }
 
 ::selection {
@@ -83,6 +84,34 @@ select:focus-visible {
 .stagger-in > *:nth-child(7)  { animation-delay: 240ms; }
 .stagger-in > *:nth-child(8)  { animation-delay: 280ms; }
 .stagger-in > *:nth-child(n+9) { animation-delay: 320ms; }
+
+/* ── Ambient Life ── */
+@keyframes void-breathe {
+  0%, 100% { background-color: #000000; }
+  50% { background-color: #020202; }
+}
+
+@keyframes idle-scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+/* ── Pulse Glow Text (alive logo / system name) ── */
+@keyframes pulse-glow-text {
+  0%, 100% { text-shadow: 0 0 4px rgba(192, 254, 4, 0.15); }
+  50% { text-shadow: 0 0 12px rgba(192, 254, 4, 0.35); }
+}
+
+/* ── Hover Glow System ── */
+.hover-glow {
+  transition: box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hover-glow:hover {
+  box-shadow: 0 0 8px var(--color-primary-glow);
+}
+.hover-glow-strong:hover {
+  box-shadow: 0 0 16px var(--color-primary-glow-strong);
+}
 
 /* ── Reduced Motion ── */
 @media (prefers-reduced-motion: reduce) {
