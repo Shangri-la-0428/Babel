@@ -4,6 +4,33 @@ All notable changes to BABEL.
 
 ## [Unreleased]
 
+### Phase 13: Psyche Phase B — Drive-Goal Mapping + Augmented Decision Source
+- **`PsycheAugmentedDecisionSource`** — New DecisionSource that uses Psyche to enrich LLM context (emotional state, drives) rather than replacing it. Autonomic gating as post-filter: dorsal-vagal=freeze, sympathetic=flight, ventral-vagal=pass-through
+- **`drive_mapping.py`** (new) — Pure-function drive-goal affinity inference via keyword classification (bilingual CN/EN). 5 Maslow drives × bilingual keyword sets
+- **Drive-weighted goal selection** — `_select_next_goal` scores goals by inverse drive satisfaction; depleted drives prioritize goals that address them
+- **Drive-shift replanning** — >30% drive shift triggers goal reconsideration via `_check_drive_shift`
+- **Emotional context injection** — `[Your Emotional State]` section in LLM prompt when Psyche is active (emotional descriptors from chemicals + autonomic state)
+- **`replan_goal` drive-awareness** — Stalled goal replanning now includes unsatisfied/satisfied drive context
+- **`stimulus.py` enhancement** — Drive state context (low drives < 40) included in stimulus text
+- **Model extensions** — `GoalState.drive_affinities`, `AgentContext.emotional_context`, `AgentContext.drive_state` (all with defaults, zero breaking changes)
+- 27 new tests: `test_drive_mapping.py` (20 tests: affinity inference, scoring, weighted selection) + `test_psyche_bridge.py` augmented source tests (7 tests: LLM delegation, emotional context injection, autonomic gating, fallback, protocol conformance)
+- 360 total tests passing
+
+### Phase 12: GitHub Actions CI/CD
+- Backend workflow: pytest 302+ tests on Python 3.11/3.12
+- Frontend workflow: `npm run build` (type check) + `npm run lint`
+- CI badges added to README
+
+### Phase 11: Psyche Bridge Integration
+- **`psyche_bridge.py`** — Async HTTP client for Psyche emotional engine (processInput/processOutput/getState)
+- **`stimulus.py`** — StimulusSynthesizer: maps AgentContext to natural-language stimulus for Psyche classification
+- **`PsycheDecisionSource`** — New DecisionSource implementation: emotional state → weighted action selection with autonomic gating (ventral-vagal/sympathetic/dorsal-vagal)
+- **Frontend**: Agent panel shows Psyche emotional state (neurochemistry bars, autonomic badge, dominant emotion, drives) when Psyche is active
+- **API**: `_serialize_state` includes Psyche snapshot when PsycheDecisionSource is in use
+- 14 i18n keys for Psyche UI (chemicals, autonomic states, drives)
+- 31 new tests (`test_psyche_bridge.py`): mock HTTP server, bridge client, stimulus synthesis, decision source behavior, autonomic gating
+- 333 total tests passing
+
 ### Phase 10: Robustness Hardening
 - **Concurrency safety**: `asyncio.Lock` per-session + global lock for `_engines` dict — protects inject, take-control, step, tick from race conditions
 - **Seed validation**: `validate_seed()` — rejects duplicate agent IDs, duplicate locations, agents at nonexistent locations, empty seeds. Called in `create_world` and `create_from_seed`

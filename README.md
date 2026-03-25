@@ -1,5 +1,8 @@
 # BABEL
 
+[![Backend Tests](https://github.com/Shangri-la-0428/Babel/actions/workflows/backend.yml/badge.svg)](https://github.com/Shangri-la-0428/Babel/actions/workflows/backend.yml)
+[![Frontend Build](https://github.com/Shangri-la-0428/Babel/actions/workflows/frontend.yml/badge.svg)](https://github.com/Shangri-la-0428/Babel/actions/workflows/frontend.yml)
+
 AI 驱动的世界状态机。定义世界种子（规则、地点、角色），AI 自动推演涌现叙事。
 
 *AI-driven World State Machine. Define a world seed with rules, locations, and agents — AI autonomously drives emergent narratives.*
@@ -88,10 +91,11 @@ docker compose up --build
 | **世界权威层** | 关系模型、移动邻接校验、物品来源校验、同位置交互要求 |
 | **记忆系统 v2** | 信念提炼（规则驱动）、LLM 语义压缩、重要度评分（关系/自身/目标加权） |
 | **目标系统** | GoalState 生命周期（active → completed/stalled）、进度追踪、LLM 重规划 |
-| **世界内核协议** | DecisionSource 可插拔决策接口、结构化事件、语义记忆 |
+| **世界内核协议** | DecisionSource 可插拔决策接口（LLM/Human/Psyche/Script）、结构化事件、语义记忆 |
+| **Psyche 情感引擎** | 虚拟内分泌系统（6 激素）、5 马斯洛驱力、自主神经门控、驱力-目标亲和力映射 |
 | **Oracle 创世助手** | 对话式世界创建，LLM 生成完整 WorldSeed，一键启动 |
 
-*Core Systems: World Authority (relations, topology, validation), Memory v2 (beliefs, LLM compression, importance scoring), Goal System (tracking, replanning), World Kernel Protocol (pluggable DecisionSource, structured events), Oracle Creative (conversational world creation).*
+*Core Systems: World Authority (relations, topology, validation), Memory v2 (beliefs, LLM compression, importance scoring), Goal System (tracking, replanning), World Kernel Protocol (pluggable DecisionSource, structured events), Psyche Emotional Engine (virtual endocrine, drives, autonomic gating, drive-goal mapping), Oracle Creative (conversational world creation).*
 
 ### 反循环保护 / Anti-Loop Protection
 

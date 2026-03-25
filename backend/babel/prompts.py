@@ -76,6 +76,7 @@ def build_user_prompt(
     reachable_locations: list[str] | None = None,
     agent_beliefs: list[str] | None = None,
     active_goal: dict | None = None,
+    emotional_context: str = "",
 ) -> str:
     rules_text = "\n".join(f"- {r}" for r in world_rules)
     goals_text = "\n".join(f"- {g}" for g in agent_goals)
@@ -138,6 +139,15 @@ def build_user_prompt(
 
     goal_instruction = " Consider: what is the single best action to advance your active goal?" if active_goal else ""
 
+    # Emotional state section (Psyche integration)
+    emotional_section = ""
+    if emotional_context:
+        emotional_section = f"""
+[Your Emotional State]
+{emotional_context}
+Consider how your emotional state influences your choice of action.
+"""
+
     return f"""\
 [World Rules]
 {rules_text}
@@ -151,7 +161,7 @@ Personality: {agent_personality}
 {goals_section}
 Location: {agent_location}
 Inventory: {inv_text}
-{relations_section}{beliefs_section}
+{relations_section}{beliefs_section}{emotional_section}
 [Your Memory — What You Know]
 {memory_text}
 

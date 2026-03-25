@@ -95,6 +95,9 @@ class Engine:
         self.snapshot_interval = snapshot_interval
         self.epoch_interval = epoch_interval
         self.belief_interval = belief_interval
+        # Phase B: per-agent Psyche snapshots for drive tracking
+        self._psyche_snapshots: dict[str, Any] = {}      # agent_id → current PsycheSnapshot
+        self._prev_psyche_snapshots: dict[str, Any] = {}  # agent_id → previous tick's snapshot
 
     async def tick(self) -> list[Event]:
         """Execute one tick of the simulation."""
@@ -516,12 +519,14 @@ class Engine:
         # Completion check
         if goal.progress >= 0.95:
             goal.status = "completed"
-            agent.active_goal = self._select_next_goal(agent)
+            drive_state = self._get_agent_drive_state(agent.agent_id)
+            agent.active_goal = self._select_next_goal(agent, drive_state=drive_state)
             return
 
         # Stall check — replan after 5 consecutive non-advancing ticks
         if goal.stall_count >= 5:
             goal.status = "stalled"
+            drive_state = self._get_agent_drive_state(agent.agent_id)
             try:
                 new_goal_text = await replan_goal(
                     agent_name=agent.name,
@@ -532,6 +537,7 @@ class Engine:
                     model=self.model,
                     api_key=self.api_key,
                     api_base=self.api_base,
+                    drive_state=drive_state,
                 )
                 agent.active_goal = GoalState(
                     text=new_goal_text,
@@ -539,8 +545,10 @@ class Engine:
                 )
             except Exception as e:
                 logger.debug("Goal replan failed for %s: %s", agent.name, e)
-                # LLM failed — select next core goal
-                agent.active_goal = self._select_next_goal(agent)
+                agent.active_goal = self._select_next_goal(agent, drive_state=drive_state)
+
+        # Phase B: Drive shift detection — reconsider goal if drives change significantly
+        self._check_drive_shift(agent)
 
     def _event_advances_goal(self, event: Event, goal: GoalState) -> bool:
         """Rule-driven check: does this event advance the active goal?"""
@@ -595,10 +603,28 @@ class Engine:
 
         return False
 
-    def _select_next_goal(self, agent: AgentState) -> GoalState | None:
-        """Select next goal from core goals list (round-robin)."""
+    def _select_next_goal(
+        self, agent: AgentState, drive_state: dict[str, float] | None = None,
+    ) -> GoalState | None:
+        """Select next goal from core goals list.
+
+        With drive_state (Psyche): selects goal that best addresses unsatisfied drives.
+        Without drive_state: falls back to round-robin.
+        """
         if not agent.goals:
             return None
+
+        # Drive-weighted selection (Phase B)
+        if drive_state:
+            from .drive_mapping import score_goal_by_drives
+
+            scored = [
+                (score_goal_by_drives(g, drive_state), g) for g in agent.goals
+            ]
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return GoalState(text=scored[0][1], started_tick=self.session.tick)
+
+        # Fallback: round-robin
         current_text = agent.active_goal.text if agent.active_goal else ""
         try:
             idx = agent.goals.index(current_text)
@@ -606,6 +632,41 @@ class Engine:
         except ValueError:
             next_idx = 0
         return GoalState(text=agent.goals[next_idx], started_tick=self.session.tick)
+
+    def _get_agent_drive_state(self, agent_id: str) -> dict[str, float] | None:
+        """Get current Psyche drive state for an agent, if available."""
+        snapshot = self._psyche_snapshots.get(agent_id)
+        return snapshot.drives if snapshot and snapshot.drives else None
+
+    def _check_drive_shift(self, agent: AgentState) -> None:
+        """Reconsider active goal if drives shift significantly (>30%)."""
+        if not agent.active_goal or agent.active_goal.status != "active":
+            return
+
+        current = self._psyche_snapshots.get(agent.agent_id)
+        previous = self._prev_psyche_snapshots.get(agent.agent_id)
+        if not current or not previous or not current.drives or not previous.drives:
+            return
+
+        drives = ("survival", "safety", "connection", "esteem", "curiosity")
+        max_shift = max(
+            abs(current.drives.get(d, 50) - previous.drives.get(d, 50))
+            for d in drives
+        )
+
+        if max_shift > 30:
+            new_goal = self._select_next_goal(agent, drive_state=current.drives)
+            if new_goal and new_goal.text != agent.active_goal.text:
+                logger.info(
+                    "Drive shift (%.0f%%) for %s: %s → %s",
+                    max_shift, agent.name, agent.active_goal.text, new_goal.text,
+                )
+                agent.active_goal = new_goal
+
+    def update_psyche_snapshot(self, agent_id: str, snapshot: Any) -> None:
+        """Update Psyche snapshot for an agent (called by decision source)."""
+        self._prev_psyche_snapshots[agent_id] = self._psyche_snapshots.get(agent_id)
+        self._psyche_snapshots[agent_id] = snapshot
 
     @staticmethod
     def _summarize_tick(events: list[Event]) -> str:

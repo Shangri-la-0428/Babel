@@ -71,8 +71,10 @@ DecisionSource (Protocol)
   ├── LLMDecisionSource           — prompts.py + llm.py pipeline (default)
   ├── HumanDecisionSource         — waits for human input via API (decorator pattern)
   ├── ContextAwareDecisionSource  — context-driven actions for stability testing
+  ├── PsycheDecisionSource        — Psyche emotional engine (HTTP bridge + autonomic gating)
+  ├── PsycheAugmentedDecisionSource — Psyche augments LLM (emotional context + autonomic gating)
   ├── ScriptedDecisionSource      — deterministic testing
-  └── [your source here]          — other AI, RL agent, Psyche, etc.
+  └── [your source here]          — other AI, RL agent, etc.
 ```
 
 `AgentContext` is the modality-agnostic interface between world and brain. It contains everything an agent can perceive: visible agents, memories, beliefs, relations, reachable locations, goals, world rules, time.
@@ -202,11 +204,14 @@ AgentSeed.goals[0] → GoalState(status="active", progress=0.0)
   │
   ├── progress >= 0.95
   │     status = "completed"
-  │     → _select_next_goal() (round-robin)
+  │     → _select_next_goal() (drive-weighted or round-robin)
   │
-  └── stall_count >= 5
-        status = "stalled"
-        → replan_goal() (LLM) or _select_next_goal() (fallback)
+  ├── stall_count >= 5
+  │     status = "stalled"
+  │     → replan_goal() (LLM, drive-aware) or _select_next_goal() (fallback)
+  │
+  └── drive_shift > 30%
+        → _check_drive_shift() reconsiders active goal via drive-weighted selection
 ```
 
 ## Extension Points
@@ -255,7 +260,7 @@ State flows through WebSocket: `connected → event → tick → state_update �
 
 ## Testing
 
-302 backend tests across 10 files:
+360 backend tests across 12 files:
 
 | File | Coverage |
 |------|----------|
@@ -269,5 +274,7 @@ State flows through WebSocket: `connected → event → tick → state_update �
 | `test_api_integration.py` | All API endpoints (CRUD, inject, human control, assets, 404 errors, composite flows) |
 | `test_db_roundtrip.py` | Save/load roundtrip for all 8 DB tables, cascade delete, pagination, migration |
 | `test_engine_lifecycle.py` | Start/stop/pause, tick mechanics, agent filtering, error recovery, decision source switching |
+| `test_psyche_bridge.py` | Psyche HTTP bridge, stimulus synthesis, PsycheDecisionSource, PsycheAugmentedDecisionSource, autonomic gating |
+| `test_drive_mapping.py` | Drive-goal affinity inference, drive-weighted scoring, goal selection |
 
 Run: `cd backend && .venv/bin/python -m pytest tests/ -v`

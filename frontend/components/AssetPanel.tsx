@@ -142,6 +142,71 @@ function AgentRow({
             </div>
           )}
 
+          {/* Psyche Emotional State */}
+          {agent.psyche && (
+            <div className="px-4 py-2 border-b border-b-DEFAULT">
+              <div className="text-micro text-t-muted tracking-widest mb-1.5">{t("psyche_emotion")}</div>
+              {/* Dominant emotion */}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-detail text-t-DEFAULT normal-case tracking-normal capitalize">
+                  {agent.psyche.emotion || "\u2014"}
+                </span>
+                <span className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium ${
+                  agent.psyche.autonomic === "ventral_vagal"
+                    ? "text-primary border-primary"
+                    : agent.psyche.autonomic === "sympathetic"
+                    ? "text-warning border-warning"
+                    : "text-danger border-danger"
+                }`}>
+                  {t(`psyche_${agent.psyche.autonomic}` as Parameters<typeof t>[0])}
+                </span>
+              </div>
+              {/* Chemical bars */}
+              <div className="text-micro text-t-dim tracking-widest mb-1">{t("psyche_chemicals")}</div>
+              <div className="flex flex-col gap-1 mb-2">
+                {(["DA", "HT", "CORT", "OT", "NE", "END"] as const).map((key) => {
+                  const labelKey = {
+                    DA: "psyche_dopamine", HT: "psyche_serotonin", CORT: "psyche_cortisol",
+                    OT: "psyche_oxytocin", NE: "psyche_norepinephrine", END: "psyche_endorphins",
+                  }[key] as Parameters<typeof t>[0];
+                  const val = agent.psyche!.chemicals[key];
+                  return (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className="text-micro text-t-dim tracking-wider w-8 shrink-0 tabular-nums">{key}</span>
+                      <div className="flex-1 h-1 bg-surface-3 overflow-hidden" title={t(labelKey)}>
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            val > 70 ? "bg-primary" : val < 30 ? "bg-danger" : "bg-t-dim"
+                          }`}
+                          style={{ width: `${val}%` }}
+                        />
+                      </div>
+                      <span className="text-micro text-t-dim tabular-nums shrink-0 w-6 text-right">{Math.round(val)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Drives */}
+              {Object.keys(agent.psyche.drives).length > 0 && (
+                <>
+                  <div className="text-micro text-t-dim tracking-widest mb-1">{t("psyche_drives")}</div>
+                  <div className="flex flex-wrap gap-1">
+                    {Object.entries(agent.psyche.drives).map(([drive, val]) => (
+                      <span
+                        key={drive}
+                        className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium normal-case ${
+                          val > 70 ? "text-primary border-primary" : val < 30 ? "text-danger border-danger" : "text-t-muted border-surface-3"
+                        }`}
+                      >
+                        {drive} {Math.round(val)}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Active Goal */}
           {agent.active_goal && (
             <div className="px-4 py-2 border-b border-b-DEFAULT">

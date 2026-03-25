@@ -151,6 +151,7 @@ class GoalState(BaseModel):
     started_tick: int = 0
     progress: float = 0.0    # 0.0-1.0
     stall_count: int = 0     # consecutive ticks without progress
+    drive_affinities: dict[str, float] = Field(default_factory=dict)  # drive → 0.0-1.0
 
 
 class AgentState(BaseModel):

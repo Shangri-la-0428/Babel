@@ -136,6 +136,7 @@ async def get_agent_action(
     reachable_locations: list[str] | None = None,
     agent_beliefs: list[str] | None = None,
     active_goal: dict | None = None,
+    emotional_context: str = "",
 ) -> LLMResponse:
     """Get a validated agent action from the LLM."""
     user_prompt = build_user_prompt(
@@ -157,6 +158,7 @@ async def get_agent_action(
         reachable_locations=reachable_locations,
         agent_beliefs=agent_beliefs,
         active_goal=active_goal,
+        emotional_context=emotional_context,
     )
 
     raw = await _complete_json(
@@ -358,10 +360,23 @@ async def replan_goal(
     model: str | None = None,
     api_key: str | None = None,
     api_base: str | None = None,
+    drive_state: dict[str, float] | None = None,
 ) -> str:
     """Suggest a new sub-goal when current goal is stalled."""
     goals_text = "\n".join(f"- {g}" for g in current_goals) if current_goals else "(none)"
     memory_text = "\n".join(f"- {m}" for m in agent_memory[-5:]) if agent_memory else "(no memories)"
+
+    drive_section = ""
+    if drive_state:
+        low = [f"{d}: {int(v)}" for d, v in drive_state.items() if v < 40]
+        high = [f"{d}: {int(v)}" for d, v in drive_state.items() if v >= 70]
+        if low or high:
+            parts = []
+            if low:
+                parts.append(f"Unsatisfied: {', '.join(low)}")
+            if high:
+                parts.append(f"Satisfied: {', '.join(high)}")
+            drive_section = f"\n[Emotional Drives]\n" + "\n".join(parts) + "\n"
 
     user = f"""\
 [Agent]
@@ -376,7 +391,7 @@ Personality: {agent_personality}
 
 [Recent Memory]
 {memory_text}
-
+{drive_section}
 [Instruction]
 This goal has stalled. Suggest a new, more achievable sub-goal in 1 sentence."""
 

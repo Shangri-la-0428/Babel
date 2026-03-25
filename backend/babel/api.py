@@ -1318,6 +1318,26 @@ def _serialize_state(engine: Engine) -> dict:
     """Serialize engine state for WebSocket broadcasts and API responses."""
     session = engine.session
     wt = world_time(session.tick, session.world_seed.time)
+
+    # Check if Psyche emotional data is available
+    psyche_snapshot = None
+    from .decision import PsycheDecisionSource
+    if isinstance(engine.decision_source, PsycheDecisionSource) and engine.decision_source.last_snapshot:
+        snap = engine.decision_source.last_snapshot
+        psyche_snapshot = {
+            "chemicals": {
+                "DA": snap.chemicals.dopamine,
+                "HT": snap.chemicals.serotonin,
+                "CORT": snap.chemicals.cortisol,
+                "OT": snap.chemicals.oxytocin,
+                "NE": snap.chemicals.norepinephrine,
+                "END": snap.chemicals.endorphins,
+            },
+            "autonomic": snap.autonomic.dominant,
+            "emotion": snap.dominant_emotion,
+            "drives": snap.drives,
+        }
+
     return {
         "session_id": session.id,
         "name": session.world_seed.name,
@@ -1340,6 +1360,7 @@ def _serialize_state(engine: Engine) -> dict:
                 "role": a.role.value,
                 "active_goal": a.active_goal.model_dump() if a.active_goal else None,
                 "immediate_intent": a.immediate_intent,
+                **({"psyche": psyche_snapshot} if psyche_snapshot else {}),
             }
             for aid, a in session.agents.items()
         },

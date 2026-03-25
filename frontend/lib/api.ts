@@ -89,6 +89,13 @@ export interface RelationData {
   last_tick: number;
 }
 
+export interface PsycheState {
+  chemicals: { DA: number; HT: number; CORT: number; OT: number; NE: number; END: number };
+  autonomic: string;
+  emotion: string;
+  drives: Record<string, number>;
+}
+
 export interface AgentData {
   name: string;
   description: string;
@@ -101,6 +108,7 @@ export interface AgentData {
   role?: "main" | "supporting";
   active_goal?: ActiveGoal | null;
   immediate_intent?: string;
+  psyche?: PsycheState;
 }
 
 export interface EventData {

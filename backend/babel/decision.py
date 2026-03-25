@@ -39,6 +39,9 @@ class AgentContext(BaseModel):
     active_goal: dict[str, Any] | None = None
     urgent_events: list[str] | None = None
     tick: int = 0
+    # Phase B: Psyche emotional context (optional, for LLM prompt enrichment)
+    emotional_context: str = ""
+    drive_state: dict[str, float] = Field(default_factory=dict)
 
 
 @runtime_checkable
@@ -88,6 +91,7 @@ class LLMDecisionSource:
             reachable_locations=context.reachable_locations or None,
             agent_beliefs=context.beliefs or None,
             active_goal=context.active_goal,
+            emotional_context=context.emotional_context,
         )
         return response.action
 
@@ -187,6 +191,326 @@ class HumanDecisionSource:
         finally:
             self._pending.pop(agent_id, None)
             self._pending_contexts.pop(agent_id, None)
+
+
+class PsycheDecisionSource:
+    """Decision source powered by the Psyche emotional engine.
+
+    Uses Psyche's hormonal/autonomic state to weight action selection.
+    Requires a running Psyche HTTP server (default: localhost:3210).
+
+    Architecture:
+      AgentContext → StimulusSynthesizer → Psyche HTTP → PolicyModifiers
+                                                              ↓
+                                                   ActionPool (weighted)
+                                                              ↓
+                                                        ActionOutput
+    """
+
+    def __init__(
+        self,
+        psyche_url: str = "http://127.0.0.1:3210",
+        fallback: DecisionSource | None = None,
+        timeout: float = 5.0,
+    ):
+        from .psyche_bridge import PsycheBridge
+
+        self._bridge = PsycheBridge(base_url=psyche_url, timeout=timeout)
+        self._fallback = fallback
+        self._last_snapshot: Any = None  # PsycheSnapshot, exposed for frontend
+
+    @property
+    def last_snapshot(self) -> Any:
+        """Most recent PsycheSnapshot (for frontend display)."""
+        return self._last_snapshot
+
+    async def decide(self, context: AgentContext) -> ActionOutput:
+        from .psyche_bridge import PsycheBridge  # noqa: F811
+        from .stimulus import synthesize_stimulus
+
+        # Check Psyche availability; fall back if down
+        if not await self._bridge.is_available():
+            logger.warning("Psyche server unavailable, falling back")
+            if self._fallback:
+                return await self._fallback.decide(context)
+            return ActionOutput(type=ActionType.WAIT, content="psyche unavailable")
+
+        # Synthesize stimulus from world context
+        stimulus_text = synthesize_stimulus(context)
+
+        # Send to Psyche, get policy modifiers
+        try:
+            result = await self._bridge.process_input(
+                text=stimulus_text,
+                user_id=context.agent_id,
+            )
+            snapshot = await self._bridge.get_state()
+            self._last_snapshot = snapshot
+        except Exception as e:
+            logger.error("Psyche bridge error: %s", e)
+            if self._fallback:
+                return await self._fallback.decide(context)
+            return ActionOutput(type=ActionType.WAIT, content="psyche error")
+
+        # Build action pool weighted by emotional state
+        action = self._select_action(context, result.policy, snapshot)
+
+        # Notify Psyche of the chosen action (state update)
+        try:
+            action_desc = f"{context.agent_name} chose to {action.type.value}: {action.content}"
+            await self._bridge.process_output(text=action_desc, user_id=context.agent_id)
+        except Exception as e:
+            logger.debug("Psyche output notification failed: %s", e)
+
+        return action
+
+    def _select_action(
+        self,
+        context: AgentContext,
+        policy: Any,
+        snapshot: Any,
+    ) -> ActionOutput:
+        """Select action weighted by Psyche's emotional state."""
+        import random
+
+        same_loc = [
+            a for a in context.visible_agents
+            if a.get("location") == context.agent_location
+        ]
+        other_locations = [
+            loc for loc in (context.reachable_locations or context.available_locations)
+            if loc != context.agent_location
+        ]
+
+        pool: list[tuple[float, ActionOutput]] = []
+
+        # Autonomic gating
+        dominant = snapshot.autonomic.dominant if snapshot else "ventral_vagal"
+
+        if dominant == "dorsal_vagal":
+            # Freeze state — only observe/wait
+            pool.append((3.0, ActionOutput(type=ActionType.WAIT, content="frozen, overwhelmed")))
+            pool.append((2.0, ActionOutput(type=ActionType.OBSERVE, content="numbly watching")))
+        elif dominant == "sympathetic":
+            # Fight-or-flight — prefer movement, avoid social
+            pool.append((1.0, ActionOutput(type=ActionType.OBSERVE, content="scanning for threats")))
+            if other_locations:
+                dest = random.choice(other_locations)
+                pool.append((4.0, ActionOutput(type=ActionType.MOVE, target=dest, content=f"fleeing to {dest}")))
+            if context.agent_inventory:
+                item = random.choice(context.agent_inventory)
+                pool.append((2.0, ActionOutput(type=ActionType.USE_ITEM, target=item, content=f"readying {item}")))
+        else:
+            # Ventral-vagal (safe, social) — full action range
+            pool.append((1.0, ActionOutput(type=ActionType.OBSERVE, content="calmly observing")))
+
+            # Social actions weighted by proactivity
+            if same_loc:
+                target = random.choice(same_loc)
+                social_weight = 2.0 + policy.proactivity * 3.0
+                pool.append((social_weight, ActionOutput(
+                    type=ActionType.SPEAK,
+                    target=target["id"],
+                    content=f"engaging with {target.get('name', target['id'])}",
+                )))
+
+                # Trade weighted by risk tolerance
+                if context.agent_inventory:
+                    item = random.choice(context.agent_inventory)
+                    pool.append((policy.risk_tolerance * 2.0, ActionOutput(
+                        type=ActionType.TRADE,
+                        target=target["id"],
+                        content=f"offering {item}",
+                    )))
+
+            # Movement weighted by exploration
+            if other_locations:
+                dest = random.choice(other_locations)
+                explore_weight = 1.5 if not same_loc else 0.5
+                pool.append((explore_weight, ActionOutput(
+                    type=ActionType.MOVE,
+                    target=dest,
+                    content=f"heading to {dest}",
+                )))
+
+            # Item use
+            if context.agent_inventory:
+                item = random.choice(context.agent_inventory)
+                pool.append((0.5, ActionOutput(
+                    type=ActionType.USE_ITEM,
+                    target=item,
+                    content=f"using {item}",
+                )))
+
+        if not pool:
+            return ActionOutput(type=ActionType.WAIT, content="no options available")
+
+        # Weighted random selection
+        total = sum(w for w, _ in pool)
+        r = random.uniform(0, total)
+        cumulative = 0.0
+        for weight, action in pool:
+            cumulative += weight
+            if r <= cumulative:
+                return action
+        return pool[-1][1]
+
+
+class PsycheAugmentedDecisionSource:
+    """Psyche augments LLM decisions rather than replacing them.
+
+    Unlike PsycheDecisionSource (which replaces LLM with a weighted action pool),
+    this source uses Psyche to enrich the LLM's context with emotional state,
+    then applies autonomic gating as a post-filter on the LLM's output.
+
+    Flow:
+      1. Send stimulus to Psyche → get emotional state + policy modifiers
+      2. Build emotional context string and inject into AgentContext
+      3. LLM generates narrative-quality action with emotional awareness
+      4. Autonomic gating filters the action if needed
+      5. Notify Psyche of the chosen action for state update
+    """
+
+    def __init__(
+        self,
+        psyche_url: str = "http://127.0.0.1:3210",
+        llm_source: LLMDecisionSource | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        api_base: str | None = None,
+        timeout: float = 5.0,
+    ):
+        from .psyche_bridge import PsycheBridge
+
+        self._bridge = PsycheBridge(base_url=psyche_url, timeout=timeout)
+        self._llm = llm_source or LLMDecisionSource(
+            model=model, api_key=api_key, api_base=api_base,
+        )
+        self._last_snapshot: Any = None
+
+    @property
+    def last_snapshot(self) -> Any:
+        """Most recent PsycheSnapshot (for frontend display)."""
+        return self._last_snapshot
+
+    async def decide(self, context: AgentContext) -> ActionOutput:
+        from .psyche_bridge import PsycheBridge  # noqa: F811
+        from .stimulus import synthesize_stimulus
+
+        # 1. Check Psyche availability — fall back to pure LLM
+        if not await self._bridge.is_available():
+            logger.debug("Psyche unavailable, using pure LLM")
+            return await self._llm.decide(context)
+
+        # 2. Synthesize stimulus and get emotional state
+        stimulus_text = synthesize_stimulus(context)
+        try:
+            result = await self._bridge.process_input(
+                text=stimulus_text, user_id=context.agent_id,
+            )
+            snapshot = await self._bridge.get_state()
+            self._last_snapshot = snapshot
+        except Exception as e:
+            logger.error("Psyche bridge error: %s", e)
+            return await self._llm.decide(context)
+
+        # 3. Build emotional context for the LLM prompt
+        emotional_ctx = _build_emotional_context(snapshot, result.policy)
+
+        # 4. Augment context with emotional information
+        augmented = context.model_copy(update={
+            "emotional_context": emotional_ctx,
+            "drive_state": snapshot.drives,
+        })
+
+        # 5. LLM decides with emotional awareness
+        action = await self._llm.decide(augmented)
+
+        # 6. Autonomic gating (post-filter)
+        action = self._autonomic_gate(action, snapshot, context)
+
+        # 7. Notify Psyche of the chosen action
+        try:
+            desc = f"{context.agent_name} chose to {action.type.value}: {action.content}"
+            await self._bridge.process_output(text=desc, user_id=context.agent_id)
+        except Exception as e:
+            logger.debug("Psyche output notification failed: %s", e)
+
+        return action
+
+    @staticmethod
+    def _autonomic_gate(
+        action: ActionOutput,
+        snapshot: Any,
+        context: AgentContext,
+    ) -> ActionOutput:
+        """Post-filter: override LLM action if autonomic state demands it."""
+        dominant = snapshot.autonomic.dominant if snapshot else "ventral_vagal"
+
+        if dominant == "dorsal_vagal" and action.type not in (ActionType.WAIT, ActionType.OBSERVE):
+            return ActionOutput(type=ActionType.WAIT, content="frozen, unable to act")
+
+        if dominant == "sympathetic" and action.type in (ActionType.SPEAK, ActionType.TRADE):
+            # Downgrade social actions to movement/observation
+            other_locs = [
+                loc for loc in (context.reachable_locations or context.available_locations)
+                if loc != context.agent_location
+            ]
+            if other_locs:
+                import random
+                return ActionOutput(
+                    type=ActionType.MOVE, target=random.choice(other_locs),
+                    content="instinct to flee",
+                )
+            return ActionOutput(type=ActionType.OBSERVE, content="scanning for threats")
+
+        return action  # ventral-vagal: pass through
+
+
+def _build_emotional_context(snapshot: Any, policy: Any) -> str:
+    """Build a natural-language description of the agent's emotional state."""
+    parts: list[str] = []
+
+    # Dominant emotion
+    if snapshot.dominant_emotion:
+        parts.append(f"You are feeling {snapshot.dominant_emotion}.")
+
+    # Autonomic state
+    dominant = snapshot.autonomic.dominant if snapshot else "ventral_vagal"
+    state_desc = {
+        "ventral_vagal": "You feel safe and socially open.",
+        "sympathetic": "You feel on edge, alert to danger. Your body wants to move or act.",
+        "dorsal_vagal": "You feel overwhelmed and shut down. Action feels impossible.",
+    }
+    parts.append(state_desc.get(dominant, ""))
+
+    # Key chemical signals
+    chem = snapshot.chemicals
+    if chem.cortisol > 70:
+        parts.append("Stress is high — you're anxious and hypervigilant.")
+    if chem.dopamine < 30:
+        parts.append("Motivation is low — nothing feels rewarding.")
+    if chem.oxytocin > 70:
+        parts.append("You feel a strong sense of trust and connection.")
+    elif chem.oxytocin < 30:
+        parts.append("You feel isolated and mistrustful.")
+
+    # Unsatisfied drives
+    if snapshot.drives:
+        low = [d for d, v in snapshot.drives.items() if v < 40]
+        if low:
+            parts.append(f"You feel a deep need for: {', '.join(low)}.")
+
+    # Policy constraints
+    if policy.proactivity < 0.3:
+        parts.append("You're inclined to be passive and reactive.")
+    elif policy.proactivity > 0.7:
+        parts.append("You feel driven to take initiative.")
+
+    if policy.risk_tolerance < 0.3:
+        parts.append("You're cautious and want to avoid risks.")
+
+    return " ".join(p for p in parts if p)
 
 
 class ContextAwareDecisionSource:
