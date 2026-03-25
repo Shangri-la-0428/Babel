@@ -232,6 +232,54 @@ select:focus-visible {
   100% { width: 100%; margin-left: 0; }
 }
 
+/* ── Accordion collapse: grid-row transition ── */
+.accordion-grid {
+  display: grid;
+  transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
+}
+.accordion-grid[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.accordion-grid[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.accordion-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── World Ended Overlay ── */
+@keyframes ended-scan {
+  0% { transform: translateY(-2px); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes ended-fade-out {
+  0%, 60% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes ended-text-glitch {
+  0%, 100% { transform: none; filter: none; }
+  15% { transform: translateX(-3px); filter: hue-rotate(90deg) brightness(1.4); }
+  30% { transform: translateX(2px) skewX(-1deg); }
+  50% { transform: translateX(-1px); filter: none; }
+  70% { transform: translateX(1px); }
+}
+
+/* ── Seed Detail Spatial Entry ── */
+@keyframes seed-detail-enter {
+  from { opacity: 0; transform: translateX(24px) scale(0.97); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes seed-detail-exit {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to { opacity: 0; transform: translateX(16px) scale(0.98); }
+}
+
 /* ── Oracle Overdrive: Edge Scan Light ── */
 @property --oracle-scan-y {
   syntax: '<percentage>';

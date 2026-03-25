@@ -82,6 +82,7 @@ export default function ControlBar({
   const prevStatusRef = useRef(status);
   const prevWsRef = useRef(wsStatus);
   const [showBoot, setShowBoot] = useState(false);
+  const [showStep, setShowStep] = useState(false);
 
   // Boot sweep on status → running
   useEffect(() => {
@@ -111,30 +112,49 @@ export default function ControlBar({
           aria-hidden="true"
         />
       )}
-      {/* Run / Pause */}
-      {isRunning ? (
-        <button
-          onClick={onPause}
-          disabled={disabled}
-          aria-label={t("aria_pause")}
-          className="inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
-        >
-          <PauseIcon /> {t("pause")}
-        </button>
-      ) : (
+      {showStep && (
+        <span
+          className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/6 to-transparent bg-[length:200%_100%] animate-[boot-sweep_400ms_cubic-bezier(0.16,1,0.3,1)_both] pointer-events-none"
+          aria-hidden="true"
+        />
+      )}
+      {/* Run / Pause — cross-fade */}
+      <div className="relative h-9 min-w-[100px]">
         <button
           onClick={onRun}
-          disabled={disabled}
+          disabled={disabled || isRunning}
           aria-label={t("aria_run")}
-          className="inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 transition-[colors,box-shadow,transform]"
+          aria-hidden={isRunning}
+          tabIndex={isRunning ? -1 : 0}
+          className={`absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 transition-[colors,box-shadow,transform,opacity] duration-150 ${
+            isRunning ? "opacity-0 pointer-events-none" : "opacity-100"
+          }`}
+          style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}
         >
           <PlayIcon /> {t("run")}
         </button>
-      )}
+        <button
+          onClick={onPause}
+          disabled={disabled || !isRunning}
+          aria-label={t("aria_pause")}
+          aria-hidden={!isRunning}
+          tabIndex={isRunning ? 0 : -1}
+          className={`absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-30 transition-[colors,transform,opacity] duration-150 ${
+            isRunning ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
+          style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}
+        >
+          <PauseIcon /> {t("pause")}
+        </button>
+      </div>
 
       {/* Step */}
       <button
-        onClick={onStep}
+        onClick={() => {
+          onStep();
+          setShowStep(true);
+          setTimeout(() => setShowStep(false), 400);
+        }}
         disabled={disabled || isRunning}
         aria-label={t("aria_step")}
         className="inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"

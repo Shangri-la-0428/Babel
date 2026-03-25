@@ -62,6 +62,7 @@ export default function Home() {
   const [editDetail, setEditDetail] = useState<SeedDetail | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [bootOverlay, setBootOverlay] = useState<{ worldName: string; targetUrl: string } | null>(null);
+  const assetTabIndicatorRef = useRef<HTMLSpanElement>(null);
   // Settings saved to localStorage by Settings component; home page only shows/hides the panel
   const noop = () => {};
 
@@ -426,7 +427,7 @@ export default function Home() {
           />
 
           {/* Asset tabs */}
-          <div role="tablist" aria-label="World assets" className="flex border-b border-b-DEFAULT bg-surface-1"
+          <div role="tablist" aria-label="World assets" className="flex border-b border-b-DEFAULT bg-surface-1 relative"
             onKeyDown={(e) => {
               const keys = ASSET_TABS.map((t) => t.key);
               const idx = keys.indexOf(assetTab);
@@ -442,15 +443,28 @@ export default function Home() {
                 aria-selected={assetTab === tab.key}
                 aria-controls={`tabpanel-${tab.key}`}
                 onClick={() => setAssetTab(tab.key)}
-                className={`px-5 py-3 text-micro tracking-wider transition-colors relative ${
+                className={`px-5 py-3 text-micro tracking-wider transition-colors ${
                   assetTab === tab.key ? "text-primary" : "text-t-muted hover:text-t-DEFAULT"
                 }`}
+                ref={(el) => {
+                  if (el && tab.key === assetTab && assetTabIndicatorRef.current) {
+                    assetTabIndicatorRef.current.style.left = `${el.offsetLeft}px`;
+                    assetTabIndicatorRef.current.style.width = `${el.offsetWidth}px`;
+                  }
+                }}
               >
                 {tab.label}
                 {tab.count > 0 && <span className="ml-1 text-t-dim">{tab.count}</span>}
-                {assetTab === tab.key && <span className="absolute bottom-0 left-0 right-0 h-px bg-primary" />}
               </button>
             ))}
+            {/* Sliding indicator */}
+            <span
+              ref={assetTabIndicatorRef}
+              className="absolute bottom-0 h-px bg-primary pointer-events-none"
+              style={{
+                transition: "left 150ms cubic-bezier(0.16, 1, 0.3, 1), width 150ms cubic-bezier(0.16, 1, 0.3, 1)",
+              }}
+            />
           </div>
 
           {/* Asset content */}

@@ -23,6 +23,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
   const [loadingModels, setLoadingModels] = useState(false);
   const [testStatus, setTestStatus] = useState<"idle" | "ok" | "error">("idle");
   const [closing, setClosing] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const startClose = useCallback(() => {
     if (closing) return;
@@ -56,7 +57,8 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
   function handleSave() {
     saveSettings(settings);
     onSave(settings);
-    startClose();
+    setSaved(true);
+    setTimeout(() => startClose(), 300);
   }
 
   function update(patch: Partial<BabelSettings>) {
@@ -69,7 +71,11 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
     "text-micro text-t-muted tracking-widest block mb-1.5";
 
   return (
-    <div className={`border-b border-b-DEFAULT bg-surface-1 overflow-hidden ${
+    <div className={`border-b bg-surface-1 overflow-hidden transition-[border-color,box-shadow] duration-300 ${
+      saved
+        ? "border-primary shadow-[0_0_12px_var(--color-primary-glow-strong)]"
+        : "border-b-DEFAULT"
+    } ${
       closing
         ? "animate-[panel-slide-up-exit_150ms_ease_both]"
         : "animate-[slide-down_0.15s_ease]"

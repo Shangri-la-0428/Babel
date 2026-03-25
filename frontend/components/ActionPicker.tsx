@@ -29,6 +29,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
   const [target, setTarget] = useState("");
   const [content, setContent] = useState("");
   const [closing, setClosing] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const startClose = useCallback(() => {
     if (closing) return;
@@ -68,8 +69,9 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
   }
 
   function handleSubmit() {
-    if (!selectedAction) return;
-    onSubmit(selectedAction, target, content);
+    if (!selectedAction || submitted) return;
+    setSubmitted(true);
+    setTimeout(() => onSubmit(selectedAction, target, content), 400);
   }
 
   const canSubmit = selectedAction && (
@@ -92,7 +94,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
           ? "animate-[modal-exit_150ms_ease_both]"
           : "animate-[slide-up_200ms_cubic-bezier(0.16,1,0.3,1)]"
       }`}>
-        <div className="border border-b-DEFAULT bg-void">
+        <div className="relative border border-b-DEFAULT bg-void overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-b-DEFAULT">
             <div className="flex items-center gap-3">
@@ -223,7 +225,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
           <div className="flex items-center gap-2 px-4 py-3">
             <button
               onClick={handleSubmit}
-              disabled={!canSubmit}
+              disabled={!canSubmit || submitted}
               className="h-9 px-6 text-micro tracking-wider font-medium bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:hover:bg-primary disabled:hover:text-void disabled:hover:shadow-none transition-[colors,box-shadow,transform]"
             >
               {t("action_submit")}
@@ -235,6 +237,11 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
               {t("action_cancel")}
             </button>
           </div>
+
+          {/* Transmission sweep on submit */}
+          {submitted && (
+            <span className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent animate-[transmission-sweep_400ms_cubic-bezier(0.16,1,0.3,1)_both] pointer-events-none" aria-hidden="true" />
+          )}
         </div>
       </div>
     </div>

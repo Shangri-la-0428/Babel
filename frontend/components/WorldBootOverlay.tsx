@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { GlitchReveal } from "./ui";
 
-const GLITCH_SET = "█▓▒░▀▄│─╬";
 const BOOT_DURATION = 1200; // total overlay duration ms
 const DECODE_DURATION = 600;
 
@@ -17,41 +17,17 @@ interface Props {
  * Used when launching a world from Home or Create page.
  */
 export default function WorldBootOverlay({ worldName, onComplete }: Props) {
-  const nameRef = useRef<HTMLSpanElement>(null);
   const [phase, setPhase] = useState<"decode" | "sweep" | "done">("decode");
 
-  // Glitch-decode the world name
+  // Transition decode → sweep after GlitchReveal duration
   useEffect(() => {
-    const el = nameRef.current;
-    if (!el) return;
-
     if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      el.textContent = worldName;
       const t = setTimeout(onComplete, 400);
       return () => clearTimeout(t);
     }
-
-    const start = performance.now();
-    let raf = 0;
-
-    function tick(now: number) {
-      const p = Math.min((now - start) / DECODE_DURATION, 1);
-      const count = Math.floor(worldName.length * p);
-      let display = worldName.slice(0, count);
-      for (let i = count; i < worldName.length; i++) {
-        display += worldName[i] === " " ? " " : GLITCH_SET[((now / 40 + i * 11) | 0) % GLITCH_SET.length];
-      }
-      if (el) el.textContent = display;
-      if (p < 1) {
-        raf = requestAnimationFrame(tick);
-      } else {
-        setPhase("sweep");
-      }
-    }
-
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [worldName]);
+    const t = setTimeout(() => setPhase("sweep"), DECODE_DURATION);
+    return () => clearTimeout(t);
+  }, []);
 
   // After sweep, fire onComplete
   useEffect(() => {
@@ -71,16 +47,15 @@ export default function WorldBootOverlay({ worldName, onComplete }: Props) {
     >
       {/* System status label */}
       <div className="text-micro text-t-dim tracking-widest mb-4 animate-[fade-in_200ms_ease_both]">
-        {"// INITIALIZING WORLD"}
+        <GlitchReveal text="// INITIALIZING WORLD" duration={400} />
       </div>
 
-      {/* World name — glitch decode */}
-      <span
-        ref={nameRef}
+      {/* World name — glitch decode via shared GlitchReveal */}
+      <GlitchReveal
+        text={worldName}
+        duration={DECODE_DURATION}
         className="font-sans font-bold text-[clamp(2rem,4vw,3rem)] tracking-tight text-primary drop-shadow-[0_0_24px_var(--color-primary-glow-strong)]"
-      >
-        {worldName}
-      </span>
+      />
 
       {/* Horizontal boot sweep line */}
       {phase === "sweep" && (

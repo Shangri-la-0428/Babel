@@ -6,7 +6,7 @@ import { createWorld, fetchAssets, SavedSeedData, SeedDetail } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
 import Settings from "@/components/Settings";
-import { ErrorBanner } from "@/components/ui";
+import { ErrorBanner, GlitchReveal } from "@/components/ui";
 import WorldBootOverlay from "@/components/WorldBootOverlay";
 
 interface AgentForm {
@@ -266,7 +266,7 @@ export default function CreatePage() {
         )}
 
         {/* World form */}
-        <div className="text-micro text-t-dim tracking-widest mb-4">{"// WORLD_SEED"}</div>
+        <div className="text-micro text-t-dim tracking-widest mb-4"><GlitchReveal text="// WORLD_SEED" duration={400} /></div>
         <div className="flex flex-col gap-6 mb-10">
           <div>
             <label htmlFor="world-name" className={labelClass}>{t("world_name")}</label>
@@ -420,7 +420,7 @@ export default function CreatePage() {
         </div>
 
         {/* Submit */}
-        <div className="text-micro text-t-dim tracking-widest mb-3">{"// LAUNCH"}</div>
+        <div className="text-micro text-t-dim tracking-widest mb-3"><GlitchReveal text="// LAUNCH" duration={400} /></div>
         <div className="flex gap-3 pt-4 border-t border-b-DEFAULT">
           <button
             onClick={handleSubmit}

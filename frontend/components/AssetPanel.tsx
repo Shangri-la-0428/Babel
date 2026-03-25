@@ -119,9 +119,9 @@ function AgentRow({
         </span>
       </button>
 
-      {/* Expanded content */}
-      {expanded && (
-        <div className="border-t border-b-DEFAULT bg-void animate-slide-down">
+      {/* Expanded content — accordion transition */}
+      <div className="accordion-grid border-t border-b-DEFAULT" data-open={expanded}>
+        <div className="accordion-inner bg-void">
           {/* Description */}
           {agent.description && (
             <div className="px-4 py-2 border-b border-b-DEFAULT">
@@ -379,17 +379,19 @@ function AgentRow({
             <div className="flex items-center gap-2 px-4 py-2">
               {isHumanControlled ? (
                 <button
+                  key="controlled"
                   onClick={onReleaseControl}
-                  className="h-8 px-3 text-micro tracking-wider border border-primary text-primary hover:bg-primary hover:text-void active:scale-[0.97] transition-[colors,transform]"
+                  className="h-8 px-3 text-micro tracking-wider border border-primary text-primary hover:bg-primary hover:text-void active:scale-[0.97] transition-[colors,transform] animate-[event-flash_600ms_ease]"
                 >
-                  {t("release_control")}
+                  <span className="transition-all duration-150">{t("release_control")}</span>
                 </button>
               ) : (
                 <button
+                  key="autonomous"
                   onClick={onTakeControl}
                   className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
                 >
-                  {t("take_control")}
+                  <span className="transition-all duration-150">{t("take_control")}</span>
                 </button>
               )}
               <button
@@ -407,7 +409,7 @@ function AgentRow({
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -478,8 +480,9 @@ function ItemRow({
           {expanded ? "\u25BE" : "\u25B8"}
         </span>
       </button>
-      {expanded && (
-        <div className="border-t border-b-DEFAULT bg-void animate-slide-down">
+      {/* Expanded content — accordion transition */}
+      <div className="accordion-grid border-t border-b-DEFAULT" data-open={expanded}>
+        <div className="accordion-inner bg-void">
           {/* Description (cached or empty) */}
           {description && (
             <div className="px-4 py-2 border-b border-b-DEFAULT">
@@ -575,7 +578,7 @@ function ItemRow({
             )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -636,8 +639,9 @@ function LocationRow({
           {expanded ? "\u25BE" : "\u25B8"}
         </span>
       </button>
-      {expanded && (
-        <div className="border-t border-b-DEFAULT bg-void animate-slide-down">
+      {/* Expanded content — accordion transition */}
+      <div className="accordion-grid border-t border-b-DEFAULT" data-open={expanded}>
+        <div className="accordion-inner bg-void">
           <div className="px-4 py-2 border-b border-b-DEFAULT">
             <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
               {location.description}
@@ -712,7 +716,7 @@ function LocationRow({
             )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -741,6 +745,7 @@ export default function AssetPanel({
 }) {
   const { t } = useLocale();
   const [tab, setTab] = useState<Tab>("agents");
+  const tabIndicatorRef = useRef<HTMLSpanElement>(null);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [expandedLocation, setExpandedLocation] = useState<string | null>(null);
@@ -852,7 +857,7 @@ export default function AssetPanel({
   return (
     <aside className="flex flex-col overflow-hidden h-full" aria-label="Asset management">
       {/* Tabs */}
-      <div role="tablist" aria-label="Asset tabs" className="flex shrink-0 border-b border-b-DEFAULT bg-surface-1"
+      <div role="tablist" aria-label="Asset tabs" className="flex shrink-0 border-b border-b-DEFAULT bg-surface-1 relative"
         onKeyDown={(e) => {
           const keys = TABS.map((t) => t.key);
           const idx = keys.indexOf(tab);
@@ -868,21 +873,32 @@ export default function AssetPanel({
             aria-selected={tab === t_item.key}
             aria-controls={`tabpanel-${t_item.key}`}
             onClick={() => setTab(t_item.key)}
-            className={`flex-1 px-2 py-3 text-micro tracking-wider text-center transition-colors relative ${
+            className={`flex-1 px-2 py-3 text-micro tracking-wider text-center transition-colors ${
               tab === t_item.key
                 ? "text-primary"
                 : "text-t-muted hover:text-t-DEFAULT"
             }`}
+            ref={(el) => {
+              if (el && t_item.key === tab && tabIndicatorRef.current) {
+                tabIndicatorRef.current.style.left = `${el.offsetLeft}px`;
+                tabIndicatorRef.current.style.width = `${el.offsetWidth}px`;
+              }
+            }}
           >
             {t(t_item.labelKey)}
             {t_item.count > 0 && (
               <span className="ml-1 text-t-dim">{t_item.count}</span>
             )}
-            {tab === t_item.key && (
-              <span className="absolute bottom-0 left-0 right-0 h-px bg-primary" />
-            )}
           </button>
         ))}
+        {/* Sliding indicator */}
+        <span
+          ref={tabIndicatorRef}
+          className="absolute bottom-0 h-px bg-primary pointer-events-none"
+          style={{
+            transition: "left 150ms cubic-bezier(0.16, 1, 0.3, 1), width 150ms cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
+        />
       </div>
 
       {/* Content */}

@@ -222,6 +222,8 @@ export default function SeedDetail({
 
   return (
     <Modal onClose={onClose} ariaLabel={seed.name} width="w-[560px]">
+      {/* Spatial entrance wrapper */}
+      <div className="flex flex-col flex-1 min-h-0 animate-[seed-detail-enter_200ms_ease-out_both]">
       {/* Header */}
       <div className="px-6 py-4 border-b border-b-DEFAULT flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
@@ -302,6 +304,7 @@ export default function SeedDetail({
         <span className="text-micro text-t-dim tracking-wider tabular-nums">
           {seed.id}
         </span>
+      </div>
       </div>
     </Modal>
   );

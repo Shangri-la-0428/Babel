@@ -26,7 +26,7 @@ import AssetPanel from "@/components/AssetPanel";
 import ControlBar from "@/components/ControlBar";
 import Settings from "@/components/Settings";
 import InjectEvent from "@/components/InjectEvent";
-import { ErrorBanner } from "@/components/ui";
+import { ErrorBanner, GlitchReveal } from "@/components/ui";
 
 const ParticleField = dynamic(() => import("@/components/ParticleField"), { ssr: false });
 const WorldRadar = dynamic(() => import("@/components/WorldRadar"), { ssr: false });
@@ -65,6 +65,7 @@ function SimContent() {
   const highlightTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const operationRef = useRef(false); // guard against concurrent Run/Step
   const [showWorldBoot, setShowWorldBoot] = useState(false);
+  const [showWorldEnded, setShowWorldEnded] = useState(false);
   const prevRunStatus = useRef(status);
 
   // Load initial state
@@ -400,6 +401,12 @@ function SimContent() {
       const t = setTimeout(() => setShowWorldBoot(false), 600);
       return () => clearTimeout(t);
     }
+    // World ended overlay on any status → ended
+    if (prevRunStatus.current !== "ended" && status === "ended") {
+      setShowWorldEnded(true);
+      const t = setTimeout(() => setShowWorldEnded(false), 1500);
+      return () => clearTimeout(t);
+    }
     prevRunStatus.current = status;
   }, [status]);
 
@@ -434,6 +441,21 @@ function SimContent() {
           <div className="absolute inset-x-0 h-[2px] bg-primary/20 shadow-[0_0_12px_var(--color-primary-glow-strong)]" />
         </div>
       )}
+      {/* World ended overlay — dramatic transition on simulation end */}
+      {showWorldEnded && (
+        <div
+          className="absolute inset-0 z-[100] pointer-events-none flex items-center justify-center bg-void/80 animate-[ended-fade-out_1500ms_ease-out_both]"
+          aria-live="assertive"
+          role="status"
+        >
+          {/* Danger scan line sweeping down */}
+          <div className="absolute inset-x-0 top-0 h-[2px] bg-danger/40 shadow-[0_0_16px_var(--color-danger-glow)] animate-[ended-scan_800ms_ease-out_both]" />
+          {/* WORLD ENDED text */}
+          <div className="text-subheading font-bold tracking-widest text-danger drop-shadow-[0_0_16px_var(--color-danger-glow)] animate-[ended-text-glitch_600ms_ease_both]">
+            <GlitchReveal text="// SIMULATION COMPLETE" duration={600} />
+          </div>
+        </div>
+      )}
       <ParticleField
         status={status}
         isNight={state?.world_time?.is_night ?? false}
@@ -453,7 +475,7 @@ function SimContent() {
             <>
               <span className="text-t-dim shrink-0">/</span>
               <span className="text-body font-semibold text-primary truncate max-w-[300px] drop-shadow-[0_0_8px_var(--color-primary-glow)]">
-                {state.name}
+                <GlitchReveal text={state.name} duration={500} />
               </span>
             </>
           )}
@@ -538,7 +560,7 @@ function SimContent() {
             {events.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-2">
                 <div className="text-micro text-t-dim tracking-widest">
-                  {"// AWAITING INPUT"}
+                  <GlitchReveal text="// AWAITING INPUT" duration={500} />
                   <span className="inline-block w-[0.55em] h-[1.1em] bg-t-dim ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite]" aria-hidden="true" />
                 </div>
                 <div className="text-detail text-t-muted normal-case tracking-normal">
@@ -648,8 +670,8 @@ function SimBootScreen() {
       {/* Main area */}
       <div className="flex-1 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="text-micro text-t-dim tracking-widest animate-[fade-in_300ms_ease]">
-            {"// INITIALIZING"}
+          <div className="text-micro text-t-dim tracking-widest">
+            <GlitchReveal text="// INITIALIZING" duration={500} />
             <span className="inline-block w-[0.55em] h-[1.1em] bg-t-dim ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite]" aria-hidden="true" />
           </div>
           <div className="flex gap-px">
