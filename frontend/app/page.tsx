@@ -8,6 +8,7 @@ import Nav from "@/components/Nav";
 import Settings from "@/components/Settings";
 import Timeline from "@/components/Timeline";
 import { StatusDot, ErrorBanner, EmptyState, SkeletonLine, GlitchReveal } from "@/components/ui";
+import WorldBootOverlay from "@/components/WorldBootOverlay";
 
 interface SessionRecord {
   id: string;
@@ -60,6 +61,7 @@ export default function Home() {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [editDetail, setEditDetail] = useState<SeedDetail | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [bootOverlay, setBootOverlay] = useState<{ worldName: string; targetUrl: string } | null>(null);
   // Settings saved to localStorage by Settings component; home page only shows/hides the panel
   const noop = () => {};
 
@@ -134,7 +136,7 @@ export default function Home() {
       };
       const res = await createWorld(data);
       if (!res?.session_id) throw new Error("No session_id");
-      router.push(`/sim?id=${res.session_id}`);
+      setBootOverlay({ worldName: editDetail.name, targetUrl: `/sim?id=${res.session_id}` });
     } catch {
       setError(t("failed_create"));
       setLoading(false);
@@ -230,7 +232,8 @@ export default function Home() {
     try {
       const res = await createFromSeed(filename);
       if (!res?.session_id) throw new Error("No session_id");
-      router.push(`/sim?id=${res.session_id}`);
+      const seedName = seeds.find((s) => s.file === filename)?.name || "WORLD";
+      setBootOverlay({ worldName: seedName, targetUrl: `/sim?id=${res.session_id}` });
     } catch {
       setError(t("failed_create"));
       setLoading(false);
@@ -253,6 +256,14 @@ export default function Home() {
   function getWorldSessions(seedName: string) {
     return sessionsByWorld.get(seedName) || [];
   }
+
+  // ── Boot overlay (world entry transition) ──
+  const bootEl = bootOverlay && (
+    <WorldBootOverlay
+      worldName={bootOverlay.worldName}
+      onComplete={() => router.push(bootOverlay.targetUrl)}
+    />
+  );
 
   // ── World detail view ──
   if (selectedSeed) {
@@ -289,6 +300,7 @@ export default function Home() {
 
     return (
       <div className="h-screen flex flex-col bg-void">
+        {bootEl}
         {/* Nav — world context */}
         <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
           <div className="flex items-center gap-4">
@@ -672,6 +684,7 @@ export default function Home() {
   // ── World list view (default) ──
   return (
     <div className="min-h-screen flex flex-col bg-void">
+      {bootEl}
       <Nav activePage="home" showSettings={showSettings} onToggleSettings={() => setShowSettings(!showSettings)} />
 
       {/* Global settings panel */}
@@ -751,14 +764,14 @@ export default function Home() {
                 </a>
               </EmptyState>
             ) : (
-              <div className="flex flex-col gap-px bg-b-DEFAULT stagger-in">
+              <div className={`flex flex-col gap-px bg-b-DEFAULT stagger-in transition-opacity duration-slow ${detailLoading ? "opacity-40 pointer-events-none" : ""}`}>
                 {seeds.map((seed) => {
                   const saveCount = getWorldSessions(seed.name).length;
                   return (
                     <button
                       key={seed.file}
                       onClick={() => handleSelectSeed(seed)}
-                      className="bg-void px-5 py-4 text-left hover:bg-surface-1 transition-[colors,box-shadow] group border-l-2 border-l-transparent hover:border-l-primary hover:shadow-[inset_0_0_24px_var(--color-primary-glow)]"
+                      className="bg-void px-5 py-4 text-left hover:bg-surface-1 transition-[colors,box-shadow] group border-l-2 border-l-transparent hover:border-l-primary hover:shadow-[inset_0_0_24px_var(--color-primary-glow)] relative overflow-hidden"
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-body font-bold group-hover:text-primary transition-colors">

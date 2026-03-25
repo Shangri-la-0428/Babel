@@ -204,6 +204,34 @@ select:focus-visible {
   100% { background-position: 200% 0; }
 }
 
+/* ── Modal/Panel exit animations ── */
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes modal-exit {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
+
+@keyframes panel-slide-up-exit {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-8px); }
+}
+
+/* ── World Boot Scan: full-viewport top-to-bottom sweep on run start ── */
+@keyframes world-boot-scan {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+/* ── World Boot Overlay: horizontal line expand ── */
+@keyframes boot-line-expand {
+  0% { width: 0; margin-left: 50%; }
+  100% { width: 100%; margin-left: 0; }
+}
+
 /* ── Oracle Overdrive: Edge Scan Light ── */
 @property --oracle-scan-y {
   syntax: '<percentage>';

@@ -80,8 +80,10 @@ export default function ControlBar({
   const { t } = useLocale();
   const isRunning = status === "running";
   const prevStatusRef = useRef(status);
+  const prevWsRef = useRef(wsStatus);
   const [showBoot, setShowBoot] = useState(false);
 
+  // Boot sweep on status → running
   useEffect(() => {
     if (prevStatusRef.current !== "running" && status === "running") {
       setShowBoot(true);
@@ -90,6 +92,16 @@ export default function ControlBar({
     }
     prevStatusRef.current = status;
   }, [status]);
+
+  // Boot sweep on WS connected
+  useEffect(() => {
+    if (prevWsRef.current !== "connected" && wsStatus === "connected") {
+      setShowBoot(true);
+      const timer = setTimeout(() => setShowBoot(false), 700);
+      return () => clearTimeout(timer);
+    }
+    prevWsRef.current = wsStatus;
+  }, [wsStatus]);
 
   return (
     <div className="flex items-center gap-3 px-4 h-14 bg-surface-1 border-t border-b-DEFAULT shrink-0 relative overflow-hidden" role="toolbar" aria-label={t("aria_controls")}>
@@ -209,7 +221,12 @@ export default function ControlBar({
             <span className="text-micro text-t-dim tracking-wider">{model}</span>
           )}
           {wsStatus && wsStatus !== "connected" && (
-            <span className={`text-micro tracking-wider ${wsStatus === "disconnected" ? "text-danger" : "text-t-dim"}`}>
+            <span className={`text-micro tracking-wider flex items-center gap-1.5 ${wsStatus === "disconnected" ? "text-danger" : "text-t-dim"}`}>
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${
+                wsStatus === "disconnected"
+                  ? "bg-danger shadow-[0_0_6px_var(--color-danger-glow)]"
+                  : "bg-t-dim animate-[blink_1s_step-end_infinite]"
+              }`} />
               {wsStatus === "disconnected" ? t("disconnected") : t("connecting")}
             </span>
           )}

@@ -7,6 +7,7 @@ import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
 import Settings from "@/components/Settings";
 import { ErrorBanner } from "@/components/ui";
+import WorldBootOverlay from "@/components/WorldBootOverlay";
 
 interface AgentForm {
   id: string;
@@ -46,6 +47,7 @@ export default function CreatePage() {
   const [savedAgents, setSavedAgents] = useState<SavedSeedData[]>([]);
   const [savedEvents, setSavedEvents] = useState<SavedSeedData[]>([]);
   const [showImport, setShowImport] = useState(false);
+  const [bootOverlay, setBootOverlay] = useState<{ worldName: string; targetUrl: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
@@ -173,7 +175,7 @@ export default function CreatePage() {
 
       const res = await createWorld(data);
       if (!res?.session_id) throw new Error("No session_id");
-      router.push(`/sim?id=${res.session_id}`);
+      setBootOverlay({ worldName: world.name || "WORLD", targetUrl: `/sim?id=${res.session_id}` });
     } catch {
       setError(t("failed_create"));
       setLoading(false);
@@ -188,6 +190,12 @@ export default function CreatePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-void">
+      {bootOverlay && (
+        <WorldBootOverlay
+          worldName={bootOverlay.worldName}
+          onComplete={() => router.push(bootOverlay.targetUrl)}
+        />
+      )}
       <Nav activePage="create" showSettings={showSettings} onToggleSettings={() => setShowSettings(!showSettings)} />
 
       {showSettings && (

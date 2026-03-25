@@ -64,6 +64,8 @@ function SimContent() {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const highlightTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const operationRef = useRef(false); // guard against concurrent Run/Step
+  const [showWorldBoot, setShowWorldBoot] = useState(false);
+  const prevRunStatus = useRef(status);
 
   // Load initial state
   useEffect(() => {
@@ -391,6 +393,16 @@ function SimContent() {
     return "";
   }, [events, state?.agents]);
 
+  // World boot scan on paused → running
+  useEffect(() => {
+    if (prevRunStatus.current !== "running" && status === "running") {
+      setShowWorldBoot(true);
+      const t = setTimeout(() => setShowWorldBoot(false), 600);
+      return () => clearTimeout(t);
+    }
+    prevRunStatus.current = status;
+  }, [status]);
+
   // Radar: agent list for Canvas visualization
   const radarAgents = useMemo(() => {
     if (!state?.agents) return [];
@@ -416,6 +428,12 @@ function SimContent() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-void scanlines relative isolate">
+      {/* World boot scan — full viewport sweep on run start */}
+      {showWorldBoot && (
+        <div className="absolute inset-0 z-[100] pointer-events-none animate-[world-boot-scan_600ms_ease-out_both]" aria-hidden="true">
+          <div className="absolute inset-x-0 h-[2px] bg-primary/20 shadow-[0_0_12px_var(--color-primary-glow-strong)]" />
+        </div>
+      )}
       <ParticleField
         status={status}
         isNight={state?.world_time?.is_night ?? false}
@@ -620,15 +638,45 @@ function SimContent() {
   );
 }
 
+function SimBootScreen() {
+  return (
+    <div className="h-screen flex flex-col bg-void scanlines">
+      {/* Nav skeleton */}
+      <div className="h-14 border-b border-b-DEFAULT shrink-0 flex items-center px-6">
+        <div className="h-3 w-16 bg-surface-2 animate-shimmer bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%]" />
+      </div>
+      {/* Main area */}
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="text-micro text-t-dim tracking-widest animate-[fade-in_300ms_ease]">
+            {"// INITIALIZING"}
+            <span className="inline-block w-[0.55em] h-[1.1em] bg-t-dim ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite]" aria-hidden="true" />
+          </div>
+          <div className="flex gap-px">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-1 w-8 bg-surface-2 animate-shimmer bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%]"
+                style={{ animationDelay: `${i * 200}ms` }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      {/* ControlBar skeleton */}
+      <div className="h-14 border-t border-b-DEFAULT bg-surface-1 shrink-0 flex items-center px-4 gap-3">
+        <div className="h-9 w-24 bg-surface-2 animate-shimmer bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%]" />
+        <div className="h-9 w-16 bg-surface-2 animate-shimmer bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%]" style={{ animationDelay: "100ms" }} />
+        <div className="w-px h-6 bg-b-DEFAULT" />
+        <div className="h-4 w-20 bg-surface-2 animate-shimmer bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2 bg-[length:200%_100%]" style={{ animationDelay: "200ms" }} />
+      </div>
+    </div>
+  );
+}
+
 export default function SimPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="h-screen flex items-center justify-center bg-void text-micro text-t-dim tracking-widest">
-          LOADING
-        </div>
-      }
-    >
+    <Suspense fallback={<SimBootScreen />}>
       <SimContent />
     </Suspense>
   );

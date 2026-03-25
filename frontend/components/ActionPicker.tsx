@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useLocale } from "@/lib/locale-context";
 import type { HumanWaitingContext } from "@/lib/api";
+
+const EXIT_MS = 150;
 
 const ACTION_TYPES = [
   { key: "speak", icon: "\u{1F4AC}", needsTarget: true, needsContent: true, targetType: "agent" },
@@ -26,6 +28,13 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
   const [selectedAction, setSelectedAction] = useState<ActionKey | null>(null);
   const [target, setTarget] = useState("");
   const [content, setContent] = useState("");
+  const [closing, setClosing] = useState(false);
+
+  const startClose = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(onCancel, EXIT_MS);
+  }, [closing, onCancel]);
 
   const actionDef = useMemo(
     () => ACTION_TYPES.find((a) => a.key === selectedAction),
@@ -70,10 +79,19 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center pointer-events-none">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-void/60 pointer-events-auto" onClick={onCancel} />
+      <div
+        className={`absolute inset-0 bg-void/60 pointer-events-auto ${
+          closing ? "animate-[fade-out_150ms_ease_both]" : "animate-[fade-in_100ms_ease]"
+        }`}
+        onClick={startClose}
+      />
 
       {/* Panel */}
-      <div className="relative w-full max-w-[720px] mb-16 mx-4 pointer-events-auto animate-[slide-up_200ms_cubic-bezier(0.16,1,0.3,1)]">
+      <div className={`relative w-full max-w-[720px] mb-16 mx-4 pointer-events-auto ${
+        closing
+          ? "animate-[modal-exit_150ms_ease_both]"
+          : "animate-[slide-up_200ms_cubic-bezier(0.16,1,0.3,1)]"
+      }`}>
         <div className="border border-b-DEFAULT bg-void">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-b-DEFAULT">
@@ -211,7 +229,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
               {t("action_submit")}
             </button>
             <button
-              onClick={onCancel}
+              onClick={startClose}
               className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
             >
               {t("action_cancel")}

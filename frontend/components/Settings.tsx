@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   BabelSettings,
   loadSettings,
@@ -14,12 +14,21 @@ interface SettingsProps {
   onSave: (settings: BabelSettings) => void;
 }
 
+const EXIT_MS = 150;
+
 export default function Settings({ onClose, onSave }: SettingsProps) {
   const { t } = useLocale();
   const [settings, setSettings] = useState<BabelSettings>(loadSettings);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [testStatus, setTestStatus] = useState<"idle" | "ok" | "error">("idle");
+  const [closing, setClosing] = useState(false);
+
+  const startClose = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(onClose, EXIT_MS);
+  }, [closing, onClose]);
 
   // Load models on mount if key + base exist
   useEffect(() => {
@@ -47,7 +56,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
   function handleSave() {
     saveSettings(settings);
     onSave(settings);
-    onClose();
+    startClose();
   }
 
   function update(patch: Partial<BabelSettings>) {
@@ -60,7 +69,11 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
     "text-micro text-t-muted tracking-widest block mb-1.5";
 
   return (
-    <div className="border-b border-b-DEFAULT bg-surface-1 animate-[slide-down_0.15s_ease] overflow-hidden">
+    <div className={`border-b border-b-DEFAULT bg-surface-1 overflow-hidden ${
+      closing
+        ? "animate-[panel-slide-up-exit_150ms_ease_both]"
+        : "animate-[slide-down_0.15s_ease]"
+    }`}>
       <div className="max-w-4xl mx-auto px-6 py-5">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
@@ -176,7 +189,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
             {t("save")}
           </button>
           <button
-            onClick={onClose}
+            onClick={startClose}
             className="h-9 px-4 text-micro tracking-wider text-t-muted hover:text-t-DEFAULT transition-colors"
           >
             {t("cancel")}

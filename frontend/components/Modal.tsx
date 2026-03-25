@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useRef, ReactNode } from "react";
+import { useEffect, useCallback, useRef, useState, ReactNode } from "react";
 
 interface ModalProps {
   children: ReactNode;
@@ -10,15 +10,23 @@ interface ModalProps {
 }
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const EXIT_MS = 150;
 
 export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg" }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<Element | null>(null);
+  const [closing, setClosing] = useState(false);
+
+  const startClose = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(onClose, EXIT_MS);
+  }, [closing, onClose]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        startClose();
         return;
       }
 
@@ -39,7 +47,7 @@ export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg"
         }
       }
     },
-    [onClose]
+    [startClose]
   );
 
   useEffect(() => {
@@ -70,15 +78,23 @@ export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg"
 
   return (
     <div
-      className="fixed inset-0 z-modal flex items-center justify-center bg-overlay animate-[fade-in_150ms_ease]"
+      className={`fixed inset-0 z-modal flex items-center justify-center bg-overlay ${
+        closing
+          ? "animate-[fade-out_150ms_ease_both]"
+          : "animate-[fade-in_150ms_ease]"
+      }`}
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
-      onClick={onClose}
+      onClick={startClose}
     >
       <div
         ref={panelRef}
-        className={`w-full ${width} max-w-[90vw] max-h-[85vh] bg-void border border-b-DEFAULT flex flex-col animate-[slide-up_150ms_ease]`}
+        className={`w-full ${width} max-w-[90vw] max-h-[85vh] bg-void border border-b-DEFAULT flex flex-col ${
+          closing
+            ? "animate-[modal-exit_150ms_ease_both]"
+            : "animate-[slide-up_150ms_ease]"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}
