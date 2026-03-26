@@ -701,9 +701,6 @@ function SimContent() {
         onPause={handlePause}
         onStep={handleStep}
         disabled={loading && status !== "running"}
-        worldName={state?.name}
-        sessionId={sessionId}
-        model={settings.model}
         wsStatus={wsStatus}
         worldTime={state?.world_time || null}
         onOracle={handleToggleOracle}

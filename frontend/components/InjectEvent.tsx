@@ -79,6 +79,7 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
       <button
         type="submit"
         disabled={disabled || sending || !content.trim()}
+        title={disabled ? t("sim_running_hint") : !content.trim() ? t("inject_empty_hint") : undefined}
         className={`h-9 px-4 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none ${
           content.trim()
             ? "bg-primary text-void border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)]"

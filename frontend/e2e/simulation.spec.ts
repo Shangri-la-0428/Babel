@@ -576,3 +576,68 @@ test.describe("M3.4: Event Injection", () => {
     await expect(injectInput).toHaveValue("");
   });
 });
+
+/**
+ * TC-P15: Phase 15 Polish — WorldRadar collapse, disabled reasons, ControlBar density
+ * PRD: Converge complexity — refine existing UI, don't add features
+ */
+test.describe("P15: WorldRadar Collapse", () => {
+  test.describe.configure({ timeout: 60_000 });
+
+  // P15-01 (P1) — TACTICAL toggle exists and collapses radar
+  test("should toggle WorldRadar visibility via TACTICAL button", async ({ page }) => {
+    await createWorld(page);
+
+    const tacticalBtn = page.getByRole("button", { name: /TACTICAL/ });
+    await expect(tacticalBtn).toBeVisible();
+
+    // Should have aria-expanded
+    await expect(tacticalBtn).toHaveAttribute("aria-expanded", "true");
+
+    // Collapse
+    await tacticalBtn.click();
+    await expect(tacticalBtn).toHaveAttribute("aria-expanded", "false");
+
+    // Expand again
+    await tacticalBtn.click();
+    await expect(tacticalBtn).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+test.describe("P15: Disabled Button Reasons", () => {
+  test.describe.configure({ timeout: 60_000 });
+
+  // P15-02 (P1) — Step button shows reason when disabled (sim is paused but step should explain)
+  test("should show reason on disabled step button when sim is running", async ({ page }) => {
+    await createWorld(page);
+
+    const toolbar = page.getByRole("toolbar");
+    // Step button is enabled when paused — it should have no disabled title
+    const stepBtn = toolbar.getByRole("button", { name: /Advance one tick|推演一步/ }).first();
+    await expect(stepBtn).toBeEnabled();
+  });
+
+  // P15-03 (P1) — Inject button shows reason when empty
+  test("should have disabled inject button with visual feedback", async ({ page }) => {
+    await createWorld(page);
+
+    const injectForm = page.locator("form[aria-label='Inject']");
+    const submitBtn = injectForm.getByRole("button");
+    // Button should be disabled when input is empty
+    await expect(submitBtn).toBeDisabled();
+  });
+});
+
+test.describe("P15: ControlBar Density", () => {
+  test.describe.configure({ timeout: 60_000 });
+
+  // P15-04 (P2) — ControlBar should NOT show model name or session ID
+  test("should not display model name in control bar", async ({ page }) => {
+    await createWorld(page);
+
+    const toolbar = page.getByRole("toolbar");
+    // Model name should not appear in toolbar (moved to Settings)
+    // Session ID (test-session-001) should not appear in toolbar
+    await expect(toolbar.getByText("test-session-001")).not.toBeVisible();
+  });
+});

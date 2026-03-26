@@ -11,9 +11,6 @@ interface ControlBarProps {
   onPause: () => void;
   onStep: () => void;
   disabled?: boolean;
-  worldName?: string;
-  sessionId?: string;
-  model?: string;
   wsStatus?: "connecting" | "connected" | "disconnected";
   worldTime?: { display: string; period: string; is_night: boolean } | null;
   onOracle?: () => void;
@@ -70,9 +67,6 @@ export default function ControlBar({
   onPause,
   onStep,
   disabled,
-  worldName,
-  sessionId,
-  model,
   wsStatus,
   worldTime,
   onOracle,
@@ -261,17 +255,6 @@ export default function ControlBar({
         </span>
       </div>
 
-      {/* World info */}
-      {worldName && (
-        <>
-          <div className="w-px h-6 bg-b-DEFAULT" />
-          <span className="text-micro text-t-muted tracking-wider truncate min-w-0" style={{ maxWidth: "clamp(100px, 15vw, 240px)" }} title={`${worldName}${sessionId ? ` · ${sessionId}` : ""}`}>
-            {worldName}
-            {sessionId && ` · ${sessionId.slice(0, 6)}`}
-          </span>
-        </>
-      )}
-
       {/* WS status (always visible) */}
       {wsStatus && wsStatus !== "connected" && (
         <>
@@ -281,13 +264,6 @@ export default function ControlBar({
             {wsStatus === "disconnected" ? t("disconnected") : t("connecting")}
           </span>
         </>
-      )}
-      {/* Model (2xl+ only) */}
-      {model && (
-        <span className="hidden 2xl:contents">
-          <div className="w-px h-6 bg-b-DEFAULT" />
-          <span className="text-micro text-t-dim tracking-wider" title={model}>{model}</span>
-        </span>
       )}
     </div>
   );

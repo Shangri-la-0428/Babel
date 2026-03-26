@@ -166,6 +166,8 @@ const translations = {
   aria_controls: { cn: "模拟控制", en: "Simulation controls" },
   already_running: { cn: "// 模拟运行中", en: "// RUNNING" },
   pause_first: { cn: "// 先暂停模拟", en: "// PAUSE FIRST" },
+  sim_running_hint: { cn: "// SIM_RUNNING — 暂停后可注入", en: "// SIM_RUNNING — Pause to inject" },
+  inject_empty_hint: { cn: "// 输入事件内容", en: "// Enter event text" },
 
   // Event feed
   system: { cn: "系统", en: "System" },
