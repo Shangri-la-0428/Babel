@@ -302,6 +302,27 @@ export default function SeedDetail({
               {t("source")}: {seed.source_world.slice(0, 8)}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              const blob = new Blob([JSON.stringify({
+                type: seed.type,
+                name: seed.name,
+                description: seed.description,
+                tags: seed.tags,
+                data: seed.data,
+              }, null, 2)], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${seed.type}-${seed.name.replace(/\s+/g, "_")}.babel.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+          >
+            {t("export_seed")}
+          </button>
         </div>
         <span className="text-micro text-t-dim tracking-wider tabular-nums">
           {seed.id}

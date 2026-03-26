@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { fetchAssets, deleteAsset, SavedSeedData, SeedTypeValue } from "@/lib/api";
+import { fetchAssets, deleteAsset, saveAsset, SavedSeedData, SeedTypeValue } from "@/lib/api";
 import { TransKey } from "@/lib/i18n";
 import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
@@ -28,6 +28,8 @@ export default function AssetsPage() {
   const [selected, setSelected] = useState<SavedSeedData | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ seed: SavedSeedData; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mountedRef = useRef(true);
 
@@ -81,6 +83,43 @@ export default function AssetsPage() {
     setPendingDelete(null);
   }
 
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    if (file.size > 1_048_576) {
+      setImportError(t("import_too_large"));
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+
+      const VALID_TYPES = ["world", "agent", "item", "location", "event"];
+      if (!parsed.type || !VALID_TYPES.includes(parsed.type) ||
+          !parsed.name || typeof parsed.name !== "string" ||
+          !parsed.data || typeof parsed.data !== "object") {
+        setImportError(t("import_invalid"));
+        return;
+      }
+
+      await saveAsset({
+        type: parsed.type,
+        name: parsed.name,
+        description: parsed.description || "",
+        tags: parsed.tags || [],
+        data: parsed.data,
+      });
+
+      setImportError(null);
+      loadSeeds();
+    } catch {
+      setImportError(t("import_invalid"));
+    }
+  }
+
   const counts = seeds.reduce(
     (acc, s) => {
       acc[s.type] = (acc[s.type] || 0) + 1;
@@ -104,9 +143,30 @@ export default function AssetsPage() {
         <h1 className="font-sans text-title font-bold tracking-tight mb-2">
           {t("assets_title")}
         </h1>
-        <p className="text-detail text-t-muted normal-case tracking-normal mb-8">
-          {t("assets_desc")}
-        </p>
+        <div className="flex items-center justify-between mb-8">
+          <p className="text-detail text-t-muted normal-case tracking-normal">
+            {t("assets_desc")}
+          </p>
+          <div className="flex items-center gap-3 shrink-0">
+            {importError && (
+              <span className="text-micro text-danger tracking-wider">{importError}</span>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,.babel.json"
+              onChange={handleImport}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+            >
+              {t("import_seed")}
+            </button>
+          </div>
+        </div>
 
         {/* Error */}
         {error && (

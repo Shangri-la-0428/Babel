@@ -187,3 +187,99 @@ test.describe("M6: Seed Card Structure", () => {
     ).toBeVisible({ timeout: 5_000 });
   });
 });
+
+// ── Export / Import ──
+
+const MOCK_ASSETS = [
+  {
+    id: "test-agent-1",
+    type: "agent",
+    name: "Test Agent Alpha",
+    description: "A fierce warrior",
+    tags: ["warrior"],
+    data: { name: "Test Agent Alpha", personality: "brave" },
+    source_world: "abcd1234-5678-ef90",
+  },
+];
+
+function mockAssetsAPI(page: import("@playwright/test").Page) {
+  return page.route(/localhost:8000/, (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    if (method === "POST" && url.includes("/api/assets")) {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: "imported-1", name: "Imported", type: "agent" }),
+      });
+    } else if (url.includes("/api/assets")) {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(MOCK_ASSETS),
+      });
+    } else {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    }
+  });
+}
+
+test.describe("M6: Export / Import", () => {
+  test("should show export button in seed detail modal", async ({ page }) => {
+    await mockAssetsAPI(page);
+    await page.goto("/assets");
+    await page.getByText("Test Agent Alpha").first().click();
+    await expect(page.getByRole("button", { name: /EXPORT|导出/i })).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("should trigger download on export click", async ({ page }) => {
+    await mockAssetsAPI(page);
+    await page.goto("/assets");
+    await page.getByText("Test Agent Alpha").first().click();
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: /EXPORT|导出/i }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toContain(".babel.json");
+  });
+
+  test("should show import button on assets page", async ({ page }) => {
+    await mockAssetsAPI(page);
+    await page.goto("/assets");
+    await expect(page.getByRole("button", { name: /IMPORT|导入/i })).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("should reject invalid file on import", async ({ page }) => {
+    await mockAssetsAPI(page);
+    await page.goto("/assets");
+
+    const fileInput = page.locator("input[type='file']");
+    const buffer = Buffer.from("not json at all");
+    await fileInput.setInputFiles({ name: "bad.json", mimeType: "application/json", buffer });
+
+    await expect(page.getByText(/INVALID_FORMAT/i).first()).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("should import valid babel.json file", async ({ page }) => {
+    await mockAssetsAPI(page);
+    await page.goto("/assets");
+    await expect(page.getByText("Test Agent Alpha").first()).toBeVisible({ timeout: 5_000 });
+
+    const validSeed = JSON.stringify({ type: "agent", name: "Imported Agent", data: { personality: "kind" } });
+    const fileInput = page.locator("input[type='file']");
+    await fileInput.setInputFiles({ name: "agent-test.babel.json", mimeType: "application/json", buffer: Buffer.from(validSeed) });
+
+    // After import, page should reload seeds (mock returns same list — just verify no error)
+    await expect(page.getByText(/INVALID_FORMAT/i)).not.toBeVisible({ timeout: 3_000 });
+  });
+
+  test("should reject file larger than 1MB", async ({ page }) => {
+    await mockAssetsAPI(page);
+    await page.goto("/assets");
+
+    const bigBuffer = Buffer.alloc(1_048_577, "x");
+    const fileInput = page.locator("input[type='file']");
+    await fileInput.setInputFiles({ name: "huge.json", mimeType: "application/json", buffer: bigBuffer });
+
+    await expect(page.getByText(/FILE_TOO_LARGE/i).first()).toBeVisible({ timeout: 5_000 });
+  });
+});

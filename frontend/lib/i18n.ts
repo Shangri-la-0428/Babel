@@ -169,6 +169,13 @@ const translations = {
   sim_running_hint: { cn: "// SIM_RUNNING — 暂停后可注入", en: "// SIM_RUNNING — Pause to inject" },
   inject_empty_hint: { cn: "// 输入事件内容", en: "// Enter event text" },
 
+  // Export / Import
+  export_seed: { cn: "导出", en: "EXPORT" },
+  import_seed: { cn: "导入", en: "IMPORT" },
+  import_success: { cn: "导入成功", en: "Imported" },
+  import_invalid: { cn: "// INVALID_FORMAT — 文件格式不符", en: "// INVALID_FORMAT — File format mismatch" },
+  import_too_large: { cn: "// FILE_TOO_LARGE — 最大 1MB", en: "// FILE_TOO_LARGE — Max 1MB" },
+
   // Event feed
   system: { cn: "系统", en: "System" },
   seed: { cn: "种子", en: "Seed" },
