@@ -25,7 +25,9 @@ function autoResize(el: HTMLTextAreaElement | null) {
   if (!el) return;
   requestAnimationFrame(() => {
     el.style.height = "0";
-    el.style.height = el.scrollHeight + "px";
+    const h = Math.min(el.scrollHeight, 400);
+    el.style.height = h + "px";
+    el.style.overflowY = el.scrollHeight > 400 ? "auto" : "hidden";
   });
 }
 
@@ -38,6 +40,7 @@ function AutoTextarea({ className, value, ...props }: React.TextareaHTMLAttribut
       ref={ref}
       className={className}
       value={value}
+      style={{ maxHeight: 400 }}
       onInput={(e) => autoResize(e.currentTarget)}
       {...props}
     />
@@ -323,14 +326,14 @@ export default function Home() {
     ];
 
     const inputCls = "w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors";
-    const textareaCls = "w-full min-h-[36px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-none overflow-hidden focus:border-primary focus:outline-none hover:border-b-hover transition-colors";
+    const textareaCls = "w-full min-h-[36px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-none focus:border-primary focus:outline-none hover:border-b-hover transition-colors";
     const fieldLabel = "text-micro text-t-muted tracking-widest mb-1.5 block";
 
     return (
       <div className="h-screen flex flex-col bg-void">
         {bootEl}
         {booting && (
-          <div className="fixed inset-0 z-[9999] bg-void flex flex-col items-center justify-center scanlines cursor-pointer" onClick={() => setBooting(false)}>
+          <div className="fixed inset-0 z-boot-screen bg-void flex flex-col items-center justify-center scanlines cursor-pointer" onClick={() => setBooting(false)}>
             <div className="text-micro text-t-dim tracking-widest mb-4 animate-[fade-in_200ms_ease_both]">
               <GlitchReveal text="// BABEL WORLD STATE MACHINE" duration={600} />
             </div>
@@ -435,7 +438,7 @@ export default function Home() {
                   type="button"
                   onClick={() => handleStartNew(selectedSeed.file)}
                   disabled={loading}
-                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {loading ? t("creating") : t("world_start_new")}
                 </button>
@@ -443,7 +446,7 @@ export default function Home() {
                   type="button"
                   onClick={handleSaveLaunch}
                   disabled={loading || !ed}
-                  className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 transition-[colors,box-shadow,transform]"
+                  className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,box-shadow,transform]"
                 >
                   {loading ? t("creating") : t("save_launch")}
                 </button>
@@ -451,7 +454,7 @@ export default function Home() {
                   type="button"
                   onClick={handleEditWorld}
                   disabled={!ed}
-                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {t("edit_world")}
                 </button>
@@ -607,7 +610,7 @@ export default function Home() {
                           )}
                         </div>
                       ))}
-                      <button type="button" onClick={addAgent} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
+                      <button type="button" onClick={addAgent} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
                         {t("add_agent")}
                       </button>
                     </div>
@@ -697,7 +700,7 @@ export default function Home() {
                           )}
                         </div>
                       ))}
-                      <button type="button" onClick={addLocation} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
+                      <button type="button" onClick={addLocation} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
                         {t("add_location")}
                       </button>
                     </div>
@@ -749,7 +752,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col bg-void">
       {bootEl}
       {booting && (
-        <div className="fixed inset-0 z-[9999] bg-void flex flex-col items-center justify-center scanlines cursor-pointer" onClick={() => setBooting(false)}>
+        <div className="fixed inset-0 z-boot-screen bg-void flex flex-col items-center justify-center scanlines cursor-pointer" onClick={() => setBooting(false)}>
           <div className="text-micro text-t-dim tracking-widest mb-4 animate-[fade-in_200ms_ease_both]">
             <GlitchReveal text="// BABEL WORLD STATE MACHINE" duration={600} />
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useLocale } from "@/lib/locale-context";
 import type { HumanWaitingContext } from "@/lib/api";
 
@@ -30,11 +30,15 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
   const [content, setContent] = useState("");
   const [closing, setClosing] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const submitTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => () => { clearTimeout(closeTimerRef.current); clearTimeout(submitTimerRef.current); }, []);
 
   const startClose = useCallback(() => {
     if (closing) return;
     setClosing(true);
-    setTimeout(onCancel, EXIT_MS);
+    closeTimerRef.current = setTimeout(onCancel, EXIT_MS);
   }, [closing, onCancel]);
 
   const actionDef = useMemo(
@@ -71,7 +75,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
   function handleSubmit() {
     if (!selectedAction || submitted) return;
     setSubmitted(true);
-    setTimeout(() => onSubmit(selectedAction, target, content), 400);
+    submitTimerRef.current = setTimeout(() => onSubmit(selectedAction, target, content), 400);
   }
 
   const canSubmit = selectedAction && (
@@ -79,7 +83,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
   );
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center pointer-events-none">
+    <div className="fixed inset-0 z-overlay flex items-end justify-center pointer-events-none">
       {/* Backdrop */}
       <div
         className={`absolute inset-0 bg-void/60 pointer-events-auto ${
@@ -110,24 +114,24 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
 
           {/* Context strip */}
           <div className="flex gap-px bg-b-DEFAULT border-b border-b-DEFAULT">
-            <div className="flex-1 bg-void px-3 py-2">
-              <div className="text-[10px] text-t-dim tracking-widest mb-0.5">{t("you_are_here")}</div>
-              <div className="text-detail text-t-secondary normal-case tracking-normal">{context.location}</div>
+            <div className="flex-1 bg-void px-3 py-2 min-w-0">
+              <div className="text-micro text-t-dim tracking-widest mb-0.5">{t("you_are_here")}</div>
+              <div className="text-detail text-t-secondary normal-case tracking-normal truncate">{context.location}</div>
             </div>
-            <div className="flex-1 bg-void px-3 py-2">
-              <div className="text-[10px] text-t-dim tracking-widest mb-0.5">{t("your_inventory")}</div>
+            <div className="flex-1 bg-void px-3 py-2 min-w-0">
+              <div className="text-micro text-t-dim tracking-widest mb-0.5">{t("your_inventory")}</div>
               <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
                 {context.inventory.length > 0 ? context.inventory.join(", ") : "---"}
               </div>
             </div>
-            <div className="flex-1 bg-void px-3 py-2">
-              <div className="text-[10px] text-t-dim tracking-widest mb-0.5">{t("nearby_agents")}</div>
+            <div className="flex-1 bg-void px-3 py-2 min-w-0">
+              <div className="text-micro text-t-dim tracking-widest mb-0.5">{t("nearby_agents")}</div>
               <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
                 {sameLocAgents.length > 0 ? sameLocAgents.map((a) => a.name).join(", ") : "---"}
               </div>
             </div>
-            <div className="flex-1 bg-void px-3 py-2">
-              <div className="text-[10px] text-t-dim tracking-widest mb-0.5">{t("reachable")}</div>
+            <div className="flex-1 bg-void px-3 py-2 min-w-0">
+              <div className="text-micro text-t-dim tracking-widest mb-0.5">{t("reachable")}</div>
               <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
                 {otherLocations.length > 0 ? otherLocations.join(", ") : "---"}
               </div>
@@ -146,6 +150,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
 
               return (
                 <button
+                  type="button"
                   key={action.key}
                   onClick={() => !isDisabled && handleSelectAction(action.key)}
                   disabled={isDisabled}
@@ -155,12 +160,12 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
                     isSelected
                       ? "text-primary shadow-[inset_0_-2px_0_var(--color-primary)]"
                       : isDisabled
-                      ? "text-t-dim opacity-30 cursor-not-allowed"
+                      ? "text-t-dim opacity-40 cursor-not-allowed"
                       : "text-t-muted hover:text-t-DEFAULT hover:bg-surface-1"
                   }`}
                 >
                   <span className="text-body" aria-hidden="true">{action.icon}</span>
-                  <span className="text-[10px] tracking-widest font-medium">
+                  <span className="text-micro tracking-widest font-medium">
                     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     {t(`action_${action.key}` as any)}
                   </span>
@@ -175,7 +180,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
               {/* Target selector */}
               {actionDef.needsTarget && (
                 <div className="flex-1 bg-void px-3 py-2">
-                  <label className="text-[10px] text-t-dim tracking-widest mb-1 block">
+                  <label className="text-micro text-t-dim tracking-widest mb-1 block">
                     {t("action_target")}
                   </label>
                   <select
@@ -203,7 +208,7 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
               {/* Content input */}
               {actionDef.needsContent && (
                 <div className="flex-1 bg-void px-3 py-2">
-                  <label className="text-[10px] text-t-dim tracking-widest mb-1 block">
+                  <label className="text-micro text-t-dim tracking-widest mb-1 block">
                     {t("action_content")}
                   </label>
                   <input
@@ -224,15 +229,17 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
           {/* Submit row */}
           <div className="flex items-center gap-2 px-4 py-3">
             <button
+              type="button"
               onClick={handleSubmit}
               disabled={!canSubmit || submitted}
-              className="h-9 px-6 text-micro tracking-wider font-medium bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:hover:bg-primary disabled:hover:text-void disabled:hover:shadow-none transition-[colors,box-shadow,transform]"
+              className="h-9 px-6 text-micro tracking-wider font-medium bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary disabled:hover:text-void disabled:hover:shadow-none transition-[colors,box-shadow,transform]"
             >
               {t("action_submit")}
             </button>
             <button
+              type="button"
               onClick={startClose}
-              className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+              className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
             >
               {t("action_cancel")}
             </button>

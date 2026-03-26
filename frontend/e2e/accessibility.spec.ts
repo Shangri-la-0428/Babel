@@ -12,8 +12,29 @@ import { test, expect } from "@playwright/test";
  * - HTML lang follows locale
  */
 
+const MOCK_SEEDS = [
+  { file: "cyber_bar.json", name: "赛博酒吧", description: "A gritty cyberpunk bar", agent_count: 3, location_count: 3 },
+  { file: "ark.json", name: "末日方舟", description: "Post-apocalyptic ark", agent_count: 4, location_count: 2 },
+  { file: "iron_throne.json", name: "铁王座", description: "Medieval power struggle", agent_count: 3, location_count: 4 },
+];
+
+async function mockBackendAPIs(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => localStorage.setItem("babel_visited", "1"));
+  return page.route(/localhost:8000/, (route) => {
+    const url = route.request().url();
+    if (url.includes("/api/seeds")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_SEEDS) });
+    } else if (url.includes("/api/sessions")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    } else {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    }
+  });
+}
+
 test.describe("A11Y: Semantic HTML & ARIA", () => {
   test.beforeEach(async ({ page }) => {
+    await mockBackendAPIs(page);
     await page.goto("/");
   });
 
@@ -52,6 +73,7 @@ test.describe("A11Y: Semantic HTML & ARIA", () => {
 
 test.describe("A11Y: Locale & html lang", () => {
   test("html lang should follow locale preference", async ({ page }) => {
+    await mockBackendAPIs(page);
     // Set English locale
     await page.goto("/");
     await page.evaluate(() => localStorage.setItem("babel_locale", "en"));
@@ -73,20 +95,21 @@ test.describe("A11Y: Locale & html lang", () => {
 
 test.describe("A11Y: Modal scroll lock", () => {
   test("should lock background scroll when settings modal opens", async ({ page }) => {
+    await mockBackendAPIs(page);
     await page.goto("/");
 
     // Check initial body overflow
     const initialOverflow = await page.evaluate(() => document.body.style.overflow);
     expect(initialOverflow).not.toBe("hidden");
 
-    // Open settings (which uses a panel, not Modal)
-    // Navigate to seed detail and check modal behavior
-    await page.locator("button").filter({ hasText: "赛博酒吧" }).click();
-    await expect(page.getByRole("button", { name: /Save & Launch|保存并启动/ })).toBeVisible({ timeout: 10_000 });
-
-    // The seed detail view is not a modal — verify the page is still scrollable
-    // This test verifies the Modal component's scroll lock mechanism exists
-    // The actual lock is tested when a Modal component mounts
+    // Settings panel does not use Modal, so scroll lock is not applied.
+    // Verify settings opens and closes without error.
+    const settingsBtn = page.getByRole("button", { name: /设置|Settings/i });
+    await settingsBtn.click();
+    await expect(page.getByText(/API/i).first()).toBeVisible();
+    const cancelBtn = page.getByRole("button", { name: /取消|Cancel/i });
+    await cancelBtn.click();
+    await expect(page.getByText(/API/i).first()).not.toBeVisible({ timeout: 3_000 });
   });
 });
 

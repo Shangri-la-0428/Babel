@@ -59,15 +59,16 @@ test.describe("M2: Create World", () => {
     // Add a second agent
     await addBtn.click();
 
-    // Should have remove buttons
+    // Wait for remove buttons to appear (need 2+ agents)
     const removeButtons = page.getByRole("button", { name: /移除|Remove/i });
+    await expect(removeButtons.first()).toBeVisible({ timeout: 3_000 });
     const count = await removeButtons.count();
     expect(count).toBeGreaterThanOrEqual(1);
 
-    // Remove one
+    // Remove one (animated 150ms delay before DOM update)
+    // With only 1 agent remaining, UI hides all remove buttons
     await removeButtons.first().click();
-    const newCount = await removeButtons.count();
-    expect(newCount).toBeLessThan(count);
+    await expect(removeButtons).toHaveCount(0, { timeout: 3_000 });
   });
 
   // TC-M2-09 (P3)
@@ -103,8 +104,8 @@ test.describe("M2: Create World", () => {
 
   // TC-M2-08 (P2) — Submit button disabled when world name is empty
   test("should disable submit button when world name is empty", async ({ page }) => {
-    // Submit button: "Create & Launch" / "创建并启动"
-    const submitBtn = page.getByRole("button", { name: /创建并启动|Create & Launch/i });
+    // Submit button: t("ignite_world") = "点燃世界" / "IGNITE WORLD"
+    const submitBtn = page.getByRole("button", { name: /点燃世界|IGNITE WORLD/i });
     await expect(submitBtn).toBeVisible();
 
     // Should be disabled when name is empty
@@ -118,7 +119,7 @@ test.describe("M2: Create World", () => {
     await nameInput.fill("Test World");
 
     // Submit button should be enabled
-    const submitBtn = page.getByRole("button", { name: /创建并启动|Create & Launch/i });
+    const submitBtn = page.getByRole("button", { name: /点燃世界|IGNITE WORLD/i });
     await expect(submitBtn).toBeEnabled();
   });
 

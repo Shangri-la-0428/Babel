@@ -13,6 +13,9 @@ import { test, expect } from "@playwright/test";
 
 test.describe("M6: Assets Page", () => {
   test.beforeEach(async ({ page }) => {
+    await page.route(/localhost:8000/, (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
+    );
     await page.goto("/assets");
   });
 
@@ -64,6 +67,10 @@ test.describe("M6: Assets Page", () => {
 
 test.describe("M6: Navigation", () => {
   test("should navigate to assets page from nav", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("babel_visited", "1"));
+    await page.route(/localhost:8000/, (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
+    );
     await page.goto("/");
 
     const assetsLink = page.getByRole("link", { name: /资产|Assets/i }).first();

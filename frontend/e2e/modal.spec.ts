@@ -5,13 +5,51 @@ import { test, expect } from "@playwright/test";
  * PRD Section: 模块 M9, M10
  */
 
+const MOCK_SEEDS = [
+  { file: "cyber_bar.json", name: "赛博酒吧", description: "A gritty cyberpunk bar", agent_count: 3, location_count: 3 },
+  { file: "ark.json", name: "末日方舟", description: "Post-apocalyptic ark", agent_count: 4, location_count: 2 },
+  { file: "iron_throne.json", name: "铁王座", description: "Medieval power struggle", agent_count: 3, location_count: 4 },
+];
+
+const MOCK_CYBER_BAR_DETAIL = {
+  file: "cyber_bar.json",
+  name: "赛博酒吧",
+  description: "A gritty cyberpunk bar",
+  rules: ["No weapons in the bar"],
+  locations: [{ name: "吧台", description: "The main counter" }, { name: "后厅", description: "VIP area" }, { name: "暗巷", description: "Behind the bar" }],
+  agents: [
+    { id: "a1", name: "陈妈", description: "Bar owner", personality: "Gruff but caring", goals: ["Keep the peace"], inventory: ["Rag"], location: "吧台" },
+    { id: "a2", name: "Ghost", description: "Regular patron", personality: "Quiet", goals: ["Find work"], inventory: [], location: "吧台" },
+    { id: "a3", name: "Neon", description: "Hacker", personality: "Paranoid", goals: ["Decrypt the file"], inventory: ["Laptop"], location: "后厅" },
+  ],
+  initial_events: ["A stranger walks in"],
+};
+
+async function mockBackend(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => localStorage.setItem("babel_visited", "1"));
+  return page.route(/localhost:8000/, (route) => {
+    const url = route.request().url();
+    if (url.includes("/api/seeds/")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_CYBER_BAR_DETAIL) });
+    } else if (url.includes("/api/seeds")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_SEEDS) });
+    } else if (url.includes("/api/sessions")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    } else {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    }
+  });
+}
+
 test.describe("M9: UI Primitives", () => {
   test("should render nav with BABEL logo", async ({ page }) => {
+    await mockBackend(page);
     await page.goto("/");
     await expect(page.getByText("BABEL").first()).toBeVisible();
   });
 
   test("should render nav links", async ({ page }) => {
+    await mockBackend(page);
     await page.goto("/");
 
     const nav = page.getByRole("navigation");
@@ -24,6 +62,7 @@ test.describe("M9: UI Primitives", () => {
   });
 
   test("should render assets page without crash", async ({ page }) => {
+    await mockBackend(page);
     await page.goto("/assets");
     await expect(page.locator("nav")).toBeVisible();
     // Page should render title
@@ -45,6 +84,7 @@ test.describe("M10: Modal & Keyboard Interactions", () => {
   // TC-M10-01 (P1) - Modals appear in sim page (AgentChat, SeedPreview)
   // We test that the seed detail view on home opens/closes correctly
   test("should close seed detail with Back button", async ({ page }) => {
+    await mockBackend(page);
     await page.goto("/");
 
     // Open seed detail
@@ -60,6 +100,7 @@ test.describe("M10: Modal & Keyboard Interactions", () => {
 
   // Verify nav keyboard accessibility
   test("should have focusable nav elements", async ({ page }) => {
+    await mockBackend(page);
     await page.goto("/");
 
     // Tab should reach nav links
@@ -73,6 +114,7 @@ test.describe("M10: Modal & Keyboard Interactions", () => {
 
   // TC-M10-01b (P1) — Settings panel can be toggled open and closed
   test("should toggle settings panel open and closed", async ({ page }) => {
+    await mockBackend(page);
     await page.goto("/");
 
     const settingsBtn = page.getByRole("button", { name: /设置|Settings/i });
@@ -89,6 +131,7 @@ test.describe("M10: Modal & Keyboard Interactions", () => {
 
   // TC-M9-08 (P2) — Settings panel exists on assets page too
   test("should show settings button on assets page", async ({ page }) => {
+    await mockBackend(page);
     await page.goto("/assets");
 
     const settingsBtn = page.getByRole("button", { name: /设置|Settings/i });

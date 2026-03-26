@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GlitchReveal } from "./ui";
 
 const BOOT_DURATION = 1200; // total overlay duration ms
@@ -18,11 +18,13 @@ interface Props {
  */
 export default function WorldBootOverlay({ worldName, onComplete }: Props) {
   const [phase, setPhase] = useState<"link" | "decode" | "sweep" | "done">("link");
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   // Transition link → decode after brief establishing phase
   useEffect(() => {
     if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      const t = setTimeout(onComplete, 400);
+      const t = setTimeout(() => onCompleteRef.current(), 400);
       return () => clearTimeout(t);
     }
     const t = setTimeout(() => setPhase("decode"), 400);
@@ -48,7 +50,7 @@ export default function WorldBootOverlay({ worldName, onComplete }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-void flex flex-col items-center justify-center scanlines"
+      className="fixed inset-0 z-boot-screen bg-void flex flex-col items-center justify-center scanlines"
       aria-live="assertive"
       role="status"
     >

@@ -11,8 +11,53 @@ import { test, expect } from "@playwright/test";
  * - Clicking seed → detail view with Start New / Save & Launch / Edit
  */
 
+/** Mock seed data matching expected test seeds */
+const MOCK_SEEDS = [
+  { file: "cyber_bar.json", name: "赛博酒吧", description: "A gritty cyberpunk bar", agent_count: 3, location_count: 3 },
+  { file: "ark.json", name: "末日方舟", description: "Post-apocalyptic ark", agent_count: 4, location_count: 2 },
+  { file: "iron_throne.json", name: "铁王座", description: "Medieval power struggle", agent_count: 3, location_count: 4 },
+];
+
+const MOCK_CYBER_BAR_DETAIL = {
+  file: "cyber_bar.json",
+  name: "赛博酒吧",
+  description: "A gritty cyberpunk bar",
+  rules: ["No weapons in the bar", "Pay your tab"],
+  locations: [
+    { name: "Bar", description: "The main counter" },
+    { name: "Back Room", description: "VIP area" },
+    { name: "Alley", description: "Behind the bar" },
+  ],
+  agents: [
+    { id: "a1", name: "Kai", description: "Bartender", personality: "Gruff", goals: ["Keep the peace"], inventory: ["Rag"], location: "Bar" },
+    { id: "a2", name: "Neon", description: "Regular", personality: "Chatty", goals: ["Find work"], inventory: [], location: "Bar" },
+    { id: "a3", name: "Zero", description: "Hacker", personality: "Paranoid", goals: ["Decrypt the file"], inventory: ["Laptop"], location: "Back Room" },
+  ],
+  initial_events: ["A stranger walks in"],
+};
+
+async function mockBackendAPIs(page: import("@playwright/test").Page) {
+  // Skip boot overlay animation
+  await page.addInitScript(() => localStorage.setItem("babel_visited", "1"));
+  return page.route(/localhost:8000/, (route) => {
+    const url = route.request().url();
+    if (url.includes("/api/seeds/cyber_bar")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_CYBER_BAR_DETAIL) });
+    } else if (url.includes("/api/seeds")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_SEEDS) });
+    } else if (url.includes("/api/sessions")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    } else if (url.includes("/api/worlds/from-seed/")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ session_id: "test-session-001" }) });
+    } else {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    }
+  });
+}
+
 test.describe("M1: Home Page — World Discovery", () => {
   test.beforeEach(async ({ page }) => {
+    await mockBackendAPIs(page);
     await page.goto("/");
   });
 
@@ -80,11 +125,6 @@ test.describe("M1: Home Page — World Discovery", () => {
 
   // TC-M1-04b (P1)
   test("nav links should navigate correctly", async ({ page }) => {
-    // Mock ALL backend API calls (create page calls fetchAssets on mount)
-    await page.route(/localhost:8000/, (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
-    );
-
     // Click create link (it's an <a> tag)
     await page.getByRole("link", { name: /创建|Create/i }).first().click();
     await expect(page).toHaveURL(/\/create/, { timeout: 15_000 });
@@ -122,7 +162,7 @@ test.describe("M1: Home Page — World Discovery", () => {
     await expect(page.getByRole("button", { name: /Save & Launch|保存并启动/ })).toBeVisible({ timeout: 10_000 });
 
     // Click Back
-    await page.getByRole("button", { name: /Back|返回/ }).click();
+    await page.getByRole("button", { name: /^←/ }).click();
 
     // Should see seed list again
     await expect(page.locator("button").filter({ hasText: "赛博酒吧" })).toBeVisible();
@@ -131,6 +171,7 @@ test.describe("M1: Home Page — World Discovery", () => {
 
 test.describe("M1: Home Page — Hero & Structure", () => {
   test.beforeEach(async ({ page }) => {
+    await mockBackendAPIs(page);
     await page.goto("/");
   });
 
@@ -144,8 +185,8 @@ test.describe("M1: Home Page — Hero & Structure", () => {
       page.getByText(/种子.*AI|Seed.*AI/i).first()
     ).toBeVisible();
 
-    // Create custom world link
-    const createLink = page.getByRole("link", { name: /创建自定义世界|Create Custom World/i });
+    // Create custom world link (may match hero + empty state; use .first())
+    const createLink = page.getByRole("link", { name: /创建自定义世界|Create Custom World/i }).first();
     await expect(createLink).toBeVisible();
   });
 
@@ -179,6 +220,7 @@ test.describe("M1: Home Page — Hero & Structure", () => {
 test.describe("M1.2: Timeline & Session History", () => {
   // TC-M1-05b (P1) — Timeline section appears in seed detail view
   test("should display timeline section in seed detail view", async ({ page }) => {
+    await mockBackendAPIs(page);
     await page.goto("/");
 
     // Click a seed to enter detail view
@@ -198,6 +240,7 @@ test.describe("M1.2: Timeline & Session History", () => {
 
   // TC-M1-02b (P1) — Seed detail shows all asset tabs
   test("should show all five asset tabs in seed detail", async ({ page }) => {
+    await mockBackendAPIs(page);
     await page.goto("/");
     await page.locator("button").filter({ hasText: "赛博酒吧" }).click();
     await expect(page.getByRole("tab").first()).toBeVisible({ timeout: 10_000 });
@@ -210,14 +253,10 @@ test.describe("M1.2: Timeline & Session History", () => {
 
   // TC-M1-04d (P1) — Edit button in seed detail navigates to /create
   test("should have Edit button that navigates to create page", async ({ page }) => {
+    await mockBackendAPIs(page);
     await page.goto("/");
     await page.locator("button").filter({ hasText: "赛博酒吧" }).click();
     await expect(page.getByRole("button", { name: /Edit|编辑/i })).toBeVisible({ timeout: 10_000 });
-
-    // Mock backend AFTER home page has loaded seeds (create page calls fetchAssets on mount)
-    await page.route(/localhost:8000/, (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
-    );
 
     await page.getByRole("button", { name: /Edit|编辑/i }).click();
     await expect(page).toHaveURL(/\/create/, { timeout: 15_000 });
@@ -226,6 +265,7 @@ test.describe("M1.2: Timeline & Session History", () => {
 
 test.describe("M1.3: Settings Panel", () => {
   test.beforeEach(async ({ page }) => {
+    await mockBackendAPIs(page);
     await page.goto("/");
   });
 

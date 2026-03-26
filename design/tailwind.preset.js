@@ -53,7 +53,7 @@ module.exports = {
           DEFAULT:   '#FFFFFF',
           secondary: '#A0A0A0',
           muted:     '#8A8A8A',
-          dim:       '#757575',
+          dim:       '#808080',
         },
 
         primary: {
@@ -104,17 +104,20 @@ module.exports = {
 
       transitionTimingFunction: {
         'default':  'cubic-bezier(0.4, 0, 0.2, 1)',
-        'in':       'cubic-bezier(0.4, 0, 1, 1)',
         'out':      'cubic-bezier(0, 0, 0.2, 1)',
         'out-expo': 'cubic-bezier(0.16, 1, 0.3, 1)',
       },
 
       zIndex: {
-        'dropdown': '100',
-        'sticky':   '200',
-        'overlay':  '300',
-        'modal':    '400',
-        'toast':    '500',
+        'dropdown':   '100',
+        'sticky':     '200',
+        'overlay':    '300',
+        'modal':      '400',
+        'toast':      '500',
+        'fx-overlay': '600',
+        'boot':       '700',
+        'boot-screen':'9500',
+        'scanline':   '9000',
       },
 
       animation: {
@@ -125,7 +128,7 @@ module.exports = {
         'pulse-glow':   'pulse-glow 2s ease infinite',
         'blink':        'blink 1s step-end infinite',
         'marquee':      'marquee 16s linear infinite',
-        'shimmer':      'shimmer 1.5s ease infinite',
+        'shimmer':      'shimmer 1.5s linear infinite',
         'tick-bump':           'tick-bump 300ms cubic-bezier(0, 0, 0.2, 1)',
         'oracle-slide-left':   'oracle-slide-left 250ms cubic-bezier(0.16, 1, 0.3, 1) both',
         'oracle-slide-right':  'oracle-slide-right 200ms cubic-bezier(0.16, 1, 0.3, 1) both',

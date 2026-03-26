@@ -101,12 +101,12 @@ function AgentRow({
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-body font-semibold truncate">{agent.name}</span>
             {isHumanControlled && (
-              <span className="text-micro tracking-wider px-2 py-0.5 border border-primary text-primary shrink-0">
+              <span className="text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium border-primary text-primary shrink-0">
                 {t("human_controlled")}
               </span>
             )}
             {isSupporting && (
-              <span className="text-micro tracking-wider px-2 py-0.5 border border-t-dim text-t-dim shrink-0">
+              <span className="text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium border-t-dim text-t-dim shrink-0">
                 {t("supporting_character")}
               </span>
             )}
@@ -366,7 +366,7 @@ function AgentRow({
                   type="button"
                   onClick={onEnrich}
                   disabled={enriching}
-                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {enriching ? t("enriching") : t("enrich")}
                 </button>
@@ -394,7 +394,7 @@ function AgentRow({
                   type="button"
                   key="autonomous"
                   onClick={onTakeControl}
-                  className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+                  className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
                 >
                   <span className="transition-all duration-150">{t("take_control")}</span>
                 </button>
@@ -402,7 +402,7 @@ function AgentRow({
               <button
                 type="button"
                 onClick={onChat}
-                className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+                className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
               >
                 {t("chat")}
               </button>
@@ -556,7 +556,7 @@ function ItemRow({
                   type="button"
                   onClick={onEnrich}
                   disabled={enriching}
-                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {enriching ? t("enriching") : t("enrich")}
                 </button>
@@ -715,7 +715,7 @@ function LocationRow({
                   type="button"
                   onClick={onEnrich}
                   disabled={enriching}
-                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {enriching ? t("enriching") : t("enrich")}
                 </button>
@@ -1062,7 +1062,7 @@ export default function AssetPanel({
                   <button
                     type="button"
                     onClick={onExtractWorld}
-                    className="w-full h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+                    className="w-full h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
                   >
                     {t("extract_world")}
                   </button>

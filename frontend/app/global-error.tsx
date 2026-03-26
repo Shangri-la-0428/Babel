@@ -44,13 +44,13 @@ export default function GlobalError({
             <button
               type="button"
               onClick={reset}
-              className="h-9 px-5 text-micro font-mono tracking-wider uppercase bg-primary text-void border border-primary cursor-pointer hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
+              className="h-9 px-5 text-micro font-medium tracking-wider uppercase bg-primary text-void border border-primary cursor-pointer hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
             >
               {t("retry", locale)}
             </button>
             <a
               href="/"
-              className="h-9 px-5 text-micro font-mono tracking-wider uppercase bg-transparent text-t-muted border border-surface-3 cursor-pointer inline-flex items-center no-underline hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+              className="h-9 px-5 text-micro font-medium tracking-wider uppercase border border-b-DEFAULT text-t-muted cursor-pointer inline-flex items-center no-underline hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
             >
               {t("home", locale)}
             </a>

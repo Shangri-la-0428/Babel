@@ -48,7 +48,7 @@ const translations = {
   agents: { cn: "角色", en: "Agents" },
   world_state: { cn: "世界状态", en: "World State" },
   no_events: { cn: "暂无事件，点击运行或单步开始", en: "No events yet. Press Run or Step to begin." },
-  inject_placeholder: { cn: "注入事件后自动推演一轮...", en: "Inject event (auto-advances one tick)..." },
+  inject_placeholder: { cn: "注入事件（自动推进一步）...", en: "Inject event (auto-advances one tick)..." },
   inject: { cn: "注入", en: "Inject" },
   events_count: { cn: "条事件", en: "Events" },
   total: { cn: "个", en: "Total" },
@@ -110,7 +110,7 @@ const translations = {
   // Settings error
   api_key_required: { cn: "// AUTH — 需要 API Key，在设置中配置", en: "// AUTH — API Key required. Configure in Settings." },
   run_failed: { cn: "// RUN_ERR — 启动失败，检查后端连接和 LLM 配置", en: "// RUN_ERR — Start failed. Check backend and LLM config." },
-  pause_failed: { cn: "// PAUSE_ERR — 暂停指令失败", en: "// PAUSE_ERR — Pause command failed." },
+  pause_failed: { cn: "// PAUSE_ERR — 暂停指令失败，重试或刷新页面", en: "// PAUSE_ERR — Pause command failed. Retry or refresh." },
   step_failed: { cn: "// STEP_ERR — 单步失败，检查 LLM 配置", en: "// STEP_ERR — Step failed. Check LLM config." },
 
   // Agent detail modal
@@ -144,14 +144,12 @@ const translations = {
   source: { cn: "来源", en: "Source" },
 
   // Error messages
-  gen_agent_seed_failed: { cn: "// EXTRACT_ERR — 角色种子提取失败", en: "// EXTRACT_ERR — Agent seed extraction failed." },
-  gen_event_seed_failed: { cn: "// EXTRACT_ERR — 事件种子提取失败", en: "// EXTRACT_ERR — Event seed extraction failed." },
-  gen_world_seed_failed: { cn: "// EXTRACT_ERR — 世界种子提取失败", en: "// EXTRACT_ERR — World seed extraction failed." },
+  gen_agent_seed_failed: { cn: "// EXTRACT_ERR — 角色种子提取失败，检查 LLM 配置", en: "// EXTRACT_ERR — Agent seed extraction failed. Check LLM config." },
+  gen_event_seed_failed: { cn: "// EXTRACT_ERR — 事件种子提取失败，检查 LLM 配置", en: "// EXTRACT_ERR — Event seed extraction failed. Check LLM config." },
+  gen_world_seed_failed: { cn: "// EXTRACT_ERR — 世界种子提取失败，检查 LLM 配置", en: "// EXTRACT_ERR — World seed extraction failed. Check LLM config." },
   no_session: { cn: "// NULL_REF — 未找到模拟会话", en: "// NULL_REF — No simulation session found." },
   go_home: { cn: "返回首页", en: "Go home" },
   retry: { cn: "重试", en: "Retry" },
-  manual: { cn: "手动", en: "manual" },
-
   // Status (translated)
   status_running: { cn: "运行中", en: "RUNNING" },
   status_paused: { cn: "已暂停", en: "PAUSED" },
@@ -166,6 +164,8 @@ const translations = {
   aria_pause: { cn: "暂停模拟", en: "Pause simulation" },
   aria_step: { cn: "推演一步", en: "Advance one tick" },
   aria_controls: { cn: "模拟控制", en: "Simulation controls" },
+  already_running: { cn: "// 模拟运行中", en: "// RUNNING" },
+  pause_first: { cn: "// 先暂停模拟", en: "// PAUSE FIRST" },
 
   // Event feed
   system: { cn: "系统", en: "System" },
@@ -178,6 +178,7 @@ const translations = {
   tick_delay: { cn: "轮次延迟（秒）", en: "Tick Delay (sec)" },
   model: { cn: "模型", en: "Model" },
   fetch_models: { cn: "获取模型列表", en: "Fetch Models" },
+  fetch_models_disabled_hint: { cn: "请先填写 API Key 和 API Base", en: "Enter API Key and Base URL first" },
   loading: { cn: "加载中...", en: "Loading..." },
   save: { cn: "保存", en: "Save" },
   settings_saved: { cn: "设置已保存", en: "Settings saved" },
@@ -191,14 +192,14 @@ const translations = {
   thinking: { cn: "思考中...", en: "Thinking..." },
   chat_empty: { cn: "发送消息，与{0}角色对话", en: "Send a message to talk with {0} in character" },
   chat_placeholder: { cn: "对{0}说...", en: "Say something to {0}..." },
-  chat_failed: { cn: "// REPLY_ERR — 回复失败", en: "// REPLY_ERR — No response" },
+  chat_failed: { cn: "// REPLY_ERR — 回复失败，重试", en: "// REPLY_ERR — No response. Retry." },
 
   // Error messages (additional)
   failed_load_state: { cn: "// LINK_DOWN — 无法加载世界状态，检查后端服务", en: "// LINK_DOWN — Cannot load world state. Check backend." },
   failed_create: { cn: "// CREATE_ERR — 世界创建失败，检查后端连接", en: "// CREATE_ERR — World creation failed. Check backend." },
   failed_load_detail: { cn: "// LOAD_ERR — 世界详情加载失败", en: "// LOAD_ERR — Failed to load world details." },
   lost_connection: { cn: "// CONN_LOST — 与服务器断开，点击重连", en: "// CONN_LOST — Server disconnected. Reconnect below." },
-  engine_error: { cn: "// ENGINE_ERR", en: "// ENGINE_ERR" },
+  engine_error: { cn: "// ENGINE_ERR — 引擎异常，检查后端日志", en: "// ENGINE_ERR — Engine exception. Check backend logs." },
 
   // Asset panel (sim sidebar)
   panel_holders: { cn: "持有者", en: "Holder(s)" },
@@ -228,7 +229,7 @@ const translations = {
   // Timeline
   timeline: { cn: "时间线", en: "Timeline" },
   new_branch: { cn: "新分支", en: "New Branch" },
-  timeline_empty: { cn: "尚无时间线，开始第一次模拟", en: "No timelines yet. Start your first simulation." },
+  timeline_empty: { cn: "暂无时间线，开始第一次模拟", en: "No timelines yet. Start your first simulation." },
   no_branches: { cn: "暂无分支", en: "NO BRANCHES" },
   seed_origin: { cn: "种子", en: "SEED" },
   branch_active: { cn: "进行中", en: "Active" },
@@ -239,9 +240,11 @@ const translations = {
   branch_created: { cn: "创建于", en: "Created" },
   branch_no_events: { cn: "暂无事件", en: "No events yet" },
   view_all_assets: { cn: "查看全部资产 →", en: "View All Assets →" },
-  inject_failed: { cn: "// INJECT_ERR — 注入失败", en: "// INJECT_ERR — Injection failed" },
+  inject_failed: { cn: "// INJECT_ERR — 注入失败，检查后端连接", en: "// INJECT_ERR — Injection failed. Check backend." },
   reconnect: { cn: "重连", en: "Reconnect" },
-  delete_failed: { cn: "// DEL_ERR — 删除失败", en: "// DEL_ERR — Delete failed" },
+  delete_failed: { cn: "// DEL_ERR — 删除失败，重试", en: "// DEL_ERR — Delete failed. Retry." },
+  seed_deleted: { cn: "种子已删除", en: "Seed deleted" },
+  undo: { cn: "撤销", en: "Undo" },
   request_timeout: { cn: "// TIMEOUT — 请求超时，重试", en: "// TIMEOUT — Request timed out. Retry." },
   gen_item_gen_failed: { cn: "// GEN_ERR — 生成失败，重试", en: "// GEN_ERR — Generation failed. Retry." },
 
@@ -262,7 +265,7 @@ const translations = {
   significance: { cn: "意义", en: "SIGNIFICANCE" },
   origin: { cn: "起源", en: "ORIGIN" },
   notable_features: { cn: "特色", en: "FEATURES" },
-  enrich_failed: { cn: "// ENRICH_ERR — 详情生成失败", en: "// ENRICH_ERR — Detail enrichment failed" },
+  enrich_failed: { cn: "// ENRICH_ERR — 详情生成失败，重试", en: "// ENRICH_ERR — Detail enrichment failed. Retry." },
   enrich_no_session: { cn: "源世界已不存在，无法生成详情", en: "Source world no longer exists" },
   validation_need_agent: { cn: "至少需要一个有名字的角色", en: "At least one agent with a name is required" },
   validation_need_location: { cn: "至少需要一个地点", en: "At least one location is required" },
@@ -289,6 +292,8 @@ const translations = {
   relation_rival: { cn: "对手", en: "RIVAL" },
   relation_hostile: { cn: "敌对", en: "HOSTILE" },
   relations_dynamic: { cn: "动态关系", en: "RELATIONS" },
+  relation_up: { cn: "关系改善", en: "Relation improved" },
+  relation_down: { cn: "关系恶化", en: "Relation worsened" },
 
   // Human control ("Play as Agent")
   take_control: { cn: "接管", en: "CONTROL" },
@@ -305,8 +310,8 @@ const translations = {
   action_content: { cn: "内容", en: "CONTENT" },
   action_submit: { cn: "执行", en: "EXECUTE" },
   action_cancel: { cn: "取消", en: "CANCEL" },
-  human_action_failed: { cn: "行动提交失败", en: "Failed to submit action" },
-  control_failed: { cn: "控制操作失败", en: "Control operation failed" },
+  human_action_failed: { cn: "// ACTION_ERR — 行动提交失败，重试", en: "// ACTION_ERR — Action submission failed. Retry." },
+  control_failed: { cn: "// CTRL_ERR — 控制操作失败，重试", en: "// CTRL_ERR — Control operation failed. Retry." },
   you_are_here: { cn: "你在这里", en: "YOU ARE HERE" },
   your_inventory: { cn: "你的物品", en: "YOUR INVENTORY" },
   nearby_agents: { cn: "附近的角色", en: "NEARBY AGENTS" },
@@ -330,7 +335,7 @@ const translations = {
   oracle_empty: { cn: "与世界的全知旁白对话。它看到一切，知道一切。", en: "Talk to the omniscient narrator. It sees all, knows all." },
   oracle_placeholder: { cn: "向 ORACLE 提问...", en: "Ask ORACLE..." },
   oracle_thinking: { cn: "正在观察...", en: "Observing..." },
-  oracle_failed: { cn: "// ORACLE_ERR — 旁白无响应", en: "// ORACLE_ERR — Failed to reach narrator" },
+  oracle_failed: { cn: "// ORACLE_ERR — 旁白无响应，重试", en: "// ORACLE_ERR — Narrator unreachable. Retry." },
   oracle_suggest_summary: { cn: "总结目前发生了什么", en: "Summarize what happened so far" },
   oracle_suggest_tension: { cn: "角色之间有什么矛盾？", en: "What tensions exist between agents?" },
   oracle_suggest_inject: { cn: "建议一个可以注入的世界事件", en: "Suggest a world event to inject" },
@@ -376,6 +381,9 @@ const translations = {
   idle_2: { cn: "// 时间静止。世界等待。", en: "// TIME STANDS STILL. THE WORLD WAITS." },
   idle_3: { cn: "// 注入事件或推进一步以继续", en: "// INJECT AN EVENT OR STEP TO CONTINUE" },
   idle_4: { cn: "// ORACLE 在观察。永远在观察。", en: "// ORACLE IS WATCHING. ALWAYS WATCHING." },
+
+  // Simulation overlays
+  simulation_complete: { cn: "// 模拟完成", en: "// SIMULATION COMPLETE" },
 } as const;
 
 export type TransKey = keyof typeof translations;

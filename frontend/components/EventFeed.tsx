@@ -25,7 +25,7 @@ const ACCENT_BORDER: Record<string, string> = {
   trade:       "border-l-warning/40",
   observe:     "border-l-transparent",
   wait:        "border-l-transparent",
-  world_event: "border-l-danger/60",
+  world_event: "border-l-danger/40",
 };
 
 // Detect goal/relation signals from event result text
@@ -57,7 +57,7 @@ const EventItem = memo(function EventItem({
 
   return (
     <div
-      className={`grid grid-cols-[56px_80px_1fr_auto_auto] gap-3 items-baseline px-4 py-3 border-b border-b-DEFAULT border-l-2 ${accent} hover:bg-surface-1 transition-[colors,border-left-width] duration-200 group min-w-0 ${
+      className={`grid grid-cols-[56px_minmax(60px,100px)_1fr_auto_auto] gap-3 items-baseline px-4 py-3 border-b border-b-DEFAULT border-l-2 ${accent} hover:bg-surface-1 transition-[colors,border-left-width] duration-200 group min-w-0 ${
         isSupporting ? "opacity-70" : ""
       } ${
         isNew
@@ -86,14 +86,14 @@ const EventItem = memo(function EventItem({
         {signals.relationChange && (
           <span
             className={`text-micro tracking-wider ${signals.relationChange === "up" ? "text-primary" : "text-danger"}`}
-            title={signals.relationChange === "up" ? "Relation +" : "Relation -"}
-            aria-label={signals.relationChange === "up" ? "Relation improved" : "Relation worsened"}
+            title={signals.relationChange === "up" ? t("relation_up") : t("relation_down")}
+            aria-label={signals.relationChange === "up" ? t("relation_up") : t("relation_down")}
           >
             {signals.relationChange === "up" ? "▲" : "▼"}
           </span>
         )}
         <span
-          className={`text-micro tracking-wider px-2 py-0.5 border whitespace-nowrap transition-shadow hover:shadow-[0_0_6px_currentColor] ${style}`}
+          className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium whitespace-nowrap transition-shadow hover:shadow-[0_0_6px_currentColor] ${style}`}
           aria-label={event.action_type.replace(/_/g, " ")}
         >
           {event.action_type}
@@ -101,6 +101,7 @@ const EventItem = memo(function EventItem({
       </span>
       {onSeed && (
         <button
+          type="button"
           onClick={() => onSeed(event.id)}
           className="text-micro tracking-wider transition-[colors,opacity] text-t-dim opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-primary"
           title={t("extract_seed")}
@@ -151,8 +152,13 @@ export default function EventFeed({
 
   const safeEvents = useMemo(() => events || [], [events]);
 
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 150);
+    return () => clearTimeout(scrollTimerRef.current);
   }, [safeEvents.length]);
 
   // Stable reference check for newEventIds
@@ -185,7 +191,7 @@ export default function EventFeed({
   return (
     <div className="flex flex-col" role="log" aria-label="Simulation events" aria-live="polite">
       {trimmed && (
-        <div className="px-4 py-2 border-b border-b-DEFAULT bg-surface-1 text-micro text-t-dim tracking-wider text-center">
+        <div className="sticky top-0 z-sticky px-4 py-2 border-b border-b-DEFAULT border-l-2 border-l-warning/20 bg-surface-1 text-micro text-t-muted tracking-wider text-center">
           {safeEvents.length - RENDER_WINDOW} {t("events_count")} {t("total")} &middot; {RENDER_WINDOW} {t("events_count")}
         </div>
       )}
@@ -196,7 +202,7 @@ export default function EventFeed({
         </div>
       )}
       {grouped.map((group, gi) => (
-        <div key={group.tick}>
+        <div key={group.tick} style={{ contentVisibility: "auto", containIntrinsicSize: "auto 120px" }}>
           <TickDivider tick={group.tick} worldTimeDisplay={gi === grouped.length - 1 ? worldTimeDisplay : undefined} isLatest={gi === grouped.length - 1} />
           {group.events.map((event) => (
             <EventItem

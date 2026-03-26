@@ -13,8 +13,75 @@ import { test, expect, Page } from "@playwright/test";
  * Creating a world: Home → click seed → "Start New" or "Save & Launch"
  */
 
+const MOCK_SEEDS = [
+  { file: "cyber_bar.json", name: "赛博酒吧", description: "A gritty cyberpunk bar in 2077", agent_count: 3, location_count: 3 },
+  { file: "ark.json", name: "末日方舟", description: "Post-apocalyptic ark", agent_count: 4, location_count: 2 },
+  { file: "iron_throne.json", name: "铁王座", description: "Medieval power struggle", agent_count: 3, location_count: 4 },
+];
+
+const MOCK_CYBER_BAR_DETAIL = {
+  file: "cyber_bar.json",
+  name: "赛博酒吧",
+  description: "A gritty cyberpunk bar in 2077",
+  rules: ["No weapons in the bar", "Pay your tab"],
+  locations: [
+    { name: "吧台", description: "The main counter" },
+    { name: "后厅", description: "VIP area" },
+    { name: "暗巷", description: "Behind the bar" },
+  ],
+  agents: [
+    { id: "a1", name: "陈妈", description: "Bar owner", personality: "Gruff but caring", goals: ["Keep the peace"], inventory: ["Rag"], location: "吧台" },
+    { id: "a2", name: "Ghost", description: "Regular patron", personality: "Quiet", goals: ["Find work"], inventory: [], location: "吧台" },
+    { id: "a3", name: "Neon", description: "Hacker", personality: "Paranoid", goals: ["Decrypt the file"], inventory: ["Laptop"], location: "后厅" },
+  ],
+  initial_events: ["A stranger walks in"],
+};
+
+const MOCK_WORLD_STATE = {
+  session_id: "test-session-001",
+  name: "赛博酒吧",
+  description: "A gritty cyberpunk bar in 2077",
+  tick: 0,
+  status: "paused",
+  locations: [
+    { name: "吧台", description: "The main counter" },
+    { name: "后厅", description: "VIP area" },
+    { name: "暗巷", description: "Behind the bar" },
+  ],
+  rules: ["No weapons in the bar", "Pay your tab"],
+  agents: {
+    a1: { id: "a1", name: "陈妈", description: "Bar owner", personality: "Gruff but caring", goals: ["Keep the peace"], memory: [], inventory: ["Rag"], location: "吧台", status: "idle", role: "main" },
+    a2: { id: "a2", name: "Ghost", description: "Regular patron", personality: "Quiet", goals: ["Find work"], memory: [], inventory: [], location: "吧台", status: "idle", role: "main" },
+    a3: { id: "a3", name: "Neon", description: "Hacker", personality: "Paranoid", goals: ["Decrypt the file"], memory: [], inventory: ["Laptop"], location: "后厅", status: "idle", role: "main" },
+  },
+  recent_events: [],
+};
+
+async function mockAllAPIs(page: Page) {
+  await page.addInitScript(() => localStorage.setItem("babel_visited", "1"));
+  return page.route(/localhost:8000/, (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+
+    if (url.includes("/api/seeds/cyber_bar")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_CYBER_BAR_DETAIL) });
+    } else if (url.includes("/api/seeds")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_SEEDS) });
+    } else if (url.includes("/api/sessions")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    } else if (url.includes("/api/worlds/from-seed/") && method === "POST") {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ session_id: "test-session-001" }) });
+    } else if (url.includes("/api/worlds/") && url.includes("/state")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_WORLD_STATE) });
+    } else {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    }
+  });
+}
+
 /** Helper: Create a world from cyber_bar and land on /sim */
 async function createWorld(page: Page): Promise<void> {
+  await mockAllAPIs(page);
   await page.goto("/");
 
   // Click cyber_bar seed

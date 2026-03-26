@@ -9,9 +9,17 @@ import { test, expect } from "@playwright/test";
  * localStorage key: "babel_locale"
  */
 
+async function mockBackend(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => localStorage.setItem("babel_visited", "1"));
+  return page.route(/localhost:8000/, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
+  );
+}
+
 test.describe("M1.4: Internationalization", () => {
   // TC-M1-10 (P1) - Language toggle persistence
   test("should persist language preference across page reload", async ({ page }) => {
+    await mockBackend(page);
     await page.goto("/");
 
     // Get lang toggle button (the one with "EN" or "中")
@@ -36,6 +44,7 @@ test.describe("M1.4: Internationalization", () => {
 
   // Verify Chinese renders
   test("should render Chinese text when locale is CN", async ({ page }) => {
+    await mockBackend(page);
     // Navigate first, then set localStorage, then reload
     await page.goto("/");
     await page.evaluate(() => localStorage.setItem("babel_locale", "cn"));
@@ -47,6 +56,7 @@ test.describe("M1.4: Internationalization", () => {
 
   // Verify English renders
   test("should render English text when locale is EN", async ({ page }) => {
+    await mockBackend(page);
     // Navigate first, then set localStorage, then reload
     await page.goto("/");
     await page.evaluate(() => localStorage.setItem("babel_locale", "en"));
