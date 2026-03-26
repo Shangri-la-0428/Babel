@@ -202,7 +202,7 @@ export default function OracleDrawer({
   return (
     <div
       ref={drawerRef}
-      className={`fixed right-0 top-14 bottom-14 w-[420px] z-overlay flex flex-col bg-void border-l border-info/30 transition-transform duration-200 ease-out-expo oracle-scan-edge ${
+      className={`fixed right-0 top-14 bottom-14 w-[420px] 2xl:w-[480px] z-overlay flex flex-col bg-void border-l border-info/30 transition-transform duration-200 ease-out-expo oracle-scan-edge ${
         loading ? "animate-oracle-border-pulse oracle-scan-thinking" : ""
       } ${
         open ? "translate-x-0" : "translate-x-full pointer-events-none"
@@ -260,13 +260,13 @@ export default function OracleDrawer({
           maxLength={2000}
           disabled={loading}
           aria-label={mode === "create" ? t("oracle_create_placeholder") : t("oracle_placeholder")}
-          className="flex-1 min-w-0 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-30"
+          className="flex-1 min-w-0 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         />
         <button
           type="submit"
           disabled={loading || !input.trim()}
           aria-label={t("oracle_send")}
-          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:pointer-events-none transition-[colors,box-shadow,transform]"
+          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform]"
         >
           {t("oracle_send")}
         </button>

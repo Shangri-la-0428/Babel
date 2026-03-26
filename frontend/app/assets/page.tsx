@@ -27,6 +27,7 @@ export default function AssetsPage() {
   const [filter, setFilter] = useState<SeedTypeValue | "all">("all");
   const [selected, setSelected] = useState<SavedSeedData | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ seed: SavedSeedData; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   const mountedRef = useRef(true);
 
@@ -51,14 +52,33 @@ export default function AssetsPage() {
     return () => { mountedRef.current = false; };
   }, [loadSeeds]);
 
-  async function handleDelete(id: string) {
-    try {
-      await deleteAsset(id);
-      setSeeds((prev) => prev.filter((s) => s.id !== id));
-      if (selected?.id === id) setSelected(null);
-    } catch {
-      setError(t("delete_failed"));
-    }
+  function handleDelete(id: string) {
+    const seed = seeds.find((s) => s.id === id);
+    if (!seed) return;
+    // Optimistic remove from UI
+    setSeeds((prev) => prev.filter((s) => s.id !== id));
+    if (selected?.id === id) setSelected(null);
+    // Cancel any previous pending delete
+    if (pendingDelete) clearTimeout(pendingDelete.timer);
+    // Schedule real delete after 5s
+    const timer = setTimeout(async () => {
+      try {
+        await deleteAsset(id);
+      } catch {
+        // Restore on failure
+        setSeeds((prev) => [seed, ...prev]);
+        setError(t("delete_failed"));
+      }
+      setPendingDelete(null);
+    }, 5000);
+    setPendingDelete({ seed, timer });
+  }
+
+  function handleUndoDelete() {
+    if (!pendingDelete) return;
+    clearTimeout(pendingDelete.timer);
+    setSeeds((prev) => [pendingDelete.seed, ...prev]);
+    setPendingDelete(null);
   }
 
   const counts = seeds.reduce(
@@ -91,7 +111,7 @@ export default function AssetsPage() {
         {/* Error */}
         {error && (
           <ErrorBanner message={error} onDismiss={() => setError(null)} className="mb-4">
-            <button onClick={loadSeeds} className="ml-3 text-micro tracking-wider text-danger underline hover:text-t-DEFAULT transition-colors shrink-0">
+            <button type="button" onClick={loadSeeds} className="ml-3 text-micro tracking-wider text-danger underline hover:text-t-DEFAULT transition-colors shrink-0">
               {t("retry")}
             </button>
           </ErrorBanner>
@@ -101,6 +121,7 @@ export default function AssetsPage() {
         <div className="flex items-center gap-px mb-6 bg-b-DEFAULT w-fit">
           {SEED_TYPES.map(({ value, labelKey }) => (
             <button
+              type="button"
               key={value}
               onClick={() => setFilter(value)}
               className={`px-4 py-2 text-micro tracking-widest transition-colors ${
@@ -136,7 +157,7 @@ export default function AssetsPage() {
             </div>
             <a
               href="/"
-              className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center"
+              className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center"
             >
               {t("home")}
             </a>
@@ -158,6 +179,22 @@ export default function AssetsPage() {
       {/* Seed detail modal */}
       {selected && (
         <SeedDetail seed={selected} onClose={() => setSelected(null)} />
+      )}
+
+      {/* Undo delete toast */}
+      {pendingDelete && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-toast flex items-center gap-4 px-5 py-3 bg-surface-1 border border-b-DEFAULT animate-slide-up">
+          <span className="text-detail text-t-secondary normal-case tracking-normal">
+            {t("seed_deleted")}
+          </span>
+          <button
+            type="button"
+            onClick={handleUndoDelete}
+            className="text-micro font-medium tracking-wider text-primary hover:text-primary/80 transition-colors"
+          >
+            {t("undo")}
+          </button>
+        </div>
       )}
     </div>
   );

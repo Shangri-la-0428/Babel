@@ -2,6 +2,7 @@
 
 import { useLocale } from "@/lib/locale-context";
 import { TransKey } from "@/lib/i18n";
+import { StatusDot } from "./ui";
 
 const LINKS: { href: string; labelKey: TransKey; key: string }[] = [
   { href: "/", labelKey: "home", key: "home" },
@@ -29,7 +30,7 @@ export default function Nav({ activePage, showSettings, onToggleSettings }: NavP
         {LINKS.map((link) =>
           link.key === activePage ? (
             <span key={link.key} className="text-micro text-primary tracking-widest flex items-center gap-1.5" aria-current="page">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-glow" aria-hidden="true" />
+              <StatusDot status="running" />
               {t(link.labelKey)}
             </span>
           ) : (
@@ -40,6 +41,7 @@ export default function Nav({ activePage, showSettings, onToggleSettings }: NavP
         )}
         {onToggleSettings && (
           <button
+            type="button"
             onClick={onToggleSettings}
             aria-expanded={showSettings}
             className={`text-micro tracking-widest transition-colors ${
@@ -50,8 +52,9 @@ export default function Nav({ activePage, showSettings, onToggleSettings }: NavP
           </button>
         )}
         <button
+          type="button"
           onClick={toggle}
-          className="text-micro text-t-dim tracking-wider border border-surface-3 px-3 py-1 hover:text-t-DEFAULT hover:border-b-hover transition-colors"
+          className="text-micro text-t-dim tracking-wider border border-surface-3 px-3 py-1 hover:text-t-DEFAULT hover:border-b-hover active:scale-[0.97] transition-[colors,transform]"
           title={t("lang_switch")}
           aria-label={t("lang_switch")}
         >

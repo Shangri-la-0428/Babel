@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useCallback, useRef, useState, ReactNode } from "react";
+import { useSpring } from "@/lib/spring";
 
 interface ModalProps {
   children: ReactNode;
@@ -10,13 +11,25 @@ interface ModalProps {
 }
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-const EXIT_MS = 150;
 
 export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg" }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<Element | null>(null);
   const [closing, setClosing] = useState(false);
   const [entryGlow, setEntryGlow] = useState(true);
+
+  // Spring physics — bouncy open, snappy close
+  const springConfig = closing
+    ? { tension: 300, friction: 28 }
+    : { tension: 180, friction: 20 };
+  const progress = useSpring(closing ? 0 : 1, springConfig, 0);
+
+  // Spring-driven close detection (replaces setTimeout)
+  useEffect(() => {
+    if (closing && progress < 0.01) {
+      onClose();
+    }
+  }, [closing, progress, onClose]);
 
   useEffect(() => {
     const t = setTimeout(() => setEntryGlow(false), 400);
@@ -26,8 +39,7 @@ export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg"
   const startClose = useCallback(() => {
     if (closing) return;
     setClosing(true);
-    setTimeout(onClose, EXIT_MS);
-  }, [closing, onClose]);
+  }, [closing]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -84,11 +96,8 @@ export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg"
 
   return (
     <div
-      className={`fixed inset-0 z-modal flex items-center justify-center bg-overlay ${
-        closing
-          ? "animate-[fade-out_150ms_ease_both]"
-          : "animate-[fade-in_150ms_ease]"
-      }`}
+      className="fixed inset-0 z-modal flex items-center justify-center bg-overlay"
+      style={{ opacity: Math.min(progress * 1.5, 1) }}
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
@@ -97,16 +106,14 @@ export default function Modal({ children, onClose, ariaLabel, width = "max-w-lg"
       <div
         ref={panelRef}
         className={`w-full ${width} max-w-[90vw] max-h-[85vh] bg-void border flex flex-col ${
-          closing
-            ? "animate-[modal-exit_150ms_ease_both] border-b-DEFAULT shadow-none"
-            : "animate-[slide-up_150ms_ease]"
-        } ${
           !closing && entryGlow
             ? "shadow-[0_0_12px_var(--color-primary-glow)] border-primary"
-            : !closing
-            ? "shadow-none border-b-DEFAULT"
-            : ""
+            : "shadow-none border-b-DEFAULT"
         } transition-[box-shadow,border-color] duration-300`}
+        style={{
+          transform: `translateY(${(1 - progress) * 16}px) scale(${0.97 + progress * 0.03})`,
+          opacity: progress,
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

@@ -269,7 +269,7 @@ export default function SeedDetail({
                   type="button"
                   onClick={handleEnrich}
                   disabled={enriching || enrichNoSession}
-                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {enriching ? t("enriching") : t("enrich")}
                 </button>

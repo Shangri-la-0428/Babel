@@ -4,6 +4,51 @@ All notable changes to BABEL.
 
 ## [Unreleased]
 
+### Phase 14: Portal Transformation + Overdrive + Performance
+
+**Portal Transformation** — 47 UI items across 5 batches, making the sim page feel like a portal into another reality:
+- World boot scan overlay (full-viewport sweep on run start), world ended overlay (danger scan + glitch text)
+- Tick sweep animation on latest tick divider, digit cascade for tick counter
+- CRT scanline overlay (`.scanlines`) with flicker animation
+- Stagger entrance system (`.stagger-in`, up to 9 children with 40ms offsets)
+- Event flash animations (lime for normal, danger for world events, CRT glitch for world events)
+- Seed detail spatial entry/exit animations
+- Oracle edge scan light (`@property --oracle-scan-y`, CSS Houdini animated gradient)
+- Accordion grid collapse with CSS grid-template-rows transition
+- Ambient personality: idle messages cycle, void-breathe body animation, hover-glow system
+- `AmbientVoid` — global floating particle canvas behind all pages
+- `WorldBootOverlay` — boot sequence animation component
+
+**Overdrive A: WebGL Depth Parallax** — `WorldShader` component:
+- WebGL2 fragment shader: 5-octave FBM noise, 3 parallax depth layers, mouse-reactive
+- Day/night palette shift (warm amber ↔ cool blue), energy response, event ripple pulse
+- Half-resolution rendering at ~30fps, `powerPreference: "low-power"`
+
+**Overdrive B: Reactive Atmosphere** — state-driven visual layer:
+- Tension vignette — red radial gradient at viewport edges when agents die (opacity = dead/total ratio)
+- Shader ripple — momentary brightness pulse on new events (600ms decay)
+- Night mode detection from world time, energy boost when running
+
+**Overdrive C: Spring Physics** — `lib/spring.ts`:
+- `useSpring` hook: mass-spring-damper solver (tension, friction, mass, precision)
+- Render throttle: skip setState when delta < 0.005 (reduces re-renders by ~80%)
+- `prefers-reduced-motion` instant-snap, configurable `from` initial value
+- Applied to Modal open/close (bouncy open, snappy close, spring-driven exit detection)
+
+**Performance Optimization** — 12 targeted fixes from comprehensive audit:
+- **`lib/raf.ts`** (new) — Shared RAF scheduler: single `requestAnimationFrame` loop for all canvas components (WorldShader, ParticleField, WorldRadar). Reduces per-frame overhead from N rAF registrations to 1
+- **WorldShader DPR fix** — `Math.min(dpr * 0.5, 1)` on 2x Retina = no downsampling; fixed to `Math.floor(clientWidth * 0.5)` for true half-res
+- **Spring render throttle** — `lastRendered` ref skips `setValue()` when delta < 0.005 threshold
+- **ParticleField O(1) removal** — Replaced `Array.splice(i, 1)` with swap-and-pop pattern; cap enforcement via `ps.length = CAP - 50`
+- **WorldRadar layout cache** — Position map recomputed only on resize/location-count change, not every frame
+- **WorldRadar idle throttle** — ~15fps when paused (66ms interval), 60fps when running
+- **WorldRadar pulse swap-and-pop** — O(1) pulse removal replacing O(n) splice
+- **Scanline containment** — `contain: strict` on `.scanlines::before/::after` pseudo-elements
+- **Glow blur reduction** — `pulse-glow` box-shadow reduced from `24px 6px` to `8px 2px`
+- **DecodeText array join** — Replaced O(n²) string concatenation with `chars.push()` + `join("")`
+- **EventFeed content-visibility** — `content-visibility: auto` on tick group divs for off-screen rendering skip
+- **Highlight timer self-cleaning Set** — `highlightTimers` changed from growing array to self-cleaning `Set`
+
 ### Phase 13: Psyche Phase B — Drive-Goal Mapping + Augmented Decision Source
 - **`PsycheAugmentedDecisionSource`** — New DecisionSource that uses Psyche to enrich LLM context (emotional state, drives) rather than replacing it. Autonomic gating as post-filter: dorsal-vagal=freeze, sympathetic=flight, ventral-vagal=pass-through
 - **`drive_mapping.py`** (new) — Pure-function drive-goal affinity inference via keyword classification (bilingual CN/EN). 5 Maslow drives × bilingual keyword sets

@@ -238,16 +238,22 @@ app/
   assets/page.tsx → Asset library
 
 components/
-  EventFeed     — Real-time event log
-  AssetPanel    — Agent/item/location panels with goals, relations, beliefs
-  OracleDrawer  — Narrator interface (narrate + create modes)
-  ControlBar    — Run/Pause/Step controls
-  WorldRadar    — Canvas agent/location visualization
+  EventFeed      — Real-time event log with content-visibility optimization
+  AssetPanel     — Agent/item/location panels with goals, relations, beliefs
+  OracleDrawer   — Narrator interface (narrate + create modes)
+  ControlBar     — Run/Pause/Step controls
+  WorldRadar     — Canvas radar visualization (layout-cached, idle-throttled)
+  WorldShader    — WebGL2 procedural terrain (FBM noise, parallax depth, day/night)
+  ParticleField  — Canvas particle system (status-reactive, event bursts)
+  AmbientVoid    — Global floating particle background
+  Modal          — Spring-physics animated modal (useSpring driven)
 
 lib/
-  api.ts          — REST + WebSocket client
-  locale-context  — i18n provider (CN/EN)
-  i18n.ts         — 250+ translation keys
+  api.ts           — REST + WebSocket client
+  locale-context   — i18n provider (CN/EN)
+  i18n.ts          — 330+ translation keys
+  raf.ts           — Shared RAF scheduler (single loop for all canvas components)
+  spring.ts        — Spring physics hook (mass-spring-damper solver)
 
 design/
   tokens.css         — CSS custom properties
@@ -255,6 +261,23 @@ design/
   base.css           — Reset + typography
   animations.css     — Keyframe definitions
 ```
+
+### Canvas Rendering Architecture
+
+All canvas components (WorldShader, ParticleField, WorldRadar) share a single `requestAnimationFrame` loop via `lib/raf.ts`. Each component subscribes a tick callback and manages its own frame throttling internally:
+
+```
+raf.ts (shared loop — 1 rAF registration)
+  ├── WorldShader.loop()   — ~30fps (33ms throttle), WebGL2 draw
+  ├── ParticleField.loop() — 60fps, Canvas 2D particles
+  └── WorldRadar.loop()    — 60fps running / ~15fps idle, Canvas 2D radar
+```
+
+Performance patterns:
+- **Swap-and-pop** — O(1) particle/pulse removal instead of Array.splice
+- **Layout caching** — WorldRadar recomputes positions only on resize/location change
+- **Render throttling** — Spring hook skips setState when value delta < 0.005
+- **content-visibility** — EventFeed tick groups skip off-screen rendering
 
 State flows through WebSocket: `connected → event → tick → state_update → stopped`
 

@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { subscribe } from "@/lib/raf";
 
 interface Props {
   status: string;
   isNight: boolean;
   eventCount: number;
+  ripple: number; // 0-1, shockwave intensity for scatter effect
 }
 
 interface Particle {
@@ -23,15 +25,15 @@ interface Particle {
 const BASE_COUNT = 50;
 const RUN_COUNT = 90;
 const BURST_SIZE = 12;
-const CAP = 200;
+const SHOCKWAVE_BURST = 24;
+const CAP = 300;
 
-export default function ParticleField({ status, isNight, eventCount }: Props) {
+export default function ParticleField({ status, isNight, eventCount, ripple }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const state = useRef({ status, isNight, eventCount });
+  const state = useRef({ status, isNight, eventCount, ripple });
   const particles = useRef<Particle[]>([]);
-  const raf = useRef(0);
 
-  state.current = { status, isNight, eventCount };
+  state.current = { status, isNight, eventCount, ripple };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -51,14 +53,18 @@ export default function ParticleField({ status, isNight, eventCount }: Props) {
     resize();
     window.addEventListener("resize", resize);
 
-    // Seed initial particles
     const ps = particles.current;
     for (let i = 0; i < BASE_COUNT; i++) ps.push(spawn(w, h, false));
 
     let prevEC = state.current.eventCount;
+    let prevRipple = 0;
+    let lastFrame = 0;
 
-    const loop = () => {
-      const { status, isNight, eventCount } = state.current;
+    const loop = (now: number) => {
+      if (now - lastFrame < 33) return; // 30fps throttle
+      lastFrame = now;
+
+      const { status, isNight, eventCount, ripple } = state.current;
       const run = status === "running";
 
       ctx.clearRect(0, 0, w, h);
@@ -85,6 +91,28 @@ export default function ParticleField({ status, isNight, eventCount }: Props) {
         }
       }
 
+      // Shockwave scatter — massive radial burst from center on ripple spike
+      if (ripple > 0.5 && prevRipple <= 0.5) {
+        const cx = w * 0.5;
+        const cy = h * 0.5;
+        for (let i = 0; i < SHOCKWAVE_BURST; i++) {
+          const ang = (i / SHOCKWAVE_BURST) * Math.PI * 2 + Math.random() * 0.3;
+          const spd = 2.5 + Math.random() * 4;
+          ps.push({
+            x: cx + Math.cos(ang) * 20,
+            y: cy + Math.sin(ang) * 20,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd,
+            s: 1.5 + Math.random(),
+            a: 0.8 + Math.random() * 0.2,
+            life: 40 + Math.random() * 60,
+            max: 100,
+            lime: true,
+          });
+        }
+      }
+      prevRipple = ripple;
+
       // Maintain particle count
       const target = run ? RUN_COUNT : BASE_COUNT;
       while (ps.length < target) ps.push(spawn(w, h, run));
@@ -98,6 +126,12 @@ export default function ParticleField({ status, isNight, eventCount }: Props) {
         p.y += p.vy * spd;
         p.life--;
 
+        // Friction for shockwave particles (fast ones decelerate)
+        if (Math.abs(p.vx) > 1.5 || Math.abs(p.vy) > 1.5) {
+          p.vx *= 0.97;
+          p.vy *= 0.97;
+        }
+
         if (
           p.life <= 0 ||
           p.x < -10 ||
@@ -105,7 +139,8 @@ export default function ParticleField({ status, isNight, eventCount }: Props) {
           p.y < -10 ||
           p.y > h + 10
         ) {
-          ps.splice(i, 1);
+          ps[i] = ps[ps.length - 1];
+          ps.pop();
           continue;
         }
 
@@ -123,15 +158,13 @@ export default function ParticleField({ status, isNight, eventCount }: Props) {
       }
 
       // Hard cap
-      if (ps.length > CAP) ps.splice(0, ps.length - (CAP - 50));
-
-      raf.current = requestAnimationFrame(loop);
+      if (ps.length > CAP) ps.length = CAP - 50;
     };
 
-    raf.current = requestAnimationFrame(loop);
+    const unsub = subscribe(loop);
 
     return () => {
-      cancelAnimationFrame(raf.current);
+      unsub();
       window.removeEventListener("resize", resize);
     };
   }, []);

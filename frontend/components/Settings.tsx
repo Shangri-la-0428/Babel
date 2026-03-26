@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   BabelSettings,
   loadSettings,
@@ -8,6 +8,7 @@ import {
   fetchModels,
 } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
+import { StatusDot } from "./ui";
 
 interface SettingsProps {
   onClose: () => void;
@@ -25,10 +26,13 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
   const [closing, setClosing] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(closeTimerRef.current), []);
+
   const startClose = useCallback(() => {
     if (closing) return;
     setClosing(true);
-    setTimeout(onClose, EXIT_MS);
+    closeTimerRef.current = setTimeout(onClose, EXIT_MS);
   }, [closing, onClose]);
 
   // Load models on mount if key + base exist
@@ -90,7 +94,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
           <div className="flex items-center gap-2" aria-live="polite">
             {testStatus === "ok" && (
               <span className="text-micro text-primary tracking-wider flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" aria-hidden="true" />
+                <StatusDot status="primary" />
                 {t("connected_models")} · {models.length}
               </span>
             )}
@@ -179,9 +183,11 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
             )}
           </div>
           <button
+            type="button"
             onClick={handleFetchModels}
             disabled={loadingModels || !settings.apiKey || !settings.apiBase}
-            className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform] whitespace-nowrap"
+            title={!settings.apiKey || !settings.apiBase ? t("fetch_models_disabled_hint") : undefined}
+            className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform] whitespace-nowrap"
           >
             {loadingModels ? t("loading") : t("fetch_models")}
           </button>
@@ -190,12 +196,18 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
         {/* Actions */}
         <div className="flex items-center gap-3 pt-4 border-t border-b-DEFAULT">
           <button
+            type="button"
             onClick={handleSave}
-            className="h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
+            className={`h-9 px-6 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] ${
+              saved
+                ? "bg-primary/20 text-primary border-primary shadow-[0_0_12px_var(--color-primary-glow)]"
+                : "bg-primary text-void border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)]"
+            }`}
           >
-            {t("save")}
+            {saved ? t("saved") : t("save")}
           </button>
           <button
+            type="button"
             onClick={startClose}
             className="h-9 px-4 text-micro tracking-wider text-t-muted hover:text-t-DEFAULT transition-colors"
           >

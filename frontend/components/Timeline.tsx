@@ -145,6 +145,7 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
       <div className="px-6 py-3 flex items-center justify-between">
         <span className="text-micro text-t-muted tracking-widest">{t("timeline")}</span>
         <button
+          type="button"
           onClick={onNew}
           className="text-micro text-t-muted tracking-wider hover:text-primary transition-colors"
         >
@@ -287,7 +288,7 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
                   {t("branch_created")} {new Date(expandedBranch.created_at).toLocaleDateString()}
                 </span>
               </div>
-              <button onClick={() => setExpanded(null)} className="text-micro text-t-dim hover:text-t-DEFAULT transition-colors">
+              <button type="button" onClick={() => setExpanded(null)} className="text-micro text-t-dim hover:text-t-DEFAULT transition-colors">
                 {t("close")}
               </button>
             </div>
@@ -319,12 +320,14 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
             {/* Actions */}
             <div className="flex items-center gap-3 pt-1">
               <button
+                type="button"
                 onClick={() => onSelect(expandedBranch.id)}
                 className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
               >
                 {expandedBranch.status !== "ended" ? t("resume") : t("world_review")} &rarr;
               </button>
               <button
+                type="button"
                 onClick={() => setConfirmDelete(expandedBranch.id)}
                 className="h-9 px-4 text-micro tracking-wider text-danger hover:text-danger/80 transition-colors"
               >
@@ -347,13 +350,15 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
             )}
             <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={() => handleDelete(confirmDelete)}
                 disabled={deleting}
-                className="h-9 px-5 text-micro font-medium tracking-wider bg-danger text-void border border-danger hover:bg-transparent hover:text-danger active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+                className="h-9 px-5 text-micro font-medium tracking-wider bg-danger text-void border border-danger hover:bg-transparent hover:text-danger active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
               >
                 {deleting ? t("loading") : deleteError ? t("retry") : t("delete")}
               </button>
               <button
+                type="button"
                 onClick={() => setConfirmDelete(null)}
                 disabled={deleting}
                 className="h-9 px-4 text-micro tracking-wider text-t-muted hover:text-t-DEFAULT transition-colors"

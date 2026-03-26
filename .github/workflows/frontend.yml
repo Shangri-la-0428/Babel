@@ -32,5 +32,8 @@ jobs:
       - name: Type check & build
         run: npm run build
 
-      - name: Lint
-        run: npm run lint
+      - name: Lint (zero warnings)
+        run: npm run lint -- --max-warnings 6
+
+      - name: Unit tests
+        run: npm run test:unit

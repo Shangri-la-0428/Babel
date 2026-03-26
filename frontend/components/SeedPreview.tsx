@@ -138,7 +138,7 @@ export default function SeedPreview({
               ? "border-primary text-primary"
               : saveError
               ? "border-danger text-danger hover:border-danger/80 hover:text-danger/80"
-              : "border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-30 disabled:pointer-events-none"
+              : "border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
           }`}
         >
           {saved ? t("saved") : saving ? t("saving") : saveError ? t("retry") : t("save_to_assets")}

@@ -446,12 +446,6 @@ export interface HumanWaitingContext {
   reachable_locations: string[];
 }
 
-export interface HumanStatusResponse {
-  controlled_agents: string[];
-  waiting_agents: string[];
-  waiting_contexts: Record<string, HumanWaitingContext>;
-}
-
 export async function takeControl(sessionId: string, agentId: string): Promise<void> {
   const res = await fetchWithTimeout(
     `${API_BASE}/api/worlds/${sessionId}/take-control/${agentId}`,
@@ -489,14 +483,6 @@ export async function submitHumanAction(
     },
   );
   assertOk(res);
-}
-
-export async function getHumanStatus(sessionId: string): Promise<HumanStatusResponse> {
-  const res = await fetchWithTimeout(
-    `${API_BASE}/api/worlds/${sessionId}/human-status`,
-  );
-  assertOk(res);
-  return res.json();
 }
 
 export function createWebSocket(sessionId: string): WebSocket {

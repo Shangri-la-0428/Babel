@@ -65,6 +65,7 @@ export default function OracleChat({
             <div className="flex flex-wrap justify-center gap-2 mt-1">
               {SUGGESTIONS.map((key, i) => (
                 <button
+                  type="button"
                   key={key}
                   onClick={() => onSend(t(key))}
                   style={{ animationDelay: `${160 + i * 60}ms` }}
@@ -130,6 +131,7 @@ export default function OracleChat({
         <div className="text-micro text-danger tracking-wider px-3 py-2 border border-danger animate-slide-down flex items-start gap-2">
           <span className="flex-1">{error}</span>
           <button
+            type="button"
             onClick={onDismissError}
             className="text-danger/50 hover:text-danger transition-colors shrink-0 leading-none min-w-[36px] min-h-[36px] flex items-center justify-center -mr-2 -my-1"
             aria-label={t("close")}

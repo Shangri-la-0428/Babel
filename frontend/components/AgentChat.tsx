@@ -75,6 +75,7 @@ export default function AgentChat({
           {t("chat_with", agentName)}
         </span>
         <button
+          type="button"
           onClick={onClose}
           className="text-micro text-t-muted hover:text-t-DEFAULT transition-colors tracking-wider"
           aria-label={t("close")}
@@ -99,7 +100,7 @@ export default function AgentChat({
                 : "text-t-DEFAULT mr-8"
             }`}
           >
-            <span className="text-micro tracking-wider text-t-dim block mb-1">
+            <span className="text-micro tracking-wider text-t-dim block mb-1 truncate">
               {msg.role === "user" ? t("you") : agentName}
             </span>
             <span className="break-words">{msg.text}</span>
@@ -107,7 +108,7 @@ export default function AgentChat({
         ))}
         {loading && (
           <div className="text-detail text-t-dim mr-8 normal-case tracking-normal">
-            <span className="text-micro tracking-wider block mb-1">{agentName}</span>
+            <span className="text-micro tracking-wider block mb-1 truncate">{agentName}</span>
             <span className="animate-[blink_1s_step-end_infinite]">{t("thinking")}</span>
           </div>
         )}
@@ -124,12 +125,12 @@ export default function AgentChat({
           disabled={loading}
           autoFocus
           aria-label={t("chat_placeholder", agentName)}
-          className="flex-1 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-30"
+          className="flex-1 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         />
         <button
           type="submit"
           disabled={loading || !input.trim()}
-          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:pointer-events-none transition-[colors,box-shadow,transform]"
+          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform]"
         >
           {t("send")}
         </button>

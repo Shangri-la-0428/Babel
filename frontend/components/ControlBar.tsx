@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/lib/locale-context";
+import { StatusDot } from "./ui";
 
 interface ControlBarProps {
   tick: number;
@@ -86,6 +87,9 @@ export default function ControlBar({
   const [showDisconnect, setShowDisconnect] = useState(false);
   const prevPeriodRef = useRef(worldTime?.period);
   const [periodGlitch, setPeriodGlitch] = useState(false);
+  const stepTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => () => clearTimeout(stepTimerRef.current), []);
 
   // Boot sweep on status → running
   useEffect(() => {
@@ -146,12 +150,14 @@ export default function ControlBar({
       {/* Run / Pause — cross-fade */}
       <div className="relative h-9 min-w-[100px]">
         <button
+          type="button"
           onClick={onRun}
           disabled={disabled || isRunning}
+          title={isRunning ? t("already_running") : undefined}
           aria-label={t("aria_run")}
           aria-hidden={isRunning}
           tabIndex={isRunning ? -1 : 0}
-          className={`group absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 transition-[colors,box-shadow,transform,opacity] duration-150 ${
+          className={`group absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,box-shadow,transform,opacity] duration-150 ${
             isRunning ? "opacity-0 pointer-events-none" : "opacity-100"
           }`}
           style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}
@@ -159,12 +165,13 @@ export default function ControlBar({
           <span className="inline-block transition-transform group-hover:translate-x-px"><PlayIcon /></span> {t("run")}
         </button>
         <button
+          type="button"
           onClick={onPause}
           disabled={disabled || !isRunning}
           aria-label={t("aria_pause")}
           aria-hidden={!isRunning}
           tabIndex={isRunning ? 0 : -1}
-          className={`absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-30 transition-[colors,transform,opacity] duration-150 ${
+          className={`absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform,opacity] duration-150 ${
             isRunning ? "opacity-100" : "opacity-0 pointer-events-none"
           }`}
           style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}
@@ -175,14 +182,17 @@ export default function ControlBar({
 
       {/* Step */}
       <button
+        type="button"
         onClick={() => {
           onStep();
           setShowStep(true);
-          setTimeout(() => setShowStep(false), 400);
+          if (stepTimerRef.current) clearTimeout(stepTimerRef.current);
+          stepTimerRef.current = setTimeout(() => setShowStep(false), 400);
         }}
         disabled={disabled || isRunning}
+        title={isRunning ? t("pause_first") : undefined}
         aria-label={t("aria_step")}
-        className="inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
+        className="inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
       >
         <StepIcon /> {t("step")}
       </button>
@@ -190,6 +200,7 @@ export default function ControlBar({
       {/* Oracle toggle */}
       {onOracle && (
         <button
+          type="button"
           onClick={onOracle}
           aria-expanded={!!oracleOpen}
           className={`inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] hover:[text-shadow:_-1px_0_rgba(14,165,233,0.4),_1px_0_rgba(192,254,4,0.2)] ${
@@ -233,14 +244,9 @@ export default function ControlBar({
       {/* Status */}
       <div className="flex items-center gap-2">
         <span className="relative inline-flex">
-          <span
-            className={`inline-block w-2 h-2 rounded-full ${
-              isRunning
-                ? "bg-primary animate-pulse-glow"
-                : status === "ended"
-                ? "bg-danger shadow-[0_0_6px_var(--color-danger-glow)]"
-                : "bg-t-dim"
-            }`}
+          <StatusDot
+            status={isRunning ? "running" : status === "ended" ? "danger" : "idle"}
+            className="w-2 h-2"
           />
           {isRunning && (
             <span className="absolute inset-0 rounded-full border border-primary animate-ping opacity-20" aria-hidden="true" />
@@ -259,31 +265,29 @@ export default function ControlBar({
       {worldName && (
         <>
           <div className="w-px h-6 bg-b-DEFAULT" />
-          <span className="text-micro text-t-muted tracking-wider truncate max-w-[200px]" title={`${worldName}${sessionId ? ` · ${sessionId}` : ""}`}>
+          <span className="text-micro text-t-muted tracking-wider truncate min-w-0" style={{ maxWidth: "clamp(100px, 15vw, 240px)" }} title={`${worldName}${sessionId ? ` · ${sessionId}` : ""}`}>
             {worldName}
             {sessionId && ` · ${sessionId.slice(0, 6)}`}
           </span>
         </>
       )}
 
-      {/* Model + WS status */}
-      {(model || wsStatus) && (
+      {/* WS status (always visible) */}
+      {wsStatus && wsStatus !== "connected" && (
         <>
           <div className="w-px h-6 bg-b-DEFAULT" />
-          {model && (
-            <span className="text-micro text-t-dim tracking-wider">{model}</span>
-          )}
-          {wsStatus && wsStatus !== "connected" && (
-            <span className={`text-micro tracking-wider flex items-center gap-1.5 ${wsStatus === "disconnected" ? "text-danger" : "text-t-dim"}`}>
-              <span className={`inline-block w-1.5 h-1.5 rounded-full ${
-                wsStatus === "disconnected"
-                  ? "bg-danger shadow-[0_0_6px_var(--color-danger-glow)]"
-                  : "bg-t-dim animate-[blink_1s_step-end_infinite]"
-              }`} />
-              {wsStatus === "disconnected" ? t("disconnected") : t("connecting")}
-            </span>
-          )}
+          <span className={`text-micro tracking-wider flex items-center gap-1.5 ${wsStatus === "disconnected" ? "text-danger" : "text-t-dim"}`}>
+            <StatusDot status={wsStatus === "disconnected" ? "danger" : "connecting"} />
+            {wsStatus === "disconnected" ? t("disconnected") : t("connecting")}
+          </span>
         </>
+      )}
+      {/* Model (2xl+ only) */}
+      {model && (
+        <span className="hidden 2xl:contents">
+          <div className="w-px h-6 bg-b-DEFAULT" />
+          <span className="text-micro text-t-dim tracking-wider" title={model}>{model}</span>
+        </span>
       )}
     </div>
   );

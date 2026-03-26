@@ -8,20 +8,23 @@ import { useLocale } from "@/lib/locale-context";
 // Semantic status indicator for agents, sessions, items, locations.
 
 const DOT_VARIANTS: Record<string, string> = {
-  acting:    "bg-primary shadow-[0_0_8px_var(--color-primary-glow-strong)]",
-  dead:      "bg-danger shadow-[0_0_8px_var(--color-danger-glow)]",
-  idle:      "bg-t-dim",
-  info:      "bg-info",
-  warning:   "bg-warning",
-  secondary: "bg-t-secondary",
-  primary:   "bg-primary shadow-[0_0_8px_var(--color-primary-glow-strong)]",
-  danger:    "bg-danger",
+  acting:     "bg-primary shadow-[0_0_8px_var(--color-primary-glow-strong)]",
+  running:    "bg-primary animate-pulse-glow",
+  dead:       "bg-danger shadow-[0_0_8px_var(--color-danger-glow)]",
+  idle:       "bg-t-dim",
+  info:       "bg-info shadow-[0_0_6px_rgba(14,165,233,0.4)] animate-pulse-glow",
+  warning:    "bg-warning",
+  secondary:  "bg-t-secondary",
+  primary:    "bg-primary shadow-[0_0_8px_var(--color-primary-glow-strong)]",
+  danger:     "bg-danger shadow-[0_0_6px_var(--color-danger-glow)]",
+  connecting: "bg-t-dim animate-[blink_1s_step-end_infinite]",
 };
 
-export function StatusDot({ status }: { status: string }) {
+export function StatusDot({ status, className }: { status: string; className?: string }) {
   return (
     <span
-      className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${DOT_VARIANTS[status] || DOT_VARIANTS.idle}`}
+      className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${DOT_VARIANTS[status] || DOT_VARIANTS.idle}${className ? ` ${className}` : ""}`}
+      aria-hidden="true"
     />
   );
 }
@@ -86,6 +89,7 @@ export function ErrorBanner({
         {children}
       </div>
       <button
+        type="button"
         onClick={onDismiss}
         className="text-micro text-danger hover:text-t-DEFAULT transition-colors ml-4 shrink-0"
         aria-label={t("dismiss")}
@@ -120,7 +124,7 @@ export function EmptyState({
     <div className={`border border-b-DEFAULT p-8 flex flex-col items-center gap-4 ${className}`}>
       <div className="text-micro text-t-dim tracking-widest">
         {label}
-        <span className={`inline-block w-[0.55em] h-[1.1em] ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite] ${EMPTY_VARIANTS[variant]}`} aria-hidden="true" />
+        <span className={`inline-block w-[1ch] h-[1.15em] ml-0.5 align-text-bottom animate-[cursor-pulse_1s_step-end_infinite] ${EMPTY_VARIANTS[variant]}`} aria-hidden="true" />
       </div>
       {children}
     </div>
@@ -133,7 +137,7 @@ export function EmptyState({
 export function SkeletonLine({ className = "", variant = "default" }: { className?: string; variant?: "default" | "scan" }) {
   return (
     <div
-      className={`bg-[length:200%_100%] animate-[shimmer_1.5s_ease_infinite] ${
+      className={`bg-[length:200%_100%] animate-[shimmer_1.5s_linear_infinite] ${
         variant === "scan"
           ? "bg-gradient-to-r from-surface-2 via-info/10 to-surface-2"
           : "bg-gradient-to-r from-surface-2 via-surface-3 to-surface-2"
@@ -310,25 +314,25 @@ export const DecodeText = memo(function DecodeText({
 
       if (glitchRef.current) {
         const remaining = text.slice(count);
-        let glitched = "";
+        const chars: string[] = [];
         for (let i = 0; i < remaining.length; i++) {
-          // At low intensity, most chars show as dots; at high intensity, full block glyphs
           const useGlitch = Math.random() < glitchIntensity;
-          glitched +=
+          chars.push(
             remaining[i] === " "
               ? " "
               : useGlitch
               ? GLITCH_CHARS[((now / 50 + i * 7) | 0) % GLITCH_CHARS.length]
-              : "·";
+              : "·"
+          );
         }
-        glitchRef.current.textContent = glitched;
+        glitchRef.current.textContent = chars.join("");
       }
 
       frameRef.current = requestAnimationFrame(tick);
     }
     frameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [text, duration]);
+  }, [text, duration, glitchIntensity]);
 
   return (
     <>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, memo } from "react";
+import { subscribe } from "@/lib/raf";
 
 interface Location {
   name: string;
@@ -36,7 +37,6 @@ export default memo(function WorldRadar({
   tick,
 }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const raf = useRef(0);
   const st = useRef({ locations, agents, isRunning, latestEventLocation, tick });
   const pulses = useRef<Pulse[]>([]);
   const sweep = useRef(0);
@@ -56,46 +56,74 @@ export default memo(function WorldRadar({
 
     const dpr = window.devicePixelRatio || 1;
 
+    // Layout cache — recomputed only on resize or location change
+    let cachedW = 0;
+    let cachedH = 0;
+    let cachedLocCount = 0;
+    let cachedPositions = new Map<string, { x: number; y: number }>();
+    let cachedCx = 0;
+    let cachedCy = 0;
+    let cachedRad = 0;
+
+    function recomputeLayout(w: number, h: number, locs: Location[]) {
+      cachedW = w;
+      cachedH = h;
+      cachedLocCount = locs.length;
+      cachedCx = w / 2;
+      cachedCy = h / 2;
+      cachedRad = Math.min(w, h) * 0.34;
+      cachedPositions = new Map();
+      locs.forEach((l, i) => {
+        const a = (i / locs.length) * Math.PI * 2 - Math.PI / 2;
+        cachedPositions.set(l.name, {
+          x: cachedCx + Math.cos(a) * cachedRad,
+          y: cachedCy + Math.sin(a) * cachedRad,
+        });
+      });
+    }
+
+    let displayW = 0;
+    let displayH = 0;
+
     function resize() {
       const r = c!.getBoundingClientRect();
-      c!.width = r.width * dpr;
-      c!.height = r.height * dpr;
+      displayW = r.width;
+      displayH = r.height;
+      c!.width = displayW * dpr;
+      c!.height = displayH * dpr;
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Invalidate layout cache on resize
+      cachedW = 0;
     }
     const ro = new ResizeObserver(resize);
     ro.observe(c);
     resize();
 
-    function getLayout(w: number, h: number, locs: Location[]) {
-      const cx = w / 2;
-      const cy = h / 2;
-      const rad = Math.min(w, h) * 0.34;
-      const positions = new Map<string, { x: number; y: number }>();
-      locs.forEach((l, i) => {
-        const a = (i / locs.length) * Math.PI * 2 - Math.PI / 2;
-        positions.set(l.name, {
-          x: cx + Math.cos(a) * rad,
-          y: cy + Math.sin(a) * rad,
-        });
-      });
-      return { positions, cx, cy, rad };
-    }
+    let lastFrame = 0;
 
-    function loop() {
+    function loop(now: number) {
       const { locations, agents, isRunning, latestEventLocation, tick } =
         st.current;
-      const rect = c!.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
+      const w = displayW;
+      const h = displayH;
+
+      // Idle throttle: ~15fps when not running
+      const interval = isRunning ? 0 : 66;
+      if (now - lastFrame < interval) return;
+      lastFrame = now;
 
       ctx!.clearRect(0, 0, w, h);
 
-      if (!locations.length) {
-        raf.current = requestAnimationFrame(loop);
-        return;
-      }
+      if (!locations.length) return;
 
-      const { positions, cx, cy, rad } = getLayout(w, h, locations);
+      // Recompute layout only when size or location count changes
+      if (w !== cachedW || h !== cachedH || locations.length !== cachedLocCount) {
+        recomputeLayout(w, h, locations);
+      }
+      const positions = cachedPositions;
+      const cx = cachedCx;
+      const cy = cachedCy;
+      const rad = cachedRad;
 
       // ── Grid: concentric squares ──
       for (let i = 1; i <= 3; i++) {
@@ -221,13 +249,14 @@ export default memo(function WorldRadar({
         pulses.current.push({ x: cx, y: cy, size: 2, alpha: 0.15 });
       }
 
-      // Animate expanding square pulses
+      // Animate expanding square pulses (swap-and-pop for O(1) removal)
       for (let i = pulses.current.length - 1; i >= 0; i--) {
         const p = pulses.current[i];
         p.size += 0.6;
         p.alpha -= 0.008;
         if (p.alpha <= 0) {
-          pulses.current.splice(i, 1);
+          pulses.current[i] = pulses.current[pulses.current.length - 1];
+          pulses.current.pop();
           continue;
         }
         ctx!.strokeStyle = `rgba(192,254,4,${p.alpha})`;
@@ -243,14 +272,12 @@ export default memo(function WorldRadar({
       // Center pip
       ctx!.fillStyle = "rgba(192,254,4,0.1)";
       ctx!.fillRect(cx - 1.5, cy - 1.5, 3, 3);
-
-      raf.current = requestAnimationFrame(loop);
     }
 
-    raf.current = requestAnimationFrame(loop);
+    const unsub = subscribe(loop);
 
     return () => {
-      cancelAnimationFrame(raf.current);
+      unsub();
       ro.disconnect();
     };
   }, []);

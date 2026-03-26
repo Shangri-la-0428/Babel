@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { injectEvent, stepWorld, BabelSettings } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 
@@ -16,6 +16,9 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
   const [flash, setFlash] = useState<"ok" | "err" | false>(false);
   const { t } = useLocale();
   const inputRef = useRef<HTMLInputElement>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => () => clearTimeout(flashTimerRef.current), []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,7 +29,8 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
       await injectEvent(sessionId, content.trim());
       setContent("");
       setFlash("ok");
-      setTimeout(() => setFlash(false), 600);
+      clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = setTimeout(() => setFlash(false), 600);
       // Auto-step so agents react to the injected event
       try {
         await stepWorld(sessionId, {
@@ -39,7 +43,8 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
       }
     } catch {
       setFlash("err");
-      setTimeout(() => setFlash(false), 1200);
+      clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = setTimeout(() => setFlash(false), 1200);
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -59,7 +64,7 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
           aria-label={t("inject_placeholder")}
           maxLength={2000}
           disabled={disabled || sending}
-          className={`w-full h-9 px-3 bg-void border text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-[colors,box-shadow] disabled:opacity-30 ${
+          className={`w-full h-9 px-3 bg-void border text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-[colors,box-shadow] disabled:opacity-40 disabled:cursor-not-allowed ${
             flash === "ok" ? "border-primary shadow-[0_0_12px_var(--color-primary-glow-strong)]" : flash === "err" ? "border-danger shadow-[0_0_12px_var(--color-danger-glow)]" : "border-b-DEFAULT"
           }`}
           style={flash === "err" ? { animation: "crt-glitch 300ms ease both" } : undefined}
@@ -74,7 +79,7 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
       <button
         type="submit"
         disabled={disabled || sending || !content.trim()}
-        className={`h-9 px-4 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] disabled:opacity-30 disabled:pointer-events-none ${
+        className={`h-9 px-4 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none ${
           content.trim()
             ? "bg-primary text-void border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)]"
             : "border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary hover:shadow-[0_0_12px_var(--color-primary-glow)]"

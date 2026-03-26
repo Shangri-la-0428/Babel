@@ -206,7 +206,7 @@ export default function CreatePage() {
       )}
 
       <main id="main-content" className="flex-1 p-6 max-w-3xl mx-auto w-full animate-slide-up">
-        <button onClick={() => router.push("/")} className="text-micro text-t-muted tracking-wider hover:text-t-DEFAULT transition-colors mb-4">
+        <button type="button" onClick={() => router.push("/")} className="text-micro text-t-muted tracking-wider hover:text-t-DEFAULT transition-colors mb-4">
           {t("back")}
         </button>
         <div className="text-micro text-t-dim tracking-widest mb-2">{t("world_forge")}</div>
@@ -221,6 +221,7 @@ export default function CreatePage() {
         {(savedAgents.length > 0 || savedEvents.length > 0) && (
           <div className="mb-8">
             <button
+              type="button"
               onClick={() => setShowImport(!showImport)}
               className="text-micro text-t-muted tracking-widest hover:text-primary transition-colors mb-3"
             >
@@ -236,9 +237,10 @@ export default function CreatePage() {
                     <div className="flex flex-wrap gap-2">
                       {savedAgents.map((s) => (
                         <button
+                          type="button"
                           key={s.id}
                           onClick={() => importAgent(s)}
-                          className="px-3 py-1.5 text-detail text-info border border-info hover:bg-info/10 transition-colors normal-case tracking-normal"
+                          className="px-3 py-1.5 text-detail text-info border border-info hover:bg-info/10 active:scale-[0.97] transition-[colors,transform] normal-case tracking-normal"
                         >
                           {s.name}
                         </button>
@@ -254,9 +256,10 @@ export default function CreatePage() {
                     <div className="flex flex-wrap gap-2">
                       {savedEvents.map((s) => (
                         <button
+                          type="button"
                           key={s.id}
                           onClick={() => importEvent(s)}
-                          className="px-3 py-1.5 text-detail text-danger border border-danger hover:bg-danger/10 transition-colors normal-case tracking-normal truncate max-w-[200px]"
+                          className="px-3 py-1.5 text-detail text-danger border border-danger hover:bg-danger/10 active:scale-[0.97] transition-[colors,transform] normal-case tracking-normal truncate max-w-[200px]"
                         >
                           {s.name}
                         </button>
@@ -333,8 +336,9 @@ export default function CreatePage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-sans text-heading font-semibold tracking-tight">{t("agents")}</h2>
           <button
+            type="button"
             onClick={addAgent}
-            className={`h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] ${agentAdded ? "relative overflow-hidden" : ""}`}
+            className={`h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] ${agentAdded ? "relative overflow-hidden" : ""}`}
           >
             {t("add_agent")}
             {agentAdded && (
@@ -350,6 +354,7 @@ export default function CreatePage() {
                 <span className="text-micro text-t-muted tracking-widest">{t("agent_n", String(i + 1))}</span>
                 {agents.length > 1 && (
                   <button
+                    type="button"
                     onClick={(e) => {
                       const card = (e.target as HTMLElement).closest('[data-agent-card]');
                       if (card) {
@@ -439,9 +444,10 @@ export default function CreatePage() {
         <div className="text-micro text-t-dim tracking-widest mb-3"><GlitchReveal text="// LAUNCH" duration={400} /></div>
         <div className="flex gap-3 pt-4 border-t border-b-DEFAULT">
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={loading || !world.name.trim()}
-            className={`h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:pointer-events-none transition-[colors,box-shadow,transform] ${loading ? "relative overflow-hidden" : ""}`}
+            className={`h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform] ${loading ? "relative overflow-hidden" : ""}`}
           >
             {loading ? t("creating") : t("ignite_world")}
             {loading && (
@@ -450,7 +456,7 @@ export default function CreatePage() {
           </button>
           <a
             href="/"
-            className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center justify-center"
+            className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center justify-center"
           >
             {t("cancel")}
           </a>

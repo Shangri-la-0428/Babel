@@ -44,11 +44,29 @@ docker run -p 3000:3000 babel-frontend
 npm test            # Run Playwright E2E tests
 npm run test:ui     # Run with Playwright UI
 npm run test:report # Show HTML report
+npm run test:unit   # Run Vitest unit tests
 ```
 
-Tests require the dev server and backend running.
+E2E tests require the dev server and backend running. Unit tests run standalone.
 
 ## Architecture
+
+### Canvas Rendering (`lib/raf.ts`)
+
+All canvas components share a single `requestAnimationFrame` loop via the shared RAF scheduler. Each component subscribes a tick callback and manages its own frame throttling:
+
+| Component | FPS | Renderer | Purpose |
+|-----------|-----|----------|---------|
+| `WorldShader` | ~30 | WebGL2 | Procedural terrain with FBM noise, parallax depth, day/night palette |
+| `ParticleField` | 60 | Canvas 2D | Status-reactive particles, event burst spawning |
+| `WorldRadar` | 60/15 | Canvas 2D | Tactical radar with location nodes, agent dots, sweep line |
+| `AmbientVoid` | 60 | Canvas 2D | Global floating particles behind all pages |
+
+Performance patterns: swap-and-pop removal (O(1)), layout caching, render throttling, idle frame skipping.
+
+### Spring Physics (`lib/spring.ts`)
+
+`useSpring(target, config, from)` — mass-spring-damper solver for natural motion. Render-throttled (skips setState when delta < 0.005). Respects `prefers-reduced-motion` with instant snap. Used by Modal for bouncy open / snappy close.
 
 ### Shared UI Components (`components/ui.tsx`)
 
@@ -60,7 +78,7 @@ Reusable primitives aligned to the design system:
 - `EmptyState` — Machine-style `// COMMENT` empty state
 - `SkeletonLine` — Shimmer loading placeholder
 - `GlitchReveal` — Glitch decode animation for display titles
-- `DecodeText` — Progressive text reveal with glitch characters (~30fps throttled)
+- `DecodeText` — Progressive text reveal with glitch characters
 - `FormLabel` — Standard form/section label
 - `DetailSection` — Bordered label + content section
 
@@ -72,13 +90,15 @@ Split into focused sub-components:
 - `OracleHeader` — Mode toggle (narrate/create), tick counter, close
 - `OracleChat` — Message list, suggestions, loading/error states
 - `OracleSeedCard` — Creative mode seed preview with stats and launch
+- `OracleWaveform` — Signal visualizer canvas (idle/thinking/received states)
+- `OracleParticles` — Floating terminal glyph overlay
 
 ### Accessibility
 
 - Skip-to-content link targeting `#main-content`
 - Focus trap + restore in Modal
 - Background scroll lock when Modal is open
-- `prefers-reduced-motion` respected globally
+- `prefers-reduced-motion` respected globally (all canvas components, spring hook, CSS animations)
 - `<html lang>` synced to active locale (zh-CN / en)
 - Semantic `<button>` elements (no `div[role=button]`)
 - `aria-label` on icon-only buttons

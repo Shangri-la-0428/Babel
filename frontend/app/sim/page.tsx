@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef, Suspense, lazy } from "react";
+import { useIdleMessage } from "@/lib/hooks/use-idle-message";
+import { useAtmosphere } from "@/lib/hooks/use-atmosphere";
+import { useWorldTransitions } from "@/lib/hooks/use-world-transitions";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import {
@@ -30,6 +33,7 @@ import { ErrorBanner, GlitchReveal } from "@/components/ui";
 
 const ParticleField = dynamic(() => import("@/components/ParticleField"), { ssr: false });
 const WorldRadar = dynamic(() => import("@/components/WorldRadar"), { ssr: false });
+const WorldShader = dynamic(() => import("@/components/WorldShader"), { ssr: false });
 const SeedPreview = lazy(() => import("@/components/SeedPreview"));
 const AgentChat = lazy(() => import("@/components/AgentChat"));
 const OracleDrawer = lazy(() => import("@/components/OracleDrawer"));
@@ -57,61 +61,35 @@ function SimContent() {
   const [oracleOpen, setOracleOpen] = useState(false);
   const [oracleEverOpened, setOracleEverOpened] = useState(false);
   const [controlledAgents, setControlledAgents] = useState<Set<string>>(new Set());
+  const [radarCollapsed, setRadarCollapsed] = useState(false);
   const [waitingAgent, setWaitingAgent] = useState<{ id: string; context: HumanWaitingContext } | null>(null);
   const { locale, toggle, t } = useLocale();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [wsRetryExhausted, setWsRetryExhausted] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
-  const highlightTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const highlightTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const operationRef = useRef(false); // guard against concurrent Run/Step
-  const [showWorldBoot, setShowWorldBoot] = useState(false);
-  const [showWorldEnded, setShowWorldEnded] = useState(false);
-  const prevRunStatus = useRef(status);
-
-  // Idle personality messages
-  const [idleMessage, setIdleMessage] = useState<string | null>(null);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const idleCycleRef = useRef<ReturnType<typeof setInterval>>();
-  const idleIdxRef = useRef(0);
-
-  const IDLE_KEYS = ["idle_0", "idle_1", "idle_2", "idle_3", "idle_4"] as const;
-
-  const resetIdle = useCallback(() => {
-    setIdleMessage(null);
-    clearTimeout(idleTimerRef.current);
-    clearInterval(idleCycleRef.current);
-    idleTimerRef.current = setTimeout(() => {
-      idleIdxRef.current = 0;
-      setIdleMessage(t(IDLE_KEYS[0]));
-      idleCycleRef.current = setInterval(() => {
-        idleIdxRef.current = (idleIdxRef.current + 1) % IDLE_KEYS.length;
-        setIdleMessage(t(IDLE_KEYS[idleIdxRef.current]));
-      }, 15000);
-    }, 10000);
-  }, [t]);
-
-  useEffect(() => {
-    resetIdle();
-    const events = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"];
-    events.forEach(e => document.addEventListener(e, resetIdle, { passive: true }));
-    return () => {
-      clearTimeout(idleTimerRef.current);
-      clearInterval(idleCycleRef.current);
-      events.forEach(e => document.removeEventListener(e, resetIdle));
-    };
-  }, [resetIdle]);
+  // ── Extracted hooks ──
+  const idleMessage = useIdleMessage(t);
+  const { isNight, shaderEnergy, shaderRipple, tension } = useAtmosphere(state, status, events.length);
+  const { showWorldBoot, showWorldEnded } = useWorldTransitions(status);
 
   // Load initial state
   useEffect(() => {
     if (!sessionId) return;
+    let mounted = true;
     getState(sessionId)
       .then((s) => {
+        if (!mounted) return;
         setState(s);
         setEvents(s.recent_events || []);
         setTick(s.tick);
         setStatus(s.status || "paused");
       })
-      .catch(() => setError(t("failed_load_state")));
+      .catch(() => { if (mounted) setError(tRef.current("failed_load_state")); });
+    return () => { mounted = false; };
   }, [sessionId]);
 
   // WebSocket connection with reconnection
@@ -164,8 +142,9 @@ function SimContent() {
               const timer = setTimeout(() => {
                 newEventIdsRef.current.delete(evtId);
                 setNewEventIds(new Set(newEventIdsRef.current));
+                highlightTimers.current.delete(timer);
               }, 1500);
-              highlightTimers.current.push(timer);
+              highlightTimers.current.add(timer);
             }
             break;
 
@@ -218,7 +197,7 @@ function SimContent() {
             break;
 
           case "error":
-            setError(`${t("engine_error")}: ${data.data.message || "Unknown"}`);
+            setError(`${tRef.current("engine_error")}: ${data.data.message || "Unknown"}`);
             break;
         }
       };
@@ -234,7 +213,7 @@ function SimContent() {
           reconnectTimer.current = setTimeout(connect, delay);
         } else {
           setWsRetryExhausted(true);
-          setError(t("lost_connection"));
+          setError(tRef.current("lost_connection"));
         }
       };
 
@@ -251,11 +230,12 @@ function SimContent() {
 
     connect();
 
+    const timers = highlightTimers.current;
     return () => {
       mounted = false;
       clearTimeout(reconnectTimer.current);
-      highlightTimers.current.forEach(clearTimeout);
-      highlightTimers.current = [];
+      timers.forEach(clearTimeout);
+      timers.clear();
       wsRef.current?.close();
     };
   }, [sessionId]);
@@ -264,14 +244,14 @@ function SimContent() {
     connectWsRef.current();
   }
 
-  function checkSettings(): boolean {
+  const checkSettings = useCallback((): boolean => {
     if (!settings.apiKey) {
       setError(t("api_key_required"));
       setShowSettings(true);
       return false;
     }
     return true;
-  }
+  }, [settings.apiKey, t]);
 
   const handleRun = useCallback(async () => {
     if (!sessionId || !checkSettings() || operationRef.current) return;
@@ -294,7 +274,7 @@ function SimContent() {
     } finally {
       operationRef.current = false;
     }
-  }, [sessionId, settings, tick, t]);
+  }, [sessionId, settings, tick, checkSettings, t]);
 
   const handlePause = useCallback(async () => {
     if (!sessionId) return;
@@ -324,7 +304,7 @@ function SimContent() {
       setLoading(false);
       operationRef.current = false;
     }
-  }, [sessionId, settings, t]);
+  }, [sessionId, settings, checkSettings, t]);
 
   // Seed generation handlers
   const handleGenerateAgentSeed = useCallback(async (agentId: string) => {
@@ -427,21 +407,6 @@ function SimContent() {
     return "";
   }, [events, state?.agents]);
 
-  // World boot scan on paused → running
-  useEffect(() => {
-    if (prevRunStatus.current !== "running" && status === "running") {
-      setShowWorldBoot(true);
-      const t = setTimeout(() => setShowWorldBoot(false), 600);
-      return () => clearTimeout(t);
-    }
-    // World ended overlay on any status → ended
-    if (prevRunStatus.current !== "ended" && status === "ended") {
-      setShowWorldEnded(true);
-      const t = setTimeout(() => setShowWorldEnded(false), 1500);
-      return () => clearTimeout(t);
-    }
-    prevRunStatus.current = status;
-  }, [status]);
 
   // Radar: agent list for Canvas visualization
   const radarAgents = useMemo(() => {
@@ -459,7 +424,7 @@ function SimContent() {
       <div className="min-h-screen flex flex-col items-center justify-center gap-3">
         <div className="text-micro text-t-dim tracking-widest">{"// ERROR"}</div>
         <div className="text-detail text-t-muted normal-case tracking-normal">{t("no_session")}</div>
-        <a href="/" className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center">
+        <a href="/" className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center">
           {t("go_home")}
         </a>
       </div>
@@ -470,14 +435,14 @@ function SimContent() {
     <div className="h-screen flex flex-col overflow-hidden bg-void scanlines relative isolate">
       {/* World boot scan — full viewport sweep on run start */}
       {showWorldBoot && (
-        <div className="absolute inset-0 z-[100] pointer-events-none animate-[world-boot-scan_600ms_ease-out_both]" aria-hidden="true">
+        <div className="absolute inset-0 z-boot pointer-events-none animate-[world-boot-scan_600ms_ease-out_both]" aria-hidden="true">
           <div className="absolute inset-x-0 h-[2px] bg-primary/20 shadow-[0_0_12px_var(--color-primary-glow-strong)]" />
         </div>
       )}
       {/* World ended overlay — dramatic transition on simulation end */}
       {showWorldEnded && (
         <div
-          className="absolute inset-0 z-[100] pointer-events-none flex items-center justify-center bg-void/80 animate-[ended-fade-out_1500ms_ease-out_both]"
+          className="absolute inset-0 z-boot pointer-events-none flex items-center justify-center bg-void/80 animate-[ended-fade-out_1500ms_ease-out_both]"
           aria-live="assertive"
           role="status"
         >
@@ -485,15 +450,46 @@ function SimContent() {
           <div className="absolute inset-x-0 top-0 h-[2px] bg-danger/40 shadow-[0_0_16px_var(--color-danger-glow)] animate-[ended-scan_800ms_ease-out_both]" />
           {/* WORLD ENDED text */}
           <div className="text-subheading font-bold tracking-widest text-danger drop-shadow-[0_0_16px_var(--color-danger-glow)] animate-[ended-text-glitch_600ms_ease_both]">
-            <GlitchReveal text="// SIMULATION COMPLETE" duration={600} />
+            <GlitchReveal text={t("simulation_complete")} duration={600} />
           </div>
         </div>
       )}
+      {/* Overdrive A: WebGL depth terrain — parallax portal */}
+      <WorldShader isNight={isNight} energy={shaderEnergy} ripple={shaderRipple} tension={tension} />
       <ParticleField
         status={status}
-        isNight={state?.world_time?.is_night ?? false}
+        isNight={isNight}
         eventCount={events.length}
+        ripple={shaderRipple}
       />
+      {/* Overdrive: Event shockwave ring overlay */}
+      {shaderRipple > 0 && (
+        <div
+          className="absolute inset-0 pointer-events-none overflow-hidden z-fx-overlay"
+          aria-hidden="true"
+        >
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full animate-[shockwave-ring_800ms_cubic-bezier(0.16,1,0.3,1)_both]"
+            style={{
+              width: "200vmax",
+              height: "200vmax",
+              border: `1px solid rgba(192, 254, 4, ${0.15 * shaderRipple})`,
+              boxShadow: `0 0 40px rgba(192, 254, 4, ${0.06 * shaderRipple}), inset 0 0 40px rgba(192, 254, 4, ${0.03 * shaderRipple})`,
+            }}
+          />
+        </div>
+      )}
+      {/* Overdrive B: Tension vignette — danger bleed at edges */}
+      {tension > 0 && (
+        <div
+          className="absolute inset-0 pointer-events-none transition-opacity duration-[1500ms] z-fx-overlay"
+          style={{
+            opacity: tension,
+            background: "radial-gradient(ellipse at center, transparent 25%, rgba(242, 71, 35, 0.12) 100%)",
+          }}
+          aria-hidden="true"
+        />
+      )}
       <h1 className="sr-only">{t("simulate")}</h1>
       <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
         <div className="flex items-center gap-4 min-w-0">
@@ -518,6 +514,7 @@ function SimContent() {
             {t("assets")}
           </a>
           <button
+            type="button"
             onClick={() => setShowSettings(!showSettings)}
             aria-expanded={showSettings}
             aria-controls="settings-panel"
@@ -528,8 +525,9 @@ function SimContent() {
             {t("settings")}
           </button>
           <button
+            type="button"
             onClick={toggle}
-            className="text-micro text-t-dim tracking-wider border border-surface-3 px-3 py-1 hover:text-t-DEFAULT hover:border-b-hover transition-colors"
+            className="text-micro text-t-dim tracking-wider border border-surface-3 px-3 py-1 hover:text-t-DEFAULT hover:border-b-hover active:scale-[0.97] transition-[colors,transform]"
             aria-label={t("lang_switch")}
           >
             {locale === "cn" ? "EN" : "中"}
@@ -542,6 +540,7 @@ function SimContent() {
         <ErrorBanner variant="header" message={error} onDismiss={handleDismissError}>
           {wsRetryExhausted && (
             <button
+              type="button"
               onClick={handleReconnect}
               className="ml-3 text-micro tracking-wider text-void bg-danger/80 px-3 py-1 hover:bg-danger transition-colors shrink-0"
             >
@@ -563,22 +562,38 @@ function SimContent() {
 
       {/* Main content */}
       {/* Desktop-only layout (1280px+) */}
-      <main className="flex-1 grid grid-cols-[1fr_380px] min-w-[1024px] overflow-hidden">
+      <main className="flex-1 grid grid-cols-[1fr_var(--sidebar-width)] min-w-[1024px] overflow-hidden">
         {/* Event Feed */}
         <section className="flex flex-col border-r border-b-DEFAULT overflow-hidden" aria-label="Event feed">
           {/* World Radar — Direction A */}
           {state && (state.locations?.length ?? 0) > 0 && (
-            <div className="h-[180px] border-b border-b-DEFAULT shrink-0 bg-void relative">
-              <span className="absolute top-2 left-4 text-micro text-t-dim tracking-widest pointer-events-none z-10">
-                TACTICAL
-              </span>
-              <WorldRadar
-                locations={state.locations}
-                agents={radarAgents}
-                isRunning={status === "running"}
-                latestEventLocation={latestEventLocation}
-                tick={tick}
-              />
+            <div className="border-b border-b-DEFAULT shrink-0 bg-void relative">
+              <button
+                type="button"
+                onClick={() => setRadarCollapsed((p) => !p)}
+                className="absolute top-1.5 left-4 text-micro text-t-dim tracking-widest z-10 hover:text-t-muted transition-colors"
+                aria-expanded={!radarCollapsed}
+                aria-controls="world-radar-panel"
+              >
+                TACTICAL {radarCollapsed ? "▸" : "▾"}
+              </button>
+              <div
+                id="world-radar-panel"
+                className="accordion-grid"
+                data-open={!radarCollapsed}
+              >
+                <div className="accordion-inner" style={{ height: radarCollapsed ? 0 : 152 }}>
+                  <WorldRadar
+                    locations={state.locations}
+                    agents={radarAgents}
+                    isRunning={status === "running"}
+                    latestEventLocation={latestEventLocation}
+                    tick={tick}
+                  />
+                </div>
+              </div>
+              {/* Reserve space for toggle button when collapsed */}
+              {radarCollapsed && <div className="h-7" />}
             </div>
           )}
           <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 flex justify-between items-center shrink-0">
