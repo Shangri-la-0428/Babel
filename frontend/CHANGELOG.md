@@ -2,6 +2,13 @@
 
 ## Phase 15 — 2026-03-26
 
+### Step 4a: Behavioral Tests (Psyche-independent)
+- **Memory stability tests**: EventFeed render window cap (200), trimmed indicator, rapid re-render
+- **Canvas component tests**: ParticleField/WorldRadar graceful degradation in jsdom, reduced-motion skip
+- **Stress tests**: WS disconnect detection, page resilience with 300/500 events, empty world state
+- **Export→Import consistency**: round-trip data integrity, portable field verification, type validation
+- 9 unit tests, 10 E2E tests
+
 ### Step 3: Timeline Replay
 - **SeekBar**: Scrub to any past tick to view reconstructed world state
 - **Replay mode**: REPLAY badge on ControlBar, Run/Step/Inject disabled
@@ -30,5 +37,5 @@
 
 | Suite | Count |
 |-------|-------|
-| Unit (Vitest) | 121 |
-| E2E (Playwright) | 103 |
+| Unit (Vitest) | 130 |
+| E2E (Playwright) | 113 |

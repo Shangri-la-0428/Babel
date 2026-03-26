@@ -505,12 +505,68 @@ async def get_agent_beliefs(
 # ── Event Retrieval (location-filtered, replaces get_recent_events) ──
 
 
+def _filter_event_for_observer(event: dict, observer: AgentState) -> str:
+    """Filter event result text based on observer's relationship to the event.
+
+    Agents should only see information they could plausibly perceive.
+    - Actor sees full detail (their own action).
+    - Same-location observers see public aspects but not private details.
+    - Distant observers see only that something happened.
+    """
+    result = event.get("result", "")
+    if not result:
+        return ""
+
+    agent_id = event.get("agent_id")
+    action_type = event.get("action_type", "")
+    agent_name = event.get("agent_name", "Someone")
+    location = event.get("location", "")
+    involved = event.get("involved_agents") or []
+    if isinstance(involved, str):
+        import json as _json
+        try:
+            involved = _json.loads(involved)
+        except (ValueError, TypeError):
+            involved = []
+
+    # Actor always sees full detail
+    if agent_id == observer.agent_id:
+        return result
+
+    # Observer is directly involved (target of speak/trade)
+    if observer.agent_id in involved:
+        return result
+
+    # World events (agent_id is None) — always full
+    if agent_id is None:
+        return result
+
+    # Same location — public perception with redactions
+    if location == observer.location:
+        if action_type in ("speak", "move", "wait"):
+            return result
+        elif action_type == "trade":
+            return f"{agent_name} traded with someone nearby"
+        elif action_type == "use_item":
+            return f"{agent_name} used an item"
+        elif action_type == "observe":
+            return f"{agent_name} looked around quietly"
+        else:
+            return f"{agent_name} did something"
+
+    # Different location — minimal (shouldn't normally reach here due to DB filter,
+    # but handle gracefully)
+    return f"{agent_name} was active elsewhere"
+
+
 async def get_relevant_events(
     agent: AgentState, session: Session, limit: int = 8
 ) -> list[str]:
     """Get recent events relevant to this agent (by location + involvement).
 
     Returns formatted strings for prompt inclusion.
+    Events are filtered through observer visibility — agents only see
+    information they could plausibly perceive.
     """
     # Calculate lookback window
     min_tick = max(0, session.tick - 10)
@@ -523,7 +579,12 @@ async def get_relevant_events(
         limit=limit,
     )
 
-    return [f"[Tick {e['tick']}] {e['result']}" for e in events if e.get("result")]
+    results = []
+    for e in events:
+        filtered = _filter_event_for_observer(e, agent)
+        if filtered:
+            results.append(f"[Tick {e['tick']}] {filtered}")
+    return results
 
 
 # ── Visibility (unchanged logic) ──
