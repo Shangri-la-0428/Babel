@@ -176,6 +176,16 @@ const translations = {
   import_invalid: { cn: "// INVALID_FORMAT — 文件格式不符", en: "// INVALID_FORMAT — File format mismatch" },
   import_too_large: { cn: "// FILE_TOO_LARGE — 最大 1MB", en: "// FILE_TOO_LARGE — Max 1MB" },
 
+  // Replay
+  replay_mode: { cn: "回放中", en: "REPLAY" },
+  replay_live: { cn: "返回实时", en: "LIVE" },
+  replay_disabled: { cn: "// REPLAY_MODE — 回放中不可操作", en: "// REPLAY_MODE — Controls disabled" },
+  seek_bar: { cn: "回溯", en: "SEEK" },
+  aria_seek: { cn: "拖动回溯到指定轮次", en: "Seek to tick" },
+  aria_live_button: { cn: "返回实时状态", en: "Return to live" },
+  reconstruct_failed: { cn: "// RECON_ERR — 状态重建失败", en: "// RECON_ERR — Reconstruction failed" },
+  replay_seeking: { cn: "定位中…", en: "SEEKING…" },
+
   // Event feed
   system: { cn: "系统", en: "System" },
   seed: { cn: "种子", en: "Seed" },

@@ -73,6 +73,21 @@ async function mockAllAPIs(page: Page) {
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ session_id: "test-session-001" }) });
     } else if (url.includes("/api/worlds/") && url.includes("/state")) {
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_WORLD_STATE) });
+    } else if (url.includes("/api/worlds/") && url.includes("/timeline")) {
+      route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ nodes: [], branch: "main" }),
+      });
+    } else if (url.includes("/api/worlds/") && url.includes("/reconstruct") && method === "POST") {
+      route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({
+          tick: 3, snapshot_tick: 0,
+          world_seed: {},
+          agent_states: MOCK_WORLD_STATE.agents,
+          events_since_snapshot: [{ id: "e1", tick: 1, agent_id: "a1", agent_name: "陈妈", action_type: "speak", action: {}, result: "Hello" }],
+        }),
+      });
     } else {
       route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     }
@@ -639,5 +654,107 @@ test.describe("P15: ControlBar Density", () => {
     // Model name should not appear in toolbar (moved to Settings)
     // Session ID (test-session-001) should not appear in toolbar
     await expect(toolbar.getByText("test-session-001")).not.toBeVisible();
+  });
+});
+
+// ── Timeline Replay ──
+
+/** Create world with tick=5 so SeekBar is visible */
+async function createWorldAtTick5(page: Page) {
+  const STATE_T5 = { ...MOCK_WORLD_STATE, tick: 5 };
+  await page.addInitScript(() => localStorage.setItem("babel_visited", "1"));
+  await page.route(/localhost:8000/, (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    if (url.includes("/api/seeds/cyber_bar")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_CYBER_BAR_DETAIL) });
+    } else if (url.includes("/api/seeds")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_SEEDS) });
+    } else if (url.includes("/api/sessions")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    } else if (url.includes("/api/worlds/from-seed/") && method === "POST") {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ session_id: "test-session-001" }) });
+    } else if (url.includes("/api/worlds/") && url.includes("/state")) {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(STATE_T5) });
+    } else if (url.includes("/api/worlds/") && url.includes("/timeline")) {
+      route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({
+          nodes: Array.from({ length: 6 }, (_, i) => ({
+            id: `n${i}`, session_id: "test-session-001", tick: i, parent_id: i > 0 ? `n${i - 1}` : null,
+            branch_id: "main", node_type: "tick", summary: "", event_count: 1,
+            agent_locations: {}, significant: false, created_at: "",
+          })),
+          branch: "main",
+        }),
+      });
+    } else if (url.includes("/api/worlds/") && url.includes("/reconstruct") && method === "POST") {
+      route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({
+          tick: 3, snapshot_tick: 0, world_seed: {},
+          agent_states: MOCK_WORLD_STATE.agents,
+          events_since_snapshot: [{ id: "e1", tick: 1, agent_id: "a1", agent_name: "陈妈", action_type: "speak", action: {}, result: "Hello" }],
+        }),
+      });
+    } else {
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    }
+  });
+  await page.goto("/");
+  await page.locator("button").filter({ hasText: "赛博酒吧" }).click();
+  const startBtn = page.getByRole("button", { name: /Start New|开始新模拟/ });
+  await expect(startBtn).toBeVisible({ timeout: 10_000 });
+  await startBtn.click();
+  await page.waitForURL(/\/sim\?id=/, { timeout: 15_000 });
+}
+
+test.describe("P15: Timeline Replay", () => {
+  test.describe.configure({ timeout: 60_000 });
+
+  test("SeekBar visible when tick > 0", async ({ page }) => {
+    await createWorldAtTick5(page);
+    await expect(page.getByRole("slider", { name: /Seek|回溯/ })).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("SeekBar hidden when tick is 0", async ({ page }) => {
+    await createWorld(page);
+    // tick=0 — no seek bar
+    await expect(page.getByRole("slider", { name: /Seek|回溯/ })).not.toBeVisible({ timeout: 5_000 });
+  });
+
+  test("scrubbing shows REPLAY badge and disables controls", async ({ page }) => {
+    await createWorldAtTick5(page);
+    const slider = page.getByRole("slider", { name: /Seek|回溯/ });
+    await expect(slider).toBeVisible({ timeout: 10_000 });
+
+    // Scrub to tick 3
+    await slider.fill("3");
+
+    // REPLAY badge should appear
+    await expect(page.getByText(/REPLAY|回放中/).first()).toBeVisible({ timeout: 5_000 });
+
+    // Run button should be disabled
+    const toolbar = page.getByRole("toolbar");
+    const runBtn = toolbar.getByRole("button", { name: /Run|运行/ });
+    await expect(runBtn).toBeDisabled();
+  });
+
+  test("LIVE button exits replay mode", async ({ page }) => {
+    await createWorldAtTick5(page);
+    const slider = page.getByRole("slider", { name: /Seek|回溯/ });
+    await expect(slider).toBeVisible({ timeout: 10_000 });
+    await slider.fill("3");
+
+    // Wait for REPLAY badge
+    await expect(page.getByText(/REPLAY|回放中/).first()).toBeVisible({ timeout: 5_000 });
+
+    // Click LIVE button
+    const liveBtn = page.getByRole("button", { name: /live|返回实时/i });
+    await expect(liveBtn).toBeVisible({ timeout: 5_000 });
+    await liveBtn.click();
+
+    // REPLAY badge should disappear
+    await expect(page.getByText(/REPLAY|回放中/)).not.toBeVisible({ timeout: 5_000 });
   });
 });

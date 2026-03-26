@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, Suspense, lazy } fro
 import { useIdleMessage } from "@/lib/hooks/use-idle-message";
 import { useAtmosphere } from "@/lib/hooks/use-atmosphere";
 import { useWorldTransitions } from "@/lib/hooks/use-world-transitions";
+import { useReplay } from "@/lib/hooks/use-replay";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import {
@@ -29,6 +30,7 @@ import AssetPanel from "@/components/AssetPanel";
 import ControlBar from "@/components/ControlBar";
 import Settings from "@/components/Settings";
 import InjectEvent from "@/components/InjectEvent";
+import SeekBar from "@/components/SeekBar";
 import { ErrorBanner, GlitchReveal } from "@/components/ui";
 
 const ParticleField = dynamic(() => import("@/components/ParticleField"), { ssr: false });
@@ -75,6 +77,7 @@ function SimContent() {
   const idleMessage = useIdleMessage(t);
   const { isNight, shaderEnergy, shaderRipple, tension } = useAtmosphere(state, status, events.length);
   const { showWorldBoot, showWorldEnded } = useWorldTransitions(status);
+  const replay = useReplay(sessionId, tick);
 
   // Load initial state
   useEffect(() => {
@@ -93,6 +96,7 @@ function SimContent() {
   }, [sessionId]);
 
   // WebSocket connection with reconnection
+  const replayGateRef = replay.replayActiveRef;
   const connectWsRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!sessionId) return;
@@ -122,41 +126,52 @@ function SimContent() {
 
         if (!data.data) return;
 
+        // Gate live state updates during replay (WS stays connected)
+        const gated = replayGateRef.current;
+
         switch (data.type) {
           case "connected":
-            setState(data.data);
-            setEvents(data.data.recent_events || []);
-            setTick(data.data.tick ?? 0);
-            setStatus(data.data.status || "paused");
+            if (!gated) {
+              setState(data.data);
+              setEvents(data.data.recent_events || []);
+              setTick(data.data.tick ?? 0);
+              setStatus(data.data.status || "paused");
+            }
             break;
 
           case "event":
-            setEvents((prev) => {
-              const next = [...prev, data.data];
-              return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next;
-            });
-            {
-              const evtId = data.data.id;
-              newEventIdsRef.current.add(evtId);
-              setNewEventIds(new Set(newEventIdsRef.current));
-              const timer = setTimeout(() => {
-                newEventIdsRef.current.delete(evtId);
+            if (!gated) {
+              setEvents((prev) => {
+                const next = [...prev, data.data];
+                return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next;
+              });
+              {
+                const evtId = data.data.id;
+                newEventIdsRef.current.add(evtId);
                 setNewEventIds(new Set(newEventIdsRef.current));
-                highlightTimers.current.delete(timer);
-              }, 1500);
-              highlightTimers.current.add(timer);
+                const timer = setTimeout(() => {
+                  newEventIdsRef.current.delete(evtId);
+                  setNewEventIds(new Set(newEventIdsRef.current));
+                  highlightTimers.current.delete(timer);
+                }, 1500);
+                highlightTimers.current.add(timer);
+              }
             }
             break;
 
           case "tick":
-            setTick(data.data.tick ?? 0);
-            setStatus(data.data.status || "paused");
+            if (!gated) {
+              setTick(data.data.tick ?? 0);
+              setStatus(data.data.status || "paused");
+            }
             break;
 
           case "state_update":
-            setState(data.data);
-            setTick(data.data.tick ?? 0);
-            setStatus(data.data.status || "paused");
+            if (!gated) {
+              setState(data.data);
+              setTick(data.data.tick ?? 0);
+              setStatus(data.data.status || "paused");
+            }
             break;
 
           case "stopped":
@@ -238,7 +253,7 @@ function SimContent() {
       timers.clear();
       wsRef.current?.close();
     };
-  }, [sessionId]);
+  }, [sessionId, replayGateRef]);
 
   function handleReconnect() {
     connectWsRef.current();
@@ -392,32 +407,37 @@ function SimContent() {
     setWaitingAgent(null);
   }, []);
 
+  // Derived display values: replay overlays live state
+  const displayState = replay.isReplay ? (replay.replayState ?? state) : state;
+  const displayEvents = replay.isReplay ? replay.replayEvents : events;
+  const displayTick = replay.replayTick ?? tick;
+
   const activeAgentId = useMemo(
-    () => (events.length > 0 ? events[events.length - 1]?.agent_id : null),
-    [events]
+    () => (displayEvents.length > 0 ? displayEvents[displayEvents.length - 1]?.agent_id : null),
+    [displayEvents]
   );
 
   // Radar: derive latest event location from agent state
   const latestEventLocation = useMemo(() => {
-    if (!events.length || !state?.agents) return "";
-    const last = events[events.length - 1];
-    if (last.agent_id && state.agents[last.agent_id]) {
-      return state.agents[last.agent_id].location;
+    if (!displayEvents.length || !displayState?.agents) return "";
+    const last = displayEvents[displayEvents.length - 1];
+    if (last.agent_id && displayState.agents[last.agent_id]) {
+      return displayState.agents[last.agent_id].location;
     }
     return "";
-  }, [events, state?.agents]);
+  }, [displayEvents, displayState?.agents]);
 
 
   // Radar: agent list for Canvas visualization
   const radarAgents = useMemo(() => {
-    if (!state?.agents) return [];
-    return Object.entries(state.agents).map(([id, a]) => ({
+    if (!displayState?.agents) return [];
+    return Object.entries(displayState.agents).map(([id, a]) => ({
       id,
       name: a.name,
       location: a.location,
       status: a.status,
     }));
-  }, [state?.agents]);
+  }, [displayState?.agents]);
 
   if (!sessionId) {
     return (
@@ -617,10 +637,10 @@ function SimContent() {
               </div>
             ) : (
               <EventFeed
-                events={events}
+                events={displayEvents}
                 newEventIds={newEventIds}
                 onSeed={handleGenerateEventSeed}
-                worldTimeDisplay={state?.world_time?.display}
+                worldTimeDisplay={displayState?.world_time?.display}
               />
             )}
           </div>
@@ -629,12 +649,12 @@ function SimContent() {
               {idleMessage}
             </div>
           )}
-          <InjectEvent sessionId={sessionId} settings={settings} disabled={status === "running"} />
+          <InjectEvent sessionId={sessionId} settings={settings} disabled={status === "running" || replay.isReplay} />
         </section>
 
         {/* Sidebar — Asset Management */}
         <AssetPanel
-          state={state}
+          state={displayState}
           activeAgentId={activeAgentId}
           sessionId={sessionId}
           onChat={handleOpenChat}
@@ -693,18 +713,30 @@ function SimContent() {
         </Suspense>
       )}
 
+      {/* Seek Bar */}
+      <SeekBar
+        currentTick={tick}
+        replayTick={replay.replayTick}
+        maxTick={replay.maxTick}
+        seeking={replay.seeking}
+        onSeek={replay.seekTo}
+        onExitReplay={replay.exitReplay}
+        isReplay={replay.isReplay}
+      />
+
       {/* Control Bar */}
       <ControlBar
-        tick={tick}
+        tick={displayTick}
         status={status}
         onRun={handleRun}
         onPause={handlePause}
         onStep={handleStep}
         disabled={loading && status !== "running"}
         wsStatus={wsStatus}
-        worldTime={state?.world_time || null}
+        worldTime={displayState?.world_time || null}
         onOracle={handleToggleOracle}
         oracleOpen={oracleOpen}
+        isReplay={replay.isReplay}
       />
     </div>
   );

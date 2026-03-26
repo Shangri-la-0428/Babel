@@ -15,6 +15,7 @@ interface ControlBarProps {
   worldTime?: { display: string; period: string; is_night: boolean } | null;
   onOracle?: () => void;
   oracleOpen?: boolean;
+  isReplay?: boolean;
 }
 
 function PlayIcon() {
@@ -71,6 +72,7 @@ export default function ControlBar({
   worldTime,
   onOracle,
   oracleOpen,
+  isReplay,
 }: ControlBarProps) {
   const { t } = useLocale();
   const isRunning = status === "running";
@@ -146,8 +148,8 @@ export default function ControlBar({
         <button
           type="button"
           onClick={onRun}
-          disabled={disabled || isRunning}
-          title={isRunning ? t("already_running") : undefined}
+          disabled={disabled || isRunning || isReplay}
+          title={isReplay ? t("replay_disabled") : isRunning ? t("already_running") : undefined}
           aria-label={t("aria_run")}
           aria-hidden={isRunning}
           tabIndex={isRunning ? -1 : 0}
@@ -183,8 +185,8 @@ export default function ControlBar({
           if (stepTimerRef.current) clearTimeout(stepTimerRef.current);
           stepTimerRef.current = setTimeout(() => setShowStep(false), 400);
         }}
-        disabled={disabled || isRunning}
-        title={isRunning ? t("pause_first") : undefined}
+        disabled={disabled || isRunning || isReplay}
+        title={isReplay ? t("replay_disabled") : isRunning ? t("pause_first") : undefined}
         aria-label={t("aria_step")}
         className="inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
       >
@@ -205,6 +207,13 @@ export default function ControlBar({
         >
           {t("oracle")}
         </button>
+      )}
+
+      {/* Replay badge */}
+      {isReplay && (
+        <span className="text-micro tracking-wider px-2.5 py-0.5 border text-warning border-warning font-medium leading-none">
+          {t("replay_mode")}
+        </span>
       )}
 
       {/* Divider */}
@@ -251,7 +260,7 @@ export default function ControlBar({
             isRunning ? "text-primary" : "text-t-muted"
           }`}
         >
-          {status === "running" ? t("status_running") : status === "ended" ? t("status_ended") : t("status_paused")}
+          {isReplay ? t("replay_mode") : status === "running" ? t("status_running") : status === "ended" ? t("status_ended") : t("status_paused")}
         </span>
       </div>
 

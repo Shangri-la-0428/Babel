@@ -550,3 +550,55 @@ export async function generateSeed(
   assertOk(res);
   return res.json();
 }
+
+// ── Timeline & Replay ──
+
+export interface TimelineNode {
+  id: string;
+  session_id: string;
+  tick: number;
+  parent_id: string | null;
+  branch_id: string;
+  node_type: string;
+  summary: string;
+  event_count: number;
+  agent_locations: Record<string, string>;
+  significant: boolean;
+  created_at: string;
+}
+
+export interface ReconstructedState {
+  tick: number;
+  snapshot_tick: number;
+  world_seed: Record<string, unknown>;
+  agent_states: Record<string, Record<string, unknown>>;
+  events_since_snapshot: EventData[];
+}
+
+export async function getTimeline(
+  sessionId: string,
+  fromTick = 0,
+  toTick?: number,
+): Promise<{ nodes: TimelineNode[]; branch: string }> {
+  const params = new URLSearchParams({ from_tick: String(fromTick) });
+  if (toTick !== undefined) params.set("to_tick", String(toTick));
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/timeline?${params}`);
+  assertOk(res);
+  return res.json();
+}
+
+export async function reconstructAtTick(
+  sessionId: string,
+  tick: number,
+  signal?: AbortSignal,
+): Promise<ReconstructedState> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/reconstruct`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tick }),
+    timeout: LONG_TIMEOUT,
+    signal,
+  });
+  assertOk(res);
+  return res.json();
+}
