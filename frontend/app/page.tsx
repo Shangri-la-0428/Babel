@@ -47,6 +47,8 @@ function AutoTextarea({ className, value, ...props }: React.TextareaHTMLAttribut
 export default function Home() {
   const router = useRouter();
   const { locale, toggle, t } = useLocale();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [seeds, setSeeds] = useState<SeedInfo[]>([]);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [oracleGreetIdx] = useState(() => Math.floor(Math.random() * 4));
@@ -204,7 +206,7 @@ export default function Home() {
   useEffect(() => {
     fetchSeeds()
       .then((data) => setSeeds(Array.isArray(data) ? data : []))
-      .catch(() => setError(t("failed_load")))
+      .catch(() => setError(tRef.current("failed_load")))
       .finally(() => setSeedsLoading(false));
     getSessions()
       .then((data) => setSessions(Array.isArray(data) ? data : []))
@@ -344,6 +346,7 @@ export default function Home() {
         <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
           <div className="flex items-center gap-4">
             <button
+              type="button"
               onClick={() => setSelectedSeed(null)}
               className="text-micro text-t-muted tracking-wider hover:text-primary transition-colors"
             >
@@ -362,6 +365,7 @@ export default function Home() {
               {t("assets")}
             </a>
             <button
+              type="button"
               onClick={() => setShowSettings(!showSettings)}
               aria-expanded={showSettings}
               className={`text-micro tracking-widest transition-colors ${
@@ -371,8 +375,9 @@ export default function Home() {
               {t("settings")}
             </button>
             <button
+              type="button"
               onClick={toggle}
-              className="text-micro text-t-dim tracking-wider border border-surface-3 px-3 py-1 hover:text-t-DEFAULT hover:border-b-hover transition-colors"
+              className="text-micro text-t-dim tracking-wider border border-surface-3 px-3 py-1 hover:text-t-DEFAULT hover:border-b-hover active:scale-[0.97] transition-[colors,transform]"
               aria-label={t("lang_switch")}
             >
               {locale === "cn" ? "EN" : "\u4e2d"}
@@ -427,6 +432,7 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-2 shrink-0 pt-1">
                 <button
+                  type="button"
                   onClick={() => handleStartNew(selectedSeed.file)}
                   disabled={loading}
                   className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
@@ -434,6 +440,7 @@ export default function Home() {
                   {loading ? t("creating") : t("world_start_new")}
                 </button>
                 <button
+                  type="button"
                   onClick={handleSaveLaunch}
                   disabled={loading || !ed}
                   className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 transition-[colors,box-shadow,transform]"
@@ -441,6 +448,7 @@ export default function Home() {
                   {loading ? t("creating") : t("save_launch")}
                 </button>
                 <button
+                  type="button"
                   onClick={handleEditWorld}
                   disabled={!ed}
                   className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
@@ -475,6 +483,7 @@ export default function Home() {
           >
             {ASSET_TABS.map((tab) => (
               <button
+                type="button"
                 key={tab.key}
                 role="tab"
                 tabIndex={assetTab === tab.key ? 0 : -1}
@@ -581,6 +590,7 @@ export default function Home() {
                               </div>
                               <div className="flex items-center gap-3 pt-1">
                                 <button
+                                  type="button"
                                   onClick={() => handleSaveAgentSeed(agent)}
                                   disabled={savedIds.has(agent.id)}
                                   className={`text-micro tracking-wider transition-colors ${savedIds.has(agent.id) ? "text-primary" : "text-t-muted hover:text-primary"}`}
@@ -588,7 +598,7 @@ export default function Home() {
                                   {savedIds.has(agent.id) ? t("saved_ok") : t("save_agent_seed")}
                                 </button>
                                 {ed.agents.length > 1 && (
-                                  <button onClick={() => removeAgent(ai)} className="text-micro tracking-wider text-danger hover:text-danger/80 transition-colors">
+                                  <button type="button" onClick={() => removeAgent(ai)} className="text-micro tracking-wider text-danger hover:text-danger/80 transition-colors">
                                     {t("remove")}
                                   </button>
                                 )}
@@ -597,7 +607,7 @@ export default function Home() {
                           )}
                         </div>
                       ))}
-                      <button onClick={addAgent} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
+                      <button type="button" onClick={addAgent} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
                         {t("add_agent")}
                       </button>
                     </div>
@@ -641,7 +651,7 @@ export default function Home() {
                           >
                             <StatusDot status="secondary" />
                             <div className="flex-1 min-w-0">
-                              <div className="text-body font-semibold">{loc.name || t("ph_location")}</div>
+                              <div className="text-body font-semibold truncate">{loc.name || t("ph_location")}</div>
                             </div>
                             <span className="text-micro text-t-dim tracking-wider shrink-0">
                               {expandedLocation === li ? "\u25BE" : "\u25B8"}
@@ -665,20 +675,21 @@ export default function Home() {
                                   <div className="flex items-center gap-2">
                                     <span className="text-micro text-t-muted tracking-widest">{t("agents")}:</span>
                                     {here.map((a) => (
-                                      <span key={a.id} className="text-micro text-info tracking-wider">{a.name}</span>
+                                      <span key={a.id} className="text-micro text-info tracking-wider truncate max-w-[120px]">{a.name}</span>
                                     ))}
                                   </div>
                                 );
                               })()}
                               <div className="flex items-center gap-3 pt-1">
                                 <button
+                                  type="button"
                                   onClick={() => handleSaveLocationSeed(loc)}
                                   disabled={savedIds.has(`loc_${loc.name}`)}
                                   className={`text-micro tracking-wider transition-colors ${savedIds.has(`loc_${loc.name}`) ? "text-primary" : "text-t-muted hover:text-primary"}`}
                                 >
                                   {savedIds.has(`loc_${loc.name}`) ? t("saved_ok") : t("save_location_seed")}
                                 </button>
-                                <button onClick={() => removeLocation(li)} className="text-micro tracking-wider text-danger hover:text-danger/80 transition-colors">
+                                <button type="button" onClick={() => removeLocation(li)} className="text-micro tracking-wider text-danger hover:text-danger/80 transition-colors">
                                   {t("remove")}
                                 </button>
                               </div>
@@ -686,7 +697,7 @@ export default function Home() {
                           )}
                         </div>
                       ))}
-                      <button onClick={addLocation} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
+                      <button type="button" onClick={addLocation} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
                         {t("add_location")}
                       </button>
                     </div>
@@ -835,6 +846,7 @@ export default function Home() {
                   const saveCount = getWorldSessions(seed.name).length;
                   return (
                     <button
+                      type="button"
                       key={seed.file}
                       onClick={() => handleSelectSeed(seed)}
                       className="bg-void px-5 py-4 text-left hover:bg-surface-1 transition-[colors,box-shadow] group border-l-2 border-l-transparent hover:border-l-primary hover:shadow-[inset_0_0_24px_var(--color-primary-glow)] relative overflow-hidden"

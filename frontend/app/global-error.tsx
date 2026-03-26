@@ -42,6 +42,7 @@ export default function GlobalError({
           </div>
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={reset}
               className="h-9 px-5 text-micro font-mono tracking-wider uppercase bg-primary text-void border border-primary cursor-pointer hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
             >

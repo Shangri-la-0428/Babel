@@ -98,7 +98,7 @@ function AgentRow({
       >
         <StatusDot status={agent.status} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <span className="text-body font-semibold truncate">{agent.name}</span>
             {isHumanControlled && (
               <span className="text-micro tracking-wider px-2 py-0.5 border border-primary text-primary shrink-0">
@@ -295,6 +295,7 @@ function AgentRow({
               <div className="flex flex-wrap gap-1">
                 {(agent.inventory || []).map((item, i) => (
                   <button
+                    type="button"
                     key={i}
                     onClick={() => onItemClick(item)}
                     className="text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium text-warning border-warning hover:bg-warning/10 active:scale-[0.97] transition-[colors,transform]"
@@ -350,7 +351,7 @@ function AgentRow({
                   <div>
                     <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// RELATIONSHIPS"}</div>
                     {(enrichedDetails.relationships as Array<{name: string; relation: string}>).map((rel, i) => (
-                      <div key={i} className="text-detail normal-case tracking-normal">
+                      <div key={i} className="text-detail normal-case tracking-normal truncate">
                         <span className="text-t-DEFAULT">{rel.name}</span>
                         <span className="text-t-dim mx-1">&mdash;</span>
                         <span className="text-t-secondary">{rel.relation}</span>
@@ -362,6 +363,7 @@ function AgentRow({
             ) : (
               <div className="flex items-center gap-3">
                 <button
+                  type="button"
                   onClick={onEnrich}
                   disabled={enriching}
                   className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
@@ -380,6 +382,7 @@ function AgentRow({
             <div className="flex items-center gap-2 px-4 py-2">
               {isHumanControlled ? (
                 <button
+                  type="button"
                   key="controlled"
                   onClick={onReleaseControl}
                   className="h-8 px-3 text-micro tracking-wider border border-primary text-primary hover:bg-primary hover:text-void active:scale-[0.97] transition-[colors,transform] animate-[event-flash_600ms_ease]"
@@ -388,6 +391,7 @@ function AgentRow({
                 </button>
               ) : (
                 <button
+                  type="button"
                   key="autonomous"
                   onClick={onTakeControl}
                   className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
@@ -396,14 +400,16 @@ function AgentRow({
                 </button>
               )}
               <button
+                type="button"
                 onClick={onChat}
-                className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
+                className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
               >
                 {t("chat")}
               </button>
               <button
+                type="button"
                 onClick={onExtract}
-                className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-info hover:text-info transition-colors"
+                className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-info hover:text-info active:scale-[0.97] transition-[colors,transform]"
               >
                 {t("extract")}
               </button>
@@ -496,9 +502,9 @@ function ItemRow({
             <div className="text-micro text-t-muted tracking-widest mb-1">{t("panel_held_by")}</div>
             <div className="flex flex-col gap-1">
               {item.holders.map((h) => (
-                <div key={h.agentId} className="flex items-center gap-2 text-detail text-t-secondary">
+                <div key={h.agentId} className="flex items-center gap-2 text-detail text-t-secondary min-w-0">
                   <StatusDot status="idle" />
-                  {h.agentName}
+                  <span className="truncate">{h.agentName}</span>
                 </div>
               ))}
             </div>
@@ -547,6 +553,7 @@ function ItemRow({
             ) : (
               <div className="flex items-center gap-3">
                 <button
+                  type="button"
                   onClick={onEnrich}
                   disabled={enriching}
                   className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
@@ -566,6 +573,7 @@ function ItemRow({
             ) : (
               <>
                 <button
+                  type="button"
                   onClick={onGenerate}
                   disabled={generating}
                   className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 transition-colors"
@@ -704,6 +712,7 @@ function LocationRow({
             ) : (
               <div className="flex items-center gap-3">
                 <button
+                  type="button"
                   onClick={onEnrich}
                   disabled={enriching}
                   className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
@@ -822,9 +831,9 @@ export default function AssetPanel({
     }
   }
 
-  const agents = state?.agents ?? {};
-  const locations = state?.locations ?? [];
-  const allRelations = state?.relations ?? [];
+  const agents = useMemo(() => state?.agents ?? {}, [state?.agents]);
+  const locations = useMemo(() => state?.locations ?? [], [state?.locations]);
+  const allRelations = useMemo(() => state?.relations ?? [], [state?.relations]);
 
   // Build agent name lookup
   const agentNames = useMemo<Record<string, string>>(() => {
@@ -869,6 +878,7 @@ export default function AssetPanel({
       >
         {TABS.map((t_item) => (
           <button
+            type="button"
             key={t_item.key}
             role="tab"
             tabIndex={tab === t_item.key ? 0 : -1}
@@ -1006,7 +1016,7 @@ export default function AssetPanel({
               <>
                 {/* World name & description */}
                 <div className="px-4 py-3 border-b border-b-DEFAULT">
-                  <div className="text-body font-semibold">{state.name}</div>
+                  <div className="text-body font-semibold truncate">{state.name}</div>
                   {state.description && (
                     <div className="text-detail text-t-muted normal-case tracking-normal leading-relaxed mt-1">
                       {state.description}
@@ -1050,6 +1060,7 @@ export default function AssetPanel({
                 {/* Extract world button */}
                 <div className="px-4 py-3">
                   <button
+                    type="button"
                     onClick={onExtractWorld}
                     className="w-full h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
                   >

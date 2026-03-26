@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { SavedSeedData, saveAsset } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import { TYPE_STYLES, renderSeedData } from "./SeedDataView";
@@ -25,6 +25,8 @@ export default function SeedPreview({
   const style = TYPE_STYLES[seed.type] || "text-t-muted border-b-DEFAULT";
 
   const [saveError, setSaveError] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(closeTimerRef.current), []);
 
   async function handleSave() {
     if (saving || saved) return;
@@ -45,7 +47,7 @@ export default function SeedPreview({
       });
       setSaved(true);
       onSaved?.();
-      setTimeout(() => onClose(), 800);
+      closeTimerRef.current = setTimeout(() => onClose(), 800);
     } catch {
       setSaving(false);
       setSaveError(true);
@@ -63,6 +65,7 @@ export default function SeedPreview({
           <span className="text-body font-semibold">{t("seed_preview")}</span>
         </div>
         <button
+          type="button"
           onClick={onClose}
           className="text-micro text-t-muted tracking-wider hover:text-t-DEFAULT transition-colors"
         >
@@ -120,12 +123,14 @@ export default function SeedPreview({
           <span className="text-micro text-danger tracking-wider mr-auto">{t("delete_failed")}</span>
         )}
         <button
+          type="button"
           onClick={onClose}
           className="h-8 px-4 text-micro tracking-wider text-t-dim hover:text-t-DEFAULT transition-colors"
         >
           {t("cancel")}
         </button>
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving || saved}
           className={`h-8 px-5 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,transform] ${

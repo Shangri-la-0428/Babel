@@ -21,6 +21,7 @@ export default function PageError({
       </div>
       <div className="flex items-center gap-3">
         <button
+          type="button"
           onClick={reset}
           className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
         >

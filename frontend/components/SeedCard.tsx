@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useRef, useEffect } from "react";
 import { SavedSeedData } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import { TYPE_STYLES } from "./SeedDataView";
@@ -15,6 +15,9 @@ export default memo(function SeedCard({
   onSelect?: (seed: SavedSeedData) => void;
 }) {
   const { t } = useLocale();
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(deleteTimerRef.current), []);
+
   return (
     <button
       type="button"
@@ -22,8 +25,8 @@ export default memo(function SeedCard({
       onClick={() => onSelect?.(seed)}
     >
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="text-body font-semibold truncate">{seed.name}</div>
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="text-body font-semibold truncate min-w-0">{seed.name}</div>
         <span
           className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium transition-shadow group-hover:shadow-[0_0_6px_currentColor] ${
             TYPE_STYLES[seed.type] || "text-t-muted border-b-DEFAULT"
@@ -46,7 +49,7 @@ export default memo(function SeedCard({
           {(seed.tags || []).map((tag, i) => (
             <span
               key={i}
-              className="text-micro text-t-dim tracking-wider px-2 py-0.5 border border-surface-3"
+              className="text-micro text-t-dim tracking-wider px-2 py-0.5 border border-surface-3 truncate max-w-[120px]"
             >
               {tag}
             </span>
@@ -61,12 +64,13 @@ export default memo(function SeedCard({
         </span>
         {onDelete && (
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               const card = e.currentTarget.closest('button');
               if (card) {
                 card.style.animation = 'crt-glitch 200ms ease both';
-                setTimeout(() => onDelete?.(seed.id), 200);
+                deleteTimerRef.current = setTimeout(() => onDelete?.(seed.id), 200);
               }
             }}
             className="text-micro text-t-dim tracking-wider hover:text-danger transition-[colors,opacity] opacity-0 group-hover:opacity-100"

@@ -226,13 +226,14 @@ export default function SeedDetail({
       <div className="flex flex-col flex-1 min-h-0 animate-[seed-detail-enter_200ms_ease-out_both]">
       {/* Header */}
       <div className="px-6 py-4 border-b border-b-DEFAULT flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <span className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium ${style}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium shrink-0 ${style}`}>
             {seed.type}
           </span>
-          <span className="text-body font-semibold">{seed.name}</span>
+          <span className="text-body font-semibold truncate min-w-0">{seed.name}</span>
         </div>
         <button
+          type="button"
           onClick={onClose}
           className="text-micro text-t-muted tracking-wider hover:text-t-DEFAULT transition-colors"
         >
@@ -265,6 +266,7 @@ export default function SeedDetail({
             ) : (
               <div className="flex items-center gap-3">
                 <button
+                  type="button"
                   onClick={handleEnrich}
                   disabled={enriching || enrichNoSession}
                   className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 transition-[colors,transform]"
