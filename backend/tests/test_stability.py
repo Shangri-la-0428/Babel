@@ -56,19 +56,22 @@ class TestStability100Ticks(unittest.TestCase):
         src = ContextAwareDecisionSource(seed=42)
 
         # Mock DB calls (we're testing logic, not persistence)
+        # NOTE: Must patch where the function is *used* (babel.engine), not
+        # where it's *defined* (babel.db), because engine uses
+        # ``from .db import X`` which creates a local reference.
         patches = [
             patch("babel.memory.save_memory", new_callable=AsyncMock),
             patch("babel.memory.query_memories", new_callable=AsyncMock, return_value=[]),
             patch("babel.memory.delete_memories", new_callable=AsyncMock),
             patch("babel.memory.update_memory_access", new_callable=AsyncMock),
             patch("babel.memory.load_events_filtered", new_callable=AsyncMock, return_value=[]),
-            patch("babel.db.save_timeline_node", new_callable=AsyncMock),
-            patch("babel.db.save_snapshot", new_callable=AsyncMock),
-            patch("babel.db.get_last_node_id", new_callable=AsyncMock, return_value=None),
-            patch("babel.db.load_entity_details", new_callable=AsyncMock, return_value=None),
-            patch("babel.db.save_entity_details", new_callable=AsyncMock),
-            patch("babel.db.load_events", new_callable=AsyncMock, return_value=[]),
-            patch("babel.db.load_events_filtered", new_callable=AsyncMock, return_value=[]),
+            patch("babel.engine.save_timeline_node", new_callable=AsyncMock),
+            patch("babel.engine.save_snapshot", new_callable=AsyncMock),
+            patch("babel.engine.get_last_node_id", new_callable=AsyncMock, return_value=None),
+            patch("babel.engine.load_entity_details", new_callable=AsyncMock, return_value=None),
+            patch("babel.engine.save_entity_details", new_callable=AsyncMock),
+            patch("babel.engine.load_events", new_callable=AsyncMock, return_value=[]),
+            patch("babel.engine.load_events_filtered", new_callable=AsyncMock, return_value=[]),
         ]
 
         for p in patches:
