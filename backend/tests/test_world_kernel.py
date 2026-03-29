@@ -11,11 +11,14 @@ Covers:
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch, MagicMock
+from pathlib import Path
 
 import pytest
 
+import babel.db as db_module
 from babel.decision import (
     ActionCritic,
     AgentContext,
@@ -45,6 +48,29 @@ from babel.models import (
 )
 from babel.policies import resolve_goal_policies, resolve_social_policies
 from babel.validator import apply_action, _build_structured
+
+
+# ── Test DB Isolation ─────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def isolated_db():
+    """Run world-kernel tests against a pristine temp DB, not the developer's local babel.db."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "test.db"
+        original = db_module.DB_PATH
+        db_module.DB_PATH = path
+        setup_loop = asyncio.new_event_loop()
+        setup_loop.run_until_complete(db_module.init_db(path))
+        setup_loop.close()
+        test_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(test_loop)
+        try:
+            yield path
+        finally:
+            test_loop.close()
+            asyncio.set_event_loop(None)
+            db_module.DB_PATH = original
 
 
 # ── Fixtures ──────────────────────────────────────────
