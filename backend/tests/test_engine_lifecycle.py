@@ -23,6 +23,7 @@ from babel.decision import (
     AgentContext,
     ContextAwareDecisionSource,
     DecisionSource,
+    LLMDecisionSource,
     ScriptedDecisionSource,
 )
 from babel.engine import Engine
@@ -37,10 +38,10 @@ from babel.models import (
     LocationSeed,
     Session,
     SessionStatus,
+    StateChanges,
     WorldSeed,
+    LLMResponse,
 )
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -78,6 +79,10 @@ def _stop_patches() -> None:
 def _make_engine(
     decision_source: DecisionSource | None = None,
     on_event=None,
+    world_authority=None,
+    perception_policy=None,
+    resolution_policy=None,
+    proposal_policy=None,
     snapshot_interval: int = 10,
     epoch_interval: int = 5,
     belief_interval: int = 10,
@@ -100,6 +105,10 @@ def _make_engine(
         session=session,
         decision_source=decision_source or ScriptedDecisionSource(),
         on_event=on_event,
+        world_authority=world_authority,
+        perception_policy=perception_policy,
+        resolution_policy=resolution_policy,
+        proposal_policy=proposal_policy,
         snapshot_interval=snapshot_interval,
         epoch_interval=epoch_interval,
         belief_interval=belief_interval,
@@ -124,6 +133,28 @@ class FirstAgentErrorSource:
         if ctx.agent_id == "a1":
             raise RuntimeError("first agent fails")
         return ActionOutput(type=ActionType.WAIT, content="ok")
+
+
+class NeedsRepairHintSource:
+    """Returns an illegal move until the retry context includes a repair hint."""
+
+    async def decide(self, ctx: AgentContext) -> ActionOutput:
+        if any("custom repair hint" in event for event in ctx.recent_events):
+            return ActionOutput(type=ActionType.OBSERVE, content="recovered after repair")
+        return ActionOutput(type=ActionType.MOVE, target="不存在的地点", content="bad move")
+
+
+class AlwaysMoveSource:
+    async def decide(self, ctx: AgentContext) -> ActionOutput:
+        del ctx
+        return ActionOutput(type=ActionType.MOVE, target="酒馆", content="heading out")
+
+
+class BeliefAwareSource:
+    async def decide(self, ctx: AgentContext) -> ActionOutput:
+        if "custom clue" in ctx.beliefs:
+            return ActionOutput(type=ActionType.OBSERVE, content="acting on custom clue")
+        return ActionOutput(type=ActionType.WAIT, content="no clue available")
 
 
 # ===================================================================
@@ -423,6 +454,27 @@ class TestConfigure:
         engine.configure(tick_delay=5.0)
         assert engine.tick_delay == 5.0
 
+    def test_configure_propagates_to_default_llm_source(self):
+        ws = WorldSeed(
+            name="Test",
+            locations=[LocationSeed(name="广场", connections=[])],
+            agents=[AgentSeed(id="a1", name="Alice", location="广场", goals=["wait"])],
+        )
+        session = Session(world_seed=ws)
+        session.init_agents()
+        llm_source = LLMDecisionSource(model="old-model", api_key="old-key", api_base="https://old.example")
+        engine = Engine(session=session, decision_source=llm_source)
+
+        engine.configure(
+            model="new-model",
+            api_key="new-key",
+            api_base="https://new.example",
+        )
+
+        assert llm_source.model == "new-model"
+        assert llm_source.api_key == "new-key"
+        assert llm_source.api_base == "https://new.example"
+
 
 # ===================================================================
 # 22-23  Decision source switching
@@ -506,6 +558,181 @@ class TestErrorRecovery:
             agent_ids = {e.agent_id for e in events}
             assert "a1" in agent_ids
             assert "a2" in agent_ids
+        finally:
+            _stop_patches()
+
+
+class TestWorldAuthority:
+
+    @pytest.mark.asyncio
+    async def test_custom_world_authority_can_veto_action(self):
+        class RejectAllAuthority:
+            def __init__(self):
+                self.seen = 0
+
+            def validate(self, response, agent, session):
+                self.seen += 1
+                return ["custom veto"]
+
+            def apply(self, response, agent, session):
+                raise AssertionError("apply should not run for rejected actions")
+
+        _start_patches()
+        try:
+            authority = RejectAllAuthority()
+            engine = _make_engine(world_authority=authority)
+            events = await engine.tick()
+            assert authority.seen >= 1
+            assert any("Action invalid: custom veto" in e.result for e in events)
+        finally:
+            _stop_patches()
+
+
+class TestResolutionPolicy:
+
+    @pytest.mark.asyncio
+    async def test_custom_resolution_policy_can_repair_retry_context(self):
+        class HintResolutionPolicy:
+            def max_attempts(self, engine, agent):
+                return 2
+
+            def repair_context(self, engine, agent, context, last_error, attempt):
+                del engine, agent
+                if not last_error:
+                    return context
+                return context.model_copy(update={
+                    "recent_events": [*context.recent_events, "[SYSTEM] custom repair hint"],
+                })
+
+            def invalid_result(self, engine, agent, error):
+                del engine, agent
+                return f"failed after repair: {error}"
+
+        _start_patches()
+        try:
+            engine = _make_engine(
+                decision_source=NeedsRepairHintSource(),
+                resolution_policy=HintResolutionPolicy(),
+            )
+            events = await engine.tick()
+            assert any("recovered after repair" in e.result for e in events)
+            assert all("failed after repair" not in e.result for e in events)
+        finally:
+            _stop_patches()
+
+    @pytest.mark.asyncio
+    async def test_custom_resolution_policy_can_customize_invalid_result(self):
+        class OneShotResolutionPolicy:
+            def max_attempts(self, engine, agent):
+                return 1
+
+            def repair_context(self, engine, agent, context, last_error, attempt):
+                del engine, agent, last_error, attempt
+                return context
+
+            def invalid_result(self, engine, agent, error):
+                del engine, agent
+                return f"blocked by resolver: {error}"
+
+        _start_patches()
+        try:
+            engine = _make_engine(
+                decision_source=NeedsRepairHintSource(),
+                resolution_policy=OneShotResolutionPolicy(),
+            )
+            events = await engine.tick()
+            assert any("blocked by resolver" in e.result for e in events)
+        finally:
+            _stop_patches()
+
+
+class TestPerceptionPolicy:
+
+    @pytest.mark.asyncio
+    async def test_custom_perception_policy_controls_agent_context(self):
+        class InjectingPerceptionPolicy:
+            async def build_context(self, engine, agent):
+                del engine
+                return AgentContext(
+                    agent_id=agent.agent_id,
+                    agent_name=agent.name,
+                    agent_location=agent.location,
+                    beliefs=["custom clue"],
+                    recent_events=["[SYSTEM] injected context"],
+                    tick=1,
+                )
+
+        _start_patches()
+        try:
+            engine = _make_engine(
+                decision_source=BeliefAwareSource(),
+                perception_policy=InjectingPerceptionPolicy(),
+            )
+            events = await engine.tick()
+            assert any("acting on custom clue" in e.result for e in events)
+        finally:
+            _stop_patches()
+
+
+class TestProposalPolicy:
+
+    @pytest.mark.asyncio
+    async def test_custom_proposal_policy_controls_state_changes(self):
+        class FrozenMoveProposalPolicy:
+            def build_response(self, engine, agent, action):
+                del engine, agent
+                return LLMResponse(
+                    thinking="custom proposal",
+                    intent=action.intent or {},
+                    action=action,
+                    state_changes=StateChanges(),
+                )
+
+        class InspectingAuthority:
+            def __init__(self):
+                self.seen_location = "unset"
+
+            def validate(self, response, agent, session):
+                del agent, session
+                self.seen_location = response.state_changes.location
+                return []
+
+            def apply(self, response, agent, session):
+                del session
+                response._structured = {"proposal_location": response.state_changes.location}  # type: ignore[attr-defined]
+                return f"{agent.name} proposal location={response.state_changes.location}"
+
+        _start_patches()
+        try:
+            authority = InspectingAuthority()
+            engine = _make_engine(
+                decision_source=AlwaysMoveSource(),
+                proposal_policy=FrozenMoveProposalPolicy(),
+                world_authority=authority,
+            )
+            events = await engine.tick()
+            assert authority.seen_location is None
+            assert any("proposal location=None" in e.result for e in events)
+            assert any(e.structured.get("proposal_location") is None for e in events)
+        finally:
+            _stop_patches()
+
+    @pytest.mark.asyncio
+    async def test_custom_world_authority_can_apply_summary(self):
+        class CustomAuthority:
+            def validate(self, response, agent, session):
+                return []
+
+            def apply(self, response, agent, session):
+                response._structured = {"verb": "custom"}  # type: ignore[attr-defined]
+                return f"{agent.name} resolved through custom authority"
+
+        _start_patches()
+        try:
+            engine = _make_engine(world_authority=CustomAuthority())
+            events = await engine.tick()
+            assert any(e.result.endswith("custom authority") for e in events)
+            assert any(e.structured.get("verb") == "custom" for e in events)
         finally:
             _stop_patches()
 

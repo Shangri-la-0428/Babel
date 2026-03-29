@@ -2,7 +2,51 @@
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 from .models import ActionType, AgentState, AgentStatus, LLMResponse, Session
+
+
+@runtime_checkable
+class WorldAuthority(Protocol):
+    """Hard world rules: validate candidate actions and apply legal mutations."""
+
+    def validate(
+        self,
+        response: LLMResponse,
+        agent: AgentState,
+        session: Session,
+    ) -> list[str]: ...
+
+    def apply(
+        self,
+        response: LLMResponse,
+        agent: AgentState,
+        session: Session,
+    ) -> str: ...
+
+
+class DefaultWorldAuthority:
+    """Default world authority built from the existing pure validator rules."""
+
+    def validate(
+        self,
+        response: LLMResponse,
+        agent: AgentState,
+        session: Session,
+    ) -> list[str]:
+        return _validate_action(response, agent, session)
+
+    def apply(
+        self,
+        response: LLMResponse,
+        agent: AgentState,
+        session: Session,
+    ) -> str:
+        return _apply_action(response, agent, session)
+
+
+DEFAULT_WORLD_AUTHORITY = DefaultWorldAuthority()
 
 
 def _resolve_agent_target(target: str, agent: AgentState, session: Session) -> str | None:
@@ -34,7 +78,7 @@ def _get_inventory_names(agent: AgentState) -> list[str]:
     return names
 
 
-def validate_action(
+def _validate_action(
     response: LLMResponse,
     agent: AgentState,
     session: Session,
@@ -133,6 +177,15 @@ def validate_action(
     return errors
 
 
+def validate_action(
+    response: LLMResponse,
+    agent: AgentState,
+    session: Session,
+) -> list[str]:
+    """Compatibility wrapper around the default world authority."""
+    return DEFAULT_WORLD_AUTHORITY.validate(response, agent, session)
+
+
 def _validate_inventory_add(
     adds: list[str],
     action,
@@ -216,7 +269,7 @@ def _build_structured(
     return structured
 
 
-def apply_action(
+def _apply_action(
     response: LLMResponse,
     agent: AgentState,
     session: Session,
@@ -272,6 +325,15 @@ def apply_action(
             summary = f"{agent.name}: {action.content}"
 
     return summary + location_note
+
+
+def apply_action(
+    response: LLMResponse,
+    agent: AgentState,
+    session: Session,
+) -> str:
+    """Compatibility wrapper around the default world authority."""
+    return DEFAULT_WORLD_AUTHORITY.apply(response, agent, session)
 
 
 def _resolve_name(agent_id: str | None, session: Session) -> str:

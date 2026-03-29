@@ -17,7 +17,6 @@ from .db import (
     load_entity_details, save_entity_details, load_events,
     load_events_filtered,
 )
-from .clock import world_time
 from .llm import enrich_entity, replan_goal
 from .memory import (
     IMPORTANCE_MAP,
@@ -28,7 +27,6 @@ from .memory import (
     generate_perturbation,
     get_agent_beliefs,
     get_relevant_events,
-    get_visible_agents,
     retrieve_relevant_memories,
     update_agent_memory,
 )
@@ -39,13 +37,39 @@ from .models import (
     AgentStatus,
     Event,
     GoalState,
+    IntentState,
     Session,
     SessionStatus,
     TimelineNode,
     WorldSnapshot,
 )
 from .decision import AgentContext, DecisionSource, LLMDecisionSource
-from .validator import apply_action, validate_action
+from .policies import (
+    DefaultEnrichmentPolicy,
+    DefaultMemoryPolicy,
+    DefaultPerceptionPolicy,
+    DefaultPressurePolicy,
+    DefaultProposalPolicy,
+    DefaultResolutionPolicy,
+    DefaultTimelinePolicy,
+    EnrichmentPolicy,
+    GoalMutationPolicy,
+    GoalPolicy,
+    GoalProjectionPolicy,
+    MemoryPolicy,
+    PerceptionPolicy,
+    PressurePolicy,
+    ProposalPolicy,
+    ResolutionPolicy,
+    SocialMutationPolicy,
+    SocialPolicy,
+    SocialProjectionPolicy,
+    TimelinePolicy,
+    _build_agent_context,
+    resolve_goal_policies,
+    resolve_social_policies,
+)
+from .validator import DefaultWorldAuthority, WorldAuthority
 
 # Max events kept in session.events in-memory
 EVENT_WINDOW = 30
@@ -75,6 +99,20 @@ class Engine:
         on_event: EventCallback | None = None,
         tick_delay: float = 2.0,
         decision_source: DecisionSource | None = None,
+        pressure_policy: PressurePolicy | None = None,
+        perception_policy: PerceptionPolicy | None = None,
+        resolution_policy: ResolutionPolicy | None = None,
+        proposal_policy: ProposalPolicy | None = None,
+        social_policy: SocialPolicy | None = None,
+        social_projection_policy: SocialProjectionPolicy | None = None,
+        social_mutation_policy: SocialMutationPolicy | None = None,
+        goal_policy: GoalPolicy | None = None,
+        goal_projection_policy: GoalProjectionPolicy | None = None,
+        goal_mutation_policy: GoalMutationPolicy | None = None,
+        timeline_policy: TimelinePolicy | None = None,
+        memory_policy: MemoryPolicy | None = None,
+        enrichment_policy: EnrichmentPolicy | None = None,
+        world_authority: WorldAuthority | None = None,
         snapshot_interval: int = DEFAULT_SNAPSHOT_INTERVAL,
         epoch_interval: int = DEFAULT_EPOCH_INTERVAL,
         belief_interval: int = DEFAULT_BELIEF_INTERVAL,
@@ -89,6 +127,32 @@ class Engine:
         self.decision_source: DecisionSource = decision_source or LLMDecisionSource(
             model=model, api_key=api_key, api_base=api_base,
         )
+        self.pressure_policy: PressurePolicy = pressure_policy or DefaultPressurePolicy()
+        self.perception_policy: PerceptionPolicy = perception_policy or DefaultPerceptionPolicy()
+        self.resolution_policy: ResolutionPolicy = resolution_policy or DefaultResolutionPolicy()
+        self.proposal_policy: ProposalPolicy = proposal_policy or DefaultProposalPolicy()
+        (
+            self.social_projection_policy,
+            self.social_mutation_policy,
+            self.social_policy,
+        ) = resolve_social_policies(
+            social_policy=social_policy,
+            social_projection_policy=social_projection_policy,
+            social_mutation_policy=social_mutation_policy,
+        )
+        (
+            self.goal_projection_policy,
+            self.goal_mutation_policy,
+            self.goal_policy,
+        ) = resolve_goal_policies(
+            goal_policy=goal_policy,
+            goal_projection_policy=goal_projection_policy,
+            goal_mutation_policy=goal_mutation_policy,
+        )
+        self.timeline_policy: TimelinePolicy = timeline_policy or DefaultTimelinePolicy()
+        self.memory_policy: MemoryPolicy = memory_policy or DefaultMemoryPolicy()
+        self.enrichment_policy: EnrichmentPolicy = enrichment_policy or DefaultEnrichmentPolicy()
+        self.world_authority: WorldAuthority = world_authority or DefaultWorldAuthority()
         self._running = False
         self._enrichment_queue: list[tuple[str, str]] = []  # (entity_type, entity_id)
         # Configurable intervals
@@ -120,31 +184,7 @@ class Engine:
 
             agent.status = AgentStatus.ACTING
 
-            # Check for repetition — inject perturbation if needed
-            if await detect_repetition(agent, self.session):
-                perturbation = await generate_perturbation(
-                    self.session,
-                    model=self.model,
-                    api_key=self.api_key,
-                    api_base=self.api_base,
-                )
-                world_event = Event(
-                    session_id=self.session.id,
-                    tick=self.session.tick,
-                    agent_id=None,
-                    agent_name=None,
-                    action_type="world_event",
-                    action={"content": perturbation},
-                    result=f"[WORLD] {perturbation}",
-                    location=agent.location,
-                    importance=IMPORTANCE_MAP.get("world_event", 0.9),
-                )
-                self._append_event(world_event)
-                tick_events.append(world_event)
-                await self._emit(world_event)
-                # Legacy + structured memory
-                update_agent_memory(agent, f"[WORLD] {perturbation}")
-                await create_memory_from_event(agent, world_event, self.session)
+            tick_events.extend(await self.pressure_policy.before_agent_turn(self, agent))
 
             # Get action from LLM
             event = await self._resolve_agent_action(agent)
@@ -220,55 +260,49 @@ class Engine:
         if len(self.session.events) > EVENT_WINDOW:
             self.session.events = self.session.events[-EVENT_WINDOW:]
 
-    def _build_context(self, agent: AgentState, **overrides) -> AgentContext:
-        """Build a modality-agnostic AgentContext for decision-making."""
-        visible = get_visible_agents(agent, self.session)
-        reachable = self.session.location_connections(agent.location)
+    async def _remember_event(self, agent: AgentState, event: Event, memory_text: str | None = None) -> None:
+        update_agent_memory(agent, memory_text or event.result)
+        await create_memory_from_event(agent, event, self.session)
 
-        # Build relations context
-        agent_relations = []
-        for rel in self.session.relations:
-            if rel.source == agent.agent_id:
-                target_a = self.session.agents.get(rel.target)
-                if target_a and target_a.status not in (AgentStatus.DEAD, AgentStatus.GONE):
-                    agent_relations.append({
-                        "name": target_a.name,
-                        "type": rel.type,
-                        "strength": rel.strength,
-                    })
+    async def _detect_repetition(self, agent: AgentState) -> bool:
+        return await detect_repetition(agent, self.session)
 
-        # Compute world time
-        wt = world_time(self.session.tick, self.session.world_seed.time)
-
-        active_goal_dict = (
-            agent.active_goal.model_dump() if agent.active_goal else None
+    async def _generate_perturbation(self) -> str:
+        return await generate_perturbation(
+            self.session,
+            model=self.model,
+            api_key=self.api_key,
+            api_base=self.api_base,
         )
 
-        ctx = AgentContext(
-            agent_id=agent.agent_id,
+    async def _replan_goal(self, agent: AgentState, goal: GoalState) -> dict:
+        return await replan_goal(
             agent_name=agent.name,
             agent_personality=agent.personality,
-            agent_description=agent.description,
-            agent_goals=agent.goals,
-            agent_location=agent.location,
-            agent_inventory=list(agent.inventory),
-            visible_agents=visible,
-            relations=agent_relations,
-            reachable_locations=reachable,
-            available_locations=self.session.location_names,
-            world_rules=self.session.world_seed.rules,
-            world_time={"display": wt.display, "period": wt.period},
-            active_goal=active_goal_dict,
-            urgent_events=self.session.urgent_events or None,
-            tick=self.session.tick,
+            current_goals=agent.goals,
+            stalled_goal=goal.text,
+            agent_memory=agent.memory[-5:],
+            model=self.model,
+            api_key=self.api_key,
+            api_base=self.api_base,
+            drive_state=self._get_agent_drive_state(agent.agent_id),
         )
 
-        # Apply any overrides (e.g. memories, beliefs, recent_events)
-        for key, val in overrides.items():
-            if hasattr(ctx, key):
-                setattr(ctx, key, val)
+    async def _retrieve_relevant_memories(self, agent: AgentState) -> list[dict[str, Any]]:
+        return await retrieve_relevant_memories(agent, self.session)
 
-        return ctx
+    async def _get_relevant_events(self, agent: AgentState) -> list[str]:
+        return await get_relevant_events(agent, self.session)
+
+    async def _get_agent_beliefs(self, agent_id: str, limit: int = 5) -> list[str]:
+        return await get_agent_beliefs(self.session.id, agent_id, limit=limit)
+
+    def _build_context(self, agent: AgentState, **overrides) -> AgentContext:
+        """Compatibility shim for tests and older callers.
+
+        Canonical context assembly now lives in policies._build_agent_context().
+        """
+        return _build_agent_context(self, agent, **overrides)
 
     async def _resolve_agent_action(self, agent: AgentState) -> Event:
         """Resolve agent action via DecisionSource protocol."""
@@ -280,67 +314,46 @@ class Engine:
 
     async def _resolve_agent_action_inner(self, agent: AgentState) -> Event:
         """Inner implementation — any unhandled exception falls back to WAIT."""
-        # Ensure active_goal is set for agents with goals
-        if agent.goals and not agent.active_goal:
-            agent.active_goal = GoalState(
-                text=agent.goals[0], started_tick=self.session.tick
-            )
+        self.goal_mutation_policy.ensure_active_goal(self, agent)
 
-        visible = get_visible_agents(agent, self.session)
-
-        # Retrieve structured memories + relevant events from DB
-        memories = await retrieve_relevant_memories(agent, self.session)
-        memory_strings = [m["content"] for m in memories]
-
-        recent = await get_relevant_events(agent, self.session)
-
-        # Retrieve beliefs for this agent
-        beliefs = await get_agent_beliefs(
-            self.session.id, agent.agent_id, limit=5
-        )
-
-        max_attempts = 2
+        max_attempts = self.resolution_policy.max_attempts(self, agent)
         last_error = ""
 
         for attempt in range(max_attempts):
             try:
-                # Build extra context for retry
-                extra_events = list(recent)
-                if last_error:
-                    extra_events.append(f"[SYSTEM] Previous action was invalid: {last_error}. Try again.")
-
                 # ── Single path: always through DecisionSource ──
-                ctx = self._build_context(
-                    agent,
-                    memories=memories,
-                    beliefs=beliefs,
-                    recent_events=extra_events,
+                ctx = await self.perception_policy.build_context(self, agent)
+                ctx = self.resolution_policy.repair_context(
+                    self, agent, ctx, last_error, attempt,
                 )
                 action_output = await self.decision_source.decide(ctx)
-                from .models import LLMResponse, StateChanges
-                sc = StateChanges()
-                if action_output.type == ActionType.MOVE and action_output.target:
-                    sc.location = action_output.target
-                response = LLMResponse(
-                    thinking="(decision source)",
-                    action=action_output,
-                    state_changes=sc,
+                response = self.proposal_policy.build_response(
+                    self, agent, action_output,
                 )
 
                 # Validate
-                errors = validate_action(response, agent, self.session)
+                errors = self.world_authority.validate(response, agent, self.session)
                 if errors:
                     last_error = "; ".join(errors)
                     if attempt < max_attempts - 1:
                         continue
-                    return await self._make_wait_event(agent, f"Action invalid: {last_error}")
+                    self.goal_mutation_policy.record_blocker(agent, last_error)
+                    return await self._make_wait_event(
+                        agent,
+                        self.resolution_policy.invalid_result(self, agent, last_error),
+                    )
 
                 # Valid — apply and record
-                summary = apply_action(response, agent, self.session)
+                summary = self.world_authority.apply(response, agent, self.session)
                 at = response.action.type.value
 
                 # Get structured data from validator
                 structured = getattr(response, "_structured", {})
+                if response.intent.has_content():
+                    structured = {
+                        **structured,
+                        "decision": response.intent.model_dump(),
+                    }
 
                 event = Event(
                     session_id=self.session.id,
@@ -360,16 +373,24 @@ class Engine:
                     event.involved_agents.append(response.action.target)
 
                 self._append_event(event)
-                # Legacy + structured memory
-                update_agent_memory(agent, summary)
-                await create_memory_from_event(agent, event, self.session)
+                await self._remember_event(agent, event, summary)
                 await self._emit(event)
 
+                # Persist short-horizon continuity so the agent does not "forget" every tick.
+                self.goal_mutation_policy.sync_plan_from_intent(agent, response.intent)
+                agent.immediate_intent = (
+                    response.intent.objective.strip()
+                    or (agent.active_goal.text if agent.active_goal else "")
+                )
+                agent.immediate_approach = response.intent.approach.strip()
+                agent.immediate_next_step = response.intent.next_step.strip()
+                agent.last_outcome = summary
+
                 # ── Auto-update relations after social interactions ──
-                self._update_relations(agent, response, errors=[])
+                self.social_mutation_policy.apply(self, agent, response, errors=[])
 
                 # ── Update goal progress ──
-                await self._update_goals(agent, event)
+                await self.goal_mutation_policy.update(self, agent, event)
 
                 return event
 
@@ -404,234 +425,35 @@ class Engine:
             importance=IMPORTANCE_MAP.get("wait", 0.1),
         )
         self._append_event(event)
-        update_agent_memory(agent, summary)
-        await create_memory_from_event(agent, event, self.session)
+        await self._remember_event(agent, event, summary)
         asyncio.create_task(self._emit_safe(event))
         return event
 
     async def _post_tick(self, tick_events: list[Event]) -> None:
-        """Create timeline node, snapshot, and run memory consolidation."""
-        session = self.session
-
-        # Get parent node
-        parent_id = await get_last_node_id(session.id)
-
-        # Create timeline node
-        has_significant = any(e.importance >= 0.8 for e in tick_events)
-        node = TimelineNode(
-            session_id=session.id,
-            tick=session.tick,
-            parent_id=parent_id,
-            summary=self._summarize_tick(tick_events),
-            event_count=len(tick_events),
-            agent_locations={
-                aid: a.location for aid, a in session.agents.items()
-            },
-            significant=has_significant,
-        )
-
-        # Tag events with node_id
-        for e in tick_events:
-            e.node_id = node.id
-
-        await save_timeline_node(node)
-
-        # Snapshot: every N ticks or on significant events
-        if session.tick % self.snapshot_interval == 0 or has_significant:
-            snapshot = WorldSnapshot(
-                session_id=session.id,
-                node_id=node.id,
-                tick=session.tick,
-                world_seed_json=session.world_seed.model_dump_json(),
-                agent_states_json=json.dumps(
-                    {aid: a.model_dump() for aid, a in session.agents.items()},
-                    ensure_ascii=False,
-                ),
-            )
-            await save_snapshot(snapshot)
-
-        # Memory consolidation: every epoch_interval ticks
-        if session.tick % self.epoch_interval == 0:
-            for aid in session.agent_ids:
-                await consolidate_memories(
-                    session, aid,
-                    model=self.model,
-                    api_key=self.api_key,
-                    api_base=self.api_base,
-                )
-
-        # Belief extraction: every belief_interval ticks
-        if session.tick % self.belief_interval == 0:
-            for aid in session.agent_ids:
-                try:
-                    await extract_beliefs(aid, session)
-                except Exception as e:
-                    logger.debug("Belief extraction failed for agent %s: %s", aid, e)
-
-        # ── Passive enrichment: enrich entities from high-importance events ──
-        await self._passive_enrichment(tick_events)
+        """Run post-tick policies."""
+        await self.timeline_policy.after_tick(self, tick_events)
+        await self.memory_policy.after_tick(self, tick_events)
+        await self.enrichment_policy.after_tick(self, tick_events)
 
     def _update_relations(
         self, agent: AgentState, response: LLMResponse, errors: list[str]
     ) -> None:
-        """Auto-update relations after SPEAK/TRADE actions.
-
-        SPEAK: both agents gain +0.05 strength (contact deepens relationship).
-        TRADE (success): +0.1 (cooperation).
-        TRADE (failed validation): -0.05 (failed trust).
-        """
-        target_id = response.action.target
-        if not target_id or target_id not in self.session.agents:
-            return
-
-        tick = self.session.tick
-        at = response.action.type
-
-        if at == ActionType.SPEAK:
-            delta = 0.05
-        elif at == ActionType.TRADE:
-            delta = 0.1 if not errors else -0.05
-        else:
-            return
-
-        # Update both directions (bidirectional)
-        self.session.update_relation(agent.agent_id, target_id, delta, tick)
-        self.session.update_relation(target_id, agent.agent_id, delta, tick)
+        """Backward-compatible shim: relation mutation now lives in social_mutation_policy."""
+        self.social_mutation_policy.apply(self, agent, response, errors)
 
     async def _update_goals(self, agent: AgentState, event: Event) -> None:
-        """Update goal progress based on event outcome."""
-        if not agent.active_goal:
-            return
-
-        goal = agent.active_goal
-
-        # Skip already completed/failed goals
-        if goal.status in ("completed", "failed"):
-            return
-
-        # Check if event advances goal
-        if self._event_advances_goal(event, goal):
-            goal.progress = min(goal.progress + 0.15, 1.0)
-            goal.stall_count = 0
-        else:
-            goal.stall_count += 1
-
-        # Completion check
-        if goal.progress >= 0.95:
-            goal.status = "completed"
-            drive_state = self._get_agent_drive_state(agent.agent_id)
-            agent.active_goal = self._select_next_goal(agent, drive_state=drive_state)
-            return
-
-        # Stall check — replan after 5 consecutive non-advancing ticks
-        if goal.stall_count >= 5:
-            goal.status = "stalled"
-            drive_state = self._get_agent_drive_state(agent.agent_id)
-            try:
-                new_goal_text = await replan_goal(
-                    agent_name=agent.name,
-                    agent_personality=agent.personality,
-                    current_goals=agent.goals,
-                    stalled_goal=goal.text,
-                    agent_memory=agent.memory[-5:],
-                    model=self.model,
-                    api_key=self.api_key,
-                    api_base=self.api_base,
-                    drive_state=drive_state,
-                )
-                agent.active_goal = GoalState(
-                    text=new_goal_text,
-                    started_tick=self.session.tick,
-                )
-            except Exception as e:
-                logger.debug("Goal replan failed for %s: %s", agent.name, e)
-                agent.active_goal = self._select_next_goal(agent, drive_state=drive_state)
-
-        # Phase B: Drive shift detection — reconsider goal if drives change significantly
-        self._check_drive_shift(agent)
+        """Backward-compatible shim: goal mutation now lives in goal_mutation_policy."""
+        await self.goal_mutation_policy.update(self, agent, event)
 
     def _event_advances_goal(self, event: Event, goal: GoalState) -> bool:
-        """Rule-driven check: does this event advance the active goal?"""
-        if not goal or not event.result:
-            return False
-
-        goal_lower = goal.text.lower()
-        result_lower = event.result.lower()
-
-        # Extract significant words from goal (skip short/common words)
-        stopwords = {
-            "the", "a", "an", "is", "to", "of", "in", "and", "or",
-            "for", "at", "on", "by", "it", "be", "do", "的", "了",
-            "在", "是", "和", "与", "把", "让", "被",
-        }
-        goal_words = {
-            w for w in goal_lower.split()
-            if len(w) >= 2 and w not in stopwords
-        }
-
-        # Keyword match — at least 2 words (or 1 for short goals)
-        matches = sum(1 for w in goal_words if w in result_lower)
-        threshold = min(2, max(1, len(goal_words) // 3))
-        if matches >= threshold:
-            return True
-
-        at = event.action_type if isinstance(event.action_type, str) else event.action_type.value
-
-        # Moving toward a location mentioned in goal
-        if at == "move" and event.location and event.location.lower() in goal_lower:
-            return True
-
-        # Trading when goal mentions trade/exchange/obtain
-        trade_words = {
-            "trade", "exchange", "obtain", "get", "acquire",
-            "buy", "sell", "交易", "获取", "得到", "交换",
-        }
-        if at == "trade" and any(w in goal_lower for w in trade_words):
-            return True
-
-        # Speaking to someone mentioned in goal
-        if at == "speak" and event.action.get("target"):
-            target_agent = self.session.agents.get(event.action["target"])
-            if target_agent and target_agent.name.lower() in goal_lower:
-                return True
-
-        # Using item mentioned in goal
-        if at == "use_item" and event.action.get("target"):
-            item = event.action["target"].lower()
-            if item in goal_lower:
-                return True
-
-        return False
+        """Backward-compatible shim: goal evaluation now lives in goal_mutation_policy."""
+        return self.goal_mutation_policy.event_advances(event, goal)
 
     def _select_next_goal(
         self, agent: AgentState, drive_state: dict[str, float] | None = None,
     ) -> GoalState | None:
-        """Select next goal from core goals list.
-
-        With drive_state (Psyche): selects goal that best addresses unsatisfied drives.
-        Without drive_state: falls back to round-robin.
-        """
-        if not agent.goals:
-            return None
-
-        # Drive-weighted selection (Phase B)
-        if drive_state:
-            from .drive_mapping import score_goal_by_drives
-
-            scored = [
-                (score_goal_by_drives(g, drive_state), g) for g in agent.goals
-            ]
-            scored.sort(key=lambda x: x[0], reverse=True)
-            return GoalState(text=scored[0][1], started_tick=self.session.tick)
-
-        # Fallback: round-robin
-        current_text = agent.active_goal.text if agent.active_goal else ""
-        try:
-            idx = agent.goals.index(current_text)
-            next_idx = (idx + 1) % len(agent.goals)
-        except ValueError:
-            next_idx = 0
-        return GoalState(text=agent.goals[next_idx], started_tick=self.session.tick)
+        """Backward-compatible shim: goal selection now lives in goal_mutation_policy."""
+        return self.goal_mutation_policy.select_next_goal(self, agent, drive_state=drive_state)
 
     def _get_agent_drive_state(self, agent_id: str) -> dict[str, float] | None:
         """Get current Psyche drive state for an agent, if available."""
@@ -639,29 +461,8 @@ class Engine:
         return snapshot.drives if snapshot and snapshot.drives else None
 
     def _check_drive_shift(self, agent: AgentState) -> None:
-        """Reconsider active goal if drives shift significantly (>30%)."""
-        if not agent.active_goal or agent.active_goal.status != "active":
-            return
-
-        current = self._psyche_snapshots.get(agent.agent_id)
-        previous = self._prev_psyche_snapshots.get(agent.agent_id)
-        if not current or not previous or not current.drives or not previous.drives:
-            return
-
-        drives = ("survival", "safety", "connection", "esteem", "curiosity")
-        max_shift = max(
-            abs(current.drives.get(d, 50) - previous.drives.get(d, 50))
-            for d in drives
-        )
-
-        if max_shift > 30:
-            new_goal = self._select_next_goal(agent, drive_state=current.drives)
-            if new_goal and new_goal.text != agent.active_goal.text:
-                logger.info(
-                    "Drive shift (%.0f%%) for %s: %s → %s",
-                    max_shift, agent.name, agent.active_goal.text, new_goal.text,
-                )
-                agent.active_goal = new_goal
+        """Backward-compatible shim: drive-based goal shifts now live in goal_mutation_policy."""
+        self.goal_mutation_policy.check_drive_shift(self, agent)
 
     def update_psyche_snapshot(self, agent_id: str, snapshot: Any) -> None:
         """Update Psyche snapshot for an agent (called by decision source)."""
@@ -670,92 +471,93 @@ class Engine:
 
     @staticmethod
     def _summarize_tick(events: list[Event]) -> str:
-        """Generate a simple tick summary from events (rule-based, no LLM)."""
-        parts = []
-        for e in events:
-            name = e.agent_name or "System"
-            at = e.action_type if isinstance(e.action_type, str) else e.action_type.value
-            parts.append(f"{name}: {at}")
-        return ". ".join(parts)
+        """Backward-compatible shim: timeline summaries now live in timeline_policy."""
+        return DefaultTimelinePolicy.summarize_tick(events)
 
     async def _passive_enrichment(self, tick_events: list[Event]) -> None:
-        """Best-effort: enrich one entity per tick from high-importance events."""
+        """Backward-compatible shim: enrichment now lives in enrichment_policy."""
         try:
-            session = self.session
-
-            # Scan tick events for entities involved in high-importance events
-            for event in tick_events:
-                if event.importance < 0.7:
-                    continue
-                # Queue agents involved
-                if event.agent_id and event.agent_id in session.agents:
-                    pair = ("agent", event.agent_id)
-                    if pair not in self._enrichment_queue:
-                        self._enrichment_queue.append(pair)
-                # Queue locations mentioned
-                if event.location:
-                    pair = ("location", event.location)
-                    if pair not in self._enrichment_queue:
-                        self._enrichment_queue.append(pair)
-
-            # Process at most 1 enrichment per tick
-            if not self._enrichment_queue:
-                return
-
-            entity_type, entity_id = self._enrichment_queue.pop(0)
-
-            # Load existing details
-            existing = await load_entity_details(session.id, entity_type, entity_id)
-            current_details = existing["details"] if existing else {}
-
-            # Skip if recently updated (within last 5 ticks)
-            if existing and existing.get("last_updated_tick", 0) > session.tick - 5:
-                return
-
-            # Gather relevant events
-            relevant_event_strings: list[str] = []
-            if entity_type == "agent":
-                events = await load_events_filtered(
-                    session_id=session.id,
-                    agent_id=entity_id,
-                    limit=15,
-                )
-                relevant_event_strings = [e.get("result", "") for e in events if e.get("result")]
-            else:
-                all_events = await load_events(session.id, limit=100)
-                search_term = entity_id.lower()
-                for e in all_events:
-                    result_text = (e.get("result") or "").lower()
-                    if search_term in result_text:
-                        relevant_event_strings.append(e.get("result", ""))
-                relevant_event_strings = relevant_event_strings[:15]
-
-            if not relevant_event_strings:
-                return
-
-            # Call enrichment LLM
-            enriched = await enrich_entity(
-                entity_type=entity_type,
-                entity_name=entity_id,
-                current_details=current_details,
-                relevant_events=relevant_event_strings,
-                world_desc=session.world_seed.description,
-                model=self.model,
-                api_key=self.api_key,
-                api_base=self.api_base,
-            )
-
-            # Save to DB
-            if enriched and enriched != current_details:
-                await save_entity_details(
-                    session_id=session.id,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                    details=enriched,
-                    tick=session.tick,
-                )
+            await self.enrichment_policy.after_tick(self, tick_events)
         except Exception as e:
             logger.debug("Passive enrichment failed: %s", e)
+
+    async def _get_last_node_id(self) -> str | None:
+        return await get_last_node_id(self.session.id)
+
+    async def _save_timeline_node(self, node: TimelineNode) -> None:
+        await save_timeline_node(node)
+
+    async def _save_snapshot(self, snapshot: WorldSnapshot) -> None:
+        await save_snapshot(snapshot)
+
+    def _dump_agent_states_json(self) -> str:
+        return json.dumps(
+            {agent_id: agent.model_dump() for agent_id, agent in self.session.agents.items()},
+            ensure_ascii=False,
+        )
+
+    async def _consolidate_memories(self, agent_id: str) -> None:
+        await consolidate_memories(
+            self.session,
+            agent_id,
+            model=self.model,
+            api_key=self.api_key,
+            api_base=self.api_base,
+        )
+
+    async def _extract_beliefs(self, agent_id: str) -> None:
+        try:
+            await extract_beliefs(agent_id, self.session)
+        except Exception as e:
+            logger.debug("Belief extraction failed for agent %s: %s", agent_id, e)
+
+    async def _load_entity_details(self, entity_type: str, entity_id: str) -> dict | None:
+        return await load_entity_details(self.session.id, entity_type, entity_id)
+
+    async def _save_entity_details(
+        self,
+        *,
+        entity_type: str,
+        entity_id: str,
+        details: dict,
+        tick: int,
+    ) -> None:
+        await save_entity_details(
+            session_id=self.session.id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            details=details,
+            tick=tick,
+        )
+
+    async def _load_events(self, limit: int = 100) -> list[dict]:
+        return await load_events(self.session.id, limit=limit)
+
+    async def _load_events_filtered(self, *, agent_id: str, limit: int = 15) -> list[dict]:
+        return await load_events_filtered(
+            session_id=self.session.id,
+            agent_id=agent_id,
+            limit=limit,
+        )
+
+    async def _enrich_entity(
+        self,
+        *,
+        entity_type: str,
+        entity_id: str,
+        current_details: dict,
+        relevant_events: list[str],
+    ) -> dict:
+        return await enrich_entity(
+            entity_type=entity_type,
+            entity_name=entity_id,
+            current_details=current_details,
+            relevant_events=relevant_events,
+            world_desc=self.session.world_seed.description,
+            model=self.model,
+            api_key=self.api_key,
+            api_base=self.api_base,
+        )
 
     async def _emit(self, event: Event) -> None:
         if self.on_event:

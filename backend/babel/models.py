@@ -130,13 +130,90 @@ class Relation(BaseModel):
     target: str           # agent_id
     type: str = "neutral" # ally | hostile | neutral | rival | trust
     strength: float = 0.5 # 0.0-1.0
+    trust: float = 0.5
+    tension: float = 0.0
+    familiarity: float = 0.1
+    debt_balance: float = 0.0  # positive = target owes source, negative = source owes target
+    leverage: float = 0.0
+    last_interaction: str = ""
     last_tick: int = 0    # tick when last updated
+
+    def refresh_type(self) -> None:
+        """Derive a readable posture from richer social state."""
+        if self.strength >= 0.8 and self.tension <= 0.35:
+            self.type = "ally"
+        elif self.strength >= 0.6 and self.tension < 0.5:
+            self.type = "trust"
+        elif self.strength <= 0.2 or (self.tension >= 0.7 and self.trust <= 0.35):
+            self.type = "hostile"
+        elif self.strength <= 0.35 or self.tension >= 0.45:
+            self.type = "rival"
+        else:
+            self.type = "neutral"
+
+    def apply_social_shift(
+        self,
+        *,
+        tick: int,
+        strength_delta: float = 0.0,
+        trust_delta: float | None = None,
+        tension_delta: float | None = None,
+        familiarity_delta: float | None = None,
+        debt_delta: float | None = None,
+        leverage_delta: float | None = None,
+        note: str = "",
+    ) -> None:
+        """Apply a generic social update in one place."""
+        self.last_tick = tick
+        self.strength = max(0.0, min(1.0, self.strength + strength_delta))
+
+        if trust_delta is None:
+            trust_delta = strength_delta * 0.8
+        if tension_delta is None:
+            tension_delta = (-strength_delta * 0.3) if strength_delta > 0 else abs(strength_delta) * 0.6
+        if familiarity_delta is None:
+            familiarity_delta = 0.04 if any(
+                abs(value) > 0
+                for value in (strength_delta, trust_delta, tension_delta)
+            ) else 0.0
+        if debt_delta is None:
+            debt_delta = 0.0
+        if leverage_delta is None:
+            leverage_delta = 0.0
+
+        self.trust = max(0.0, min(1.0, self.trust + trust_delta))
+        self.tension = max(0.0, min(1.0, self.tension + tension_delta))
+        self.familiarity = max(0.0, min(1.0, self.familiarity + familiarity_delta))
+        self.debt_balance = max(-1.0, min(1.0, self.debt_balance + debt_delta))
+        self.leverage = max(0.0, min(1.0, self.leverage + leverage_delta))
+        if note.strip():
+            self.last_interaction = note.strip()
+        self.refresh_type()
 
 
 class ActionOutput(BaseModel):
     type: ActionType
     target: str | None = None
     content: str = ""
+    intent: IntentState | None = Field(default=None, exclude=True)
+
+
+class IntentState(BaseModel):
+    objective: str = ""
+    approach: str = ""
+    next_step: str = ""
+    rationale: str = ""
+
+    def has_content(self) -> bool:
+        return any(
+            value.strip()
+            for value in (
+                self.objective,
+                self.approach,
+                self.next_step,
+                self.rationale,
+            )
+        )
 
 
 class StateChanges(BaseModel):
@@ -147,6 +224,7 @@ class StateChanges(BaseModel):
 
 class LLMResponse(BaseModel):
     thinking: str = ""
+    intent: IntentState = Field(default_factory=IntentState)
     action: ActionOutput
     state_changes: StateChanges = Field(default_factory=StateChanges)
 
@@ -161,6 +239,11 @@ class GoalState(BaseModel):
     progress: float = 0.0    # 0.0-1.0
     stall_count: int = 0     # consecutive ticks without progress
     drive_affinities: dict[str, float] = Field(default_factory=dict)  # drive → 0.0-1.0
+    strategy: str = ""
+    next_step: str = ""
+    success_criteria: str = ""
+    blockers: list[str] = Field(default_factory=list)
+    last_progress_reason: str = ""
 
 
 class AgentState(BaseModel):
@@ -176,6 +259,9 @@ class AgentState(BaseModel):
     role: AgentRole = AgentRole.MAIN
     active_goal: GoalState | None = None
     immediate_intent: str = ""
+    immediate_approach: str = ""
+    immediate_next_step: str = ""
+    last_outcome: str = ""
 
     @classmethod
     def from_seed(cls, seed: AgentSeed) -> AgentState:
@@ -247,26 +333,30 @@ class Session(BaseModel):
         return None
 
     def update_relation(
-        self, source: str, target: str, delta: float, tick: int
+        self,
+        source: str,
+        target: str,
+        delta: float,
+        tick: int,
+        social: dict[str, float] | None = None,
+        note: str = "",
     ) -> Relation:
         """Update (or create) a relation's strength by delta. Returns the relation."""
         rel = self.get_relation(source, target)
         if rel is None:
             rel = Relation(source=source, target=target, strength=0.5, last_tick=tick)
             self.relations.append(rel)
-        rel.strength = max(0.0, min(1.0, rel.strength + delta))
-        rel.last_tick = tick
-        # Auto-classify type based on strength
-        if rel.strength >= 0.8:
-            rel.type = "ally"
-        elif rel.strength >= 0.6:
-            rel.type = "trust"
-        elif rel.strength <= 0.2:
-            rel.type = "hostile"
-        elif rel.strength <= 0.35:
-            rel.type = "rival"
-        else:
-            rel.type = "neutral"
+        social = social or {}
+        rel.apply_social_shift(
+            tick=tick,
+            strength_delta=delta,
+            trust_delta=social.get("trust"),
+            tension_delta=social.get("tension"),
+            familiarity_delta=social.get("familiarity"),
+            debt_delta=social.get("debt"),
+            leverage_delta=social.get("leverage"),
+            note=note,
+        )
         return rel
 
     def location_connections(self, location_name: str) -> list[str]:

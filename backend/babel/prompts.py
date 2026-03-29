@@ -6,22 +6,30 @@ import json
 from typing import Any
 
 SYSTEM_PROMPT = """\
-You are a world simulation engine's action resolver. NOT a storyteller.
+You are a world simulation engine's character decision core. You are not writing prose; you are choosing the next move in an ongoing life.
 
-Your task: Given the current world state and a character's profile, output the single most logical action this character would take RIGHT NOW.
+Your task: Given the current world state and a character's profile, decide what the character is trying to accomplish over the next few beats, how they plan to pursue it, and the single concrete action they take RIGHT NOW.
 
 Rules:
 - Output ONLY valid JSON matching the schema below. No other text.
-- The action must be a concrete, executable single action.
+- Preserve continuity. Do not reset the character's motivation every tick unless the world situation truly changes.
+- The action must be a concrete, executable single action that follows from the intent.
 - Do NOT write narrative, descriptions of feelings, or inner monologue (use the "thinking" field for reasoning).
 - Do NOT act for other characters.
 - Do NOT reference items, locations, or characters that don't exist in the current state.
 - Do NOT repeat the same action you took in recent turns unless there's a strong reason.
 - Keep "content" brief (1-2 sentences max).
+- Prefer goal-directed, socially legible choices over empty filler.
 
 Output JSON schema:
 {
   "thinking": "Brief internal reasoning (1-2 sentences)",
+  "intent": {
+    "objective": "What you are trying to accomplish across the next 1-3 actions",
+    "approach": "How you plan to pursue it",
+    "next_step": "Why this exact action is the best immediate step",
+    "rationale": "Why now, given the current pressure"
+  },
   "action": {
     "type": "speak|move|use_item|trade|observe|wait",
     "target": "target agent_id, location name, or item name (null if not applicable)",
@@ -76,6 +84,8 @@ def build_user_prompt(
     reachable_locations: list[str] | None = None,
     agent_beliefs: list[str] | None = None,
     active_goal: dict | None = None,
+    ongoing_intent: dict | None = None,
+    last_outcome: str = "",
     emotional_context: str = "",
 ) -> str:
     rules_text = "\n".join(f"- {r}" for r in world_rules)
@@ -111,8 +121,21 @@ def build_user_prompt(
     if agent_relations:
         rel_lines = []
         for r in agent_relations:
+            metrics = [f"strength: {r['strength']:.1f}"]
+            if "trust" in r:
+                metrics.append(f"trust: {r['trust']:.1f}")
+            if "tension" in r:
+                metrics.append(f"tension: {r['tension']:.1f}")
+            if "familiarity" in r:
+                metrics.append(f"familiarity: {r['familiarity']:.1f}")
+            debt_balance = r.get("debt_balance")
+            if isinstance(debt_balance, (int, float)) and abs(debt_balance) >= 0.05:
+                metrics.append(f"debt: {debt_balance:+.1f}")
+            leverage = r.get("leverage")
+            if isinstance(leverage, (int, float)) and leverage >= 0.05:
+                metrics.append(f"leverage: {leverage:.1f}")
             rel_lines.append(
-                f"- {r['name']}: {r['type']} (strength: {r['strength']:.1f})"
+                f"- {r['name']}: {r['type']} ({', '.join(metrics)})"
             )
         relations_section = f"""
 [Your Relationships]
@@ -133,11 +156,39 @@ def build_user_prompt(
         progress_pct = int(active_goal.get("progress", 0) * 100)
         stall = active_goal.get("stall_count", 0)
         stall_info = f", stalled {stall} ticks" if stall > 0 else ""
-        goals_section = f"Core Goals:\n{goals_text}\n\nActive Goal (your current focus):\n\"{active_goal['text']}\" — progress: {progress_pct}%{stall_info}"
+        plan_lines = []
+        if active_goal.get("strategy"):
+            plan_lines.append(f"Current strategy: {active_goal['strategy']}")
+        if active_goal.get("next_step"):
+            plan_lines.append(f"Next step to make progress: {active_goal['next_step']}")
+        if active_goal.get("success_criteria"):
+            plan_lines.append(f"Success looks like: {active_goal['success_criteria']}")
+        blockers = active_goal.get("blockers") or []
+        if blockers:
+            plan_lines.append("Current blockers:")
+            plan_lines.extend(f"- {blocker}" for blocker in blockers[:3])
+        plan_text = f"\n{chr(10).join(plan_lines)}" if plan_lines else ""
+        goals_section = f"Core Goals:\n{goals_text}\n\nActive Goal (your current focus):\n\"{active_goal['text']}\" — progress: {progress_pct}%{stall_info}{plan_text}"
     else:
         goals_section = f"Goals:\n{goals_text}"
 
     goal_instruction = " Consider: what is the single best action to advance your active goal?" if active_goal else ""
+
+    continuity_section = ""
+    if ongoing_intent and any(str(ongoing_intent.get(key, "")).strip() for key in ("objective", "approach", "next_step")):
+        continuity_section = f"""
+[Your Ongoing Intent]
+Objective: {ongoing_intent.get("objective", "").strip() or "(none)"}
+Approach: {ongoing_intent.get("approach", "").strip() or "(none)"}
+Planned Next Step: {ongoing_intent.get("next_step", "").strip() or "(none)"}
+"""
+
+    last_outcome_section = ""
+    if last_outcome.strip():
+        last_outcome_section = f"""
+[What Happened Last Time]
+{last_outcome.strip()}
+"""
 
     # Emotional state section (Psyche integration)
     emotional_section = ""
@@ -162,6 +213,9 @@ Personality: {agent_personality}
 Location: {agent_location}
 Inventory: {inv_text}
 {relations_section}{beliefs_section}{emotional_section}
+[Continuity]
+Stay coherent across ticks. Continue your ongoing line of action unless the current situation gives you a clear reason to pivot.
+{continuity_section}{last_outcome_section}
 [Your Memory — What You Know]
 {memory_text}
 
@@ -174,6 +228,7 @@ Recent events near you:
 {events_text}
 {_build_urgent_section(urgent_events)}
 [Instruction]
+First decide the character's short-horizon intent, then choose one concrete action that advances it.
 Output {agent_name}'s action as JSON.{goal_instruction} Only JSON, nothing else."""
 
 

@@ -31,19 +31,22 @@ The architecture follows three principles:
 │                                                                 │
 │   tick() → for each agent:                                      │
 │     1. Build AgentContext (modality-agnostic world slice)        │
+│     1.5 pressure_policy.before_agent_turn()                      │
 │     2. decision_source.decide(ctx) → ActionOutput               │
 │     3. validate_action() → errors or pass                       │
 │     4. apply_action() → state mutation + Event                  │
 │     5. create_memory_from_event()                               │
-│     6. _update_relations() + _update_goals()                    │
+│     6. social_policy.apply() + goal_policy.update()             │
 │                                                                 │
 │   post_tick() → timeline node, snapshot, memory consolidation   │
-└──────┬──────────┬───────────┬───────────┬───────────────────────┘
-       │          │           │           │
-  ┌────┴───┐ ┌───┴────┐ ┌────┴────┐ ┌────┴─────┐
-  │Decision│ │Validator│ │ Memory  │ │Persistence│
-  │ Source │ │        │ │         │ │           │
-  └────────┘ └────────┘ └─────────┘ └───────────┘
+└──────┬──────────┬───────────┬───────────┬────────────┬────────────┘
+       │          │           │           │            │
+  ┌────┴───┐ ┌───┴────┐ ┌────┴────┐ ┌────┴─────┐ ┌────┴──────┐
+  │Decision│ │Validator│ │ Memory  │ │Persistence│ │ Policies │
+  │ Source │ │        │ │         │ │           │ │ pressure /│
+  │        │ │        │ │         │ │           │ │ goals /   │
+  │        │ │        │ │         │ │           │ │ social    │
+  └────────┘ └────────┘ └─────────┘ └───────────┘ └───────────┘
 ```
 
 ## Module Responsibilities
@@ -66,9 +69,17 @@ Foundation layer. Pydantic models with no I/O.
 ### decision.py — Pluggable Decision Protocol
 **Extension point.** Any class implementing `async decide(AgentContext) -> ActionOutput` can drive agents.
 
+The default LLM brain is now internally split into three replaceable stages:
+
+- `DecisionContextPolicy`: project canonical `AgentContext` into a structured model request
+- `DecisionModel`: turn that request into an `ActionOutput`
+- `ActionCritic`: review or rewrite the action before it reaches the engine
+
+This keeps the outer engine contract stable while making the inside of the brain composable.
+
 ```
 DecisionSource (Protocol)
-  ├── LLMDecisionSource           — prompts.py + llm.py pipeline (default)
+  ├── LLMDecisionSource           — thin orchestrator for the default 3-stage brain
   ├── HumanDecisionSource         — waits for human input via API (decorator pattern)
   ├── ContextAwareDecisionSource  — context-driven actions for stability testing
   ├── PsycheDecisionSource        — Psyche emotional engine (HTTP bridge + autonomic gating)
@@ -77,17 +88,59 @@ DecisionSource (Protocol)
   └── [your source here]          — other AI, RL agent, etc.
 ```
 
+```
+LLMDecisionSource
+  ├── DefaultDecisionContextPolicy
+  ├── LLMDecisionModel
+  └── PassthroughActionCritic
+```
+
 `AgentContext` is the modality-agnostic interface between world and brain. It contains everything an agent can perceive: visible agents, memories, beliefs, relations, reachable locations, goals, world rules, time.
+
+### policies.py — Pluggable World Dynamics
+This is the second extension layer after decision-making. Policies answer:
+
+- `pressure_policy`: what extra world pressure or perturbation appears before an agent acts
+- `perception_policy`: how memories, beliefs, recent events, and world state become `AgentContext`
+- `resolution_policy`: how invalid actions are repaired, retried, and finally downgraded
+- `proposal_policy`: how an `ActionOutput` becomes a concrete state-change proposal
+- `goal_projection_policy`: how active goal / intent continuity are projected into agent context
+- `goal_mutation_policy`: how goals are initialized, evaluated, progressed, and replanned
+- `social_projection_policy`: how relations are projected into prompts and agent context
+- `social_mutation_policy`: how interactions mutate the social ledger after actions resolve
+- `timeline_policy`: how a tick is summarized and when timeline nodes / snapshots are persisted
+- `memory_policy`: when consolidation and belief extraction run
+- `enrichment_policy`: how high-signal world details are passively enriched over time
+
+Default implementations now hold most of the old engine-specific behavior. The engine orchestrates; policies decide the domain semantics.
+
+`goal_policy` and `social_policy` still exist as legacy combined adapters for compatibility, but the preferred extension points are the explicit read/write pairs.
 
 **How to add a new decision source:**
 1. Implement `async def decide(self, context: AgentContext) -> ActionOutput`
 2. Pass it to `Engine(session, decision_source=your_source)`
 
-### validator.py — Pure Rules (depends only on models.py)
-Validates and applies actions. Stateless functions on data.
+**How to customize the default LLM brain without replacing the whole source:**
+1. Implement `DecisionContextPolicy`, `DecisionModel`, or `ActionCritic`
+2. Pass them into `LLMDecisionSource(context_policy=..., decision_model=..., action_critic=...)`
+
+**How to swap world dynamics:**
+1. Implement the relevant policy protocol in `policies.py`
+2. Pass it to `Engine(session, goal_projection_policy=..., goal_mutation_policy=..., social_projection_policy=..., social_mutation_policy=..., pressure_policy=..., perception_policy=..., resolution_policy=..., proposal_policy=...)`
+
+### validator.py — World Authority
+Hard world rules live here. The default authority still uses pure functions internally, but the engine now depends on the `WorldAuthority` protocol rather than direct helper calls.
 
 - `validate_action(response, agent, session) -> list[str]` — Returns errors or empty list
 - `apply_action(response, agent, session) -> str` — Mutates state, returns summary
+- `DefaultWorldAuthority` — Default authority implementation used by the engine
+
+This is the hard boundary after the brain layer:
+
+- `ActionCritic` may reshape an action candidate
+- `ProposalPolicy` turns that candidate into a concrete mutation proposal
+- `WorldAuthority` decides whether that action is legal in this world
+- only legal actions are applied to runtime state
 
 Validation rules:
 - MOVE: target must be a connected location (if topology defined)
@@ -219,11 +272,15 @@ AgentSeed.goals[0] → GoalState(status="active", progress=0.0)
 | What | Where | How |
 |------|-------|-----|
 | Agent brain | `decision.py` | Implement `DecisionSource` protocol |
+| Context shaping | `decision.py` | Implement `DecisionContextPolicy` |
+| Model bridge | `decision.py` | Implement `DecisionModel` |
+| Action review | `decision.py` | Implement `ActionCritic` |
+| Hard world rules | `validator.py` | Implement `WorldAuthority` |
 | Action types | `models.py` + `validator.py` | Add to `ActionType` enum + validation rules |
 | Memory retrieval | `memory.py` | Replace `_score_memory()` or `retrieve_relevant_memories()` |
 | Memory consolidation | `memory.py` | Replace `consolidate_memories()` |
-| Social dynamics | `engine.py` | Override `_update_relations()` |
-| Goal advancement | `engine.py` | Override `_event_advances_goal()` |
+| Social dynamics | `policies.py` | Implement `SocialPolicy` |
+| Goal advancement | `policies.py` | Implement `GoalPolicy` |
 | Time model | `clock.py` | Modify `world_time()` |
 | Presentation | `prompts.py` | Replace with non-text adapter |
 | Persistence | `db.py` | Swap SQLite for another backend |

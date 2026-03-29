@@ -226,6 +226,8 @@ async def get_agent_action(
     reachable_locations: list[str] | None = None,
     agent_beliefs: list[str] | None = None,
     active_goal: dict | None = None,
+    ongoing_intent: dict | None = None,
+    last_outcome: str = "",
     emotional_context: str = "",
 ) -> LLMResponse:
     """Get a validated agent action from the LLM."""
@@ -248,6 +250,8 @@ async def get_agent_action(
         reachable_locations=reachable_locations,
         agent_beliefs=agent_beliefs,
         active_goal=active_goal,
+        ongoing_intent=ongoing_intent,
+        last_outcome=last_outcome,
         emotional_context=emotional_context,
     )
 
@@ -260,6 +264,13 @@ async def get_agent_action(
         return LLMResponse(**raw)
     except ValidationError:
         # Try to salvage partial response
+        if "intent" not in raw:
+            raw["intent"] = {
+                "objective": str(raw.get("objective", "") or ""),
+                "approach": str(raw.get("approach", "") or ""),
+                "next_step": str(raw.get("next_step", "") or ""),
+                "rationale": str(raw.get("rationale", "") or ""),
+            }
         if "action" in raw and isinstance(raw["action"], dict):
             if "type" not in raw["action"]:
                 raw["action"]["type"] = "wait"
@@ -434,15 +445,54 @@ async def summarize_memories(
 
 GOAL_REPLAN_SYSTEM = """\
 You are a goal replanning engine for an AI agent in a simulated world. \
-An agent's current goal has stalled (no progress for several turns). Suggest a new, more achievable sub-goal.
+An agent's current goal has stalled (no progress for several turns). Suggest a new, more achievable goal plan.
 
 Rules:
-- Output 1 sentence ONLY — the new goal text.
-- The new goal should be more specific and actionable than the stalled one.
+- Output ONLY valid JSON matching the schema below.
+- The goal should be more specific and actionable than the stalled one.
 - It should still relate to the agent's core personality and motivations.
 - Consider what actions are actually available (speak, move, use_item, trade, observe, wait).
-- Output plain text, nothing else.\
+- Keep blockers short and concrete.
+
+Output JSON schema:
+{
+  "text": "short goal statement",
+  "strategy": "how the agent plans to pursue it",
+  "next_step": "the next immediate step",
+  "success_criteria": "what would count as meaningful progress or success",
+  "blockers": ["optional blocker 1", "optional blocker 2"]
+}\
 """
+
+
+def _normalize_goal_plan(raw: object, fallback_goal: str) -> dict:
+    """Coerce replanning output into a structured goal plan."""
+    if isinstance(raw, str):
+        text = raw.strip() or fallback_goal
+        return {
+            "text": text,
+            "strategy": "",
+            "next_step": "",
+            "success_criteria": "",
+            "blockers": [],
+        }
+
+    if not isinstance(raw, dict):
+        return _normalize_goal_plan("", fallback_goal)
+
+    text = str(raw.get("text", "") or "").strip() or fallback_goal
+    strategy = str(raw.get("strategy", "") or "").strip()
+    next_step = str(raw.get("next_step", "") or "").strip()
+    success_criteria = str(raw.get("success_criteria", "") or "").strip()
+    blockers = _normalize_string_list(raw.get("blockers", []))
+
+    return {
+        "text": text,
+        "strategy": strategy,
+        "next_step": next_step,
+        "success_criteria": success_criteria,
+        "blockers": blockers,
+    }
 
 
 async def replan_goal(
@@ -455,7 +505,7 @@ async def replan_goal(
     api_key: str | None = None,
     api_base: str | None = None,
     drive_state: dict[str, float] | None = None,
-) -> str:
+) -> dict:
     """Suggest a new sub-goal when current goal is stalled."""
     goals_text = "\n".join(f"- {g}" for g in current_goals) if current_goals else "(none)"
     memory_text = "\n".join(f"- {m}" for m in agent_memory[-5:]) if agent_memory else "(no memories)"
@@ -487,14 +537,23 @@ Personality: {agent_personality}
 {memory_text}
 {drive_section}
 [Instruction]
-This goal has stalled. Suggest a new, more achievable sub-goal in 1 sentence."""
+This goal has stalled. Suggest a new, more achievable goal plan as JSON."""
 
-    content = await _complete(
-        GOAL_REPLAN_SYSTEM, user,
-        model=model, api_key=api_key, api_base=api_base,
-        temperature=0.7, max_tokens=128,
-    )
-    return content.strip('"\'`')
+    try:
+        content = await _complete_json(
+            GOAL_REPLAN_SYSTEM, user,
+            model=model, api_key=api_key, api_base=api_base,
+            temperature=0.7, max_tokens=256,
+        )
+    except Exception:
+        fallback = await _complete(
+            GOAL_REPLAN_SYSTEM, user,
+            model=model, api_key=api_key, api_base=api_base,
+            temperature=0.7, max_tokens=128,
+        )
+        return _normalize_goal_plan(fallback.strip('"\'`'), stalled_goal)
+
+    return _normalize_goal_plan(content, stalled_goal)
 
 
 async def enrich_entity(

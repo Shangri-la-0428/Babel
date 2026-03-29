@@ -16,7 +16,16 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
-from babel.decision import AgentContext, DecisionSource, LLMDecisionSource, ScriptedDecisionSource
+from babel.decision import (
+    ActionCritic,
+    AgentContext,
+    DecisionContextPolicy,
+    DecisionModel,
+    DecisionRequest,
+    DecisionSource,
+    LLMDecisionSource,
+    ScriptedDecisionSource,
+)
 from babel.memory import _derive_semantic
 from babel.models import (
     ActionOutput,
@@ -34,6 +43,7 @@ from babel.models import (
     StateChanges,
     WorldSeed,
 )
+from babel.policies import resolve_goal_policies, resolve_social_policies
 from babel.validator import apply_action, _build_structured
 
 
@@ -149,6 +159,85 @@ class TestDecisionSourceProtocol(unittest.TestCase):
     def test_llm_is_decision_source(self):
         src = LLMDecisionSource()
         assert isinstance(src, DecisionSource)
+
+    @patch("babel.llm.get_agent_action", new_callable=AsyncMock)
+    def test_llm_preserves_intent_metadata(self, mock_get_agent_action):
+        src = LLMDecisionSource()
+        mock_get_agent_action.return_value = LLMResponse(
+            thinking="keep pressing Bob",
+            intent={
+                "objective": "earn Bob's trust",
+                "approach": "share useful intel",
+                "next_step": "start a cautious conversation",
+                "rationale": "he looks uncertain right now",
+            },
+            action=ActionOutput(type=ActionType.SPEAK, target="a2", content="I know who was at the dock."),
+            state_changes=StateChanges(),
+        )
+        ctx = AgentContext(agent_id="a1", agent_name="Alice", agent_location="plaza")
+
+        action = asyncio.get_event_loop().run_until_complete(src.decide(ctx))
+        assert action.type == ActionType.SPEAK
+        assert action.intent is not None
+        assert action.intent.objective == "earn Bob's trust"
+
+    def test_llm_source_supports_pluggable_pipeline(self):
+        class StubContextPolicy:
+            def __init__(self):
+                self.seen: AgentContext | None = None
+
+            def build(self, context: AgentContext) -> DecisionRequest:
+                self.seen = context
+                return DecisionRequest(
+                    agent_name=context.agent_name,
+                    tick=context.tick,
+                    recent_events=["pressure spike"],
+                )
+
+        class StubDecisionModel:
+            def __init__(self):
+                self.seen: DecisionRequest | None = None
+
+            async def decide(self, request: DecisionRequest) -> ActionOutput:
+                self.seen = request
+                return ActionOutput(type=ActionType.OBSERVE, content="baseline read")
+
+        class StubActionCritic:
+            def __init__(self):
+                self.seen_context: AgentContext | None = None
+                self.seen_action: ActionOutput | None = None
+
+            async def critique(self, context: AgentContext, action: ActionOutput) -> ActionOutput:
+                self.seen_context = context
+                self.seen_action = action
+                return action.model_copy(update={"content": f"{action.content} -> approved"})
+
+        context_policy = StubContextPolicy()
+        decision_model = StubDecisionModel()
+        action_critic = StubActionCritic()
+        src = LLMDecisionSource(
+            context_policy=context_policy,
+            decision_model=decision_model,
+            action_critic=action_critic,
+        )
+        ctx = AgentContext(agent_id="a1", agent_name="Alice", agent_location="plaza", tick=7)
+
+        action = asyncio.get_event_loop().run_until_complete(src.decide(ctx))
+
+        assert context_policy.seen == ctx
+        assert decision_model.seen is not None
+        assert decision_model.seen.agent_name == "Alice"
+        assert decision_model.seen.recent_events == ["pressure spike"]
+        assert action_critic.seen_context == ctx
+        assert action_critic.seen_action is not None
+        assert action.content == "baseline read -> approved"
+
+    def test_pipeline_components_follow_runtime_protocols(self):
+        assert isinstance(ScriptedDecisionSource(), DecisionSource)
+        assert isinstance(LLMDecisionSource(), DecisionSource)
+        assert isinstance(type("Ctx", (), {"build": lambda self, ctx: DecisionRequest()})(), DecisionContextPolicy)
+        assert isinstance(type("Model", (), {"decide": AsyncMock(return_value=ActionOutput(type=ActionType.WAIT, content="ok"))})(), DecisionModel)
+        assert isinstance(type("Critic", (), {"critique": AsyncMock(side_effect=lambda ctx, action: action)})(), ActionCritic)
 
 
 # ── Tests: ScriptedDecisionSource ────────────────────
@@ -408,17 +497,213 @@ class TestEngineDecisionSource(unittest.TestCase):
         engine = Engine(session, decision_source=src)
         assert engine.decision_source is src
 
+    def test_engine_accepts_custom_policies(self):
+        from babel.engine import Engine
+
+        class NoopPressure:
+            async def before_agent_turn(self, engine, agent):
+                return []
+
+        class NoopSocial:
+            def build_relation_context(self, session, agent):
+                return []
+
+            def apply(self, engine, agent, response, errors):
+                return None
+
+        class NoopGoal:
+            def build_goal_context(self, agent):
+                return {
+                    "active_goal": None,
+                    "ongoing_intent": None,
+                    "last_outcome": agent.last_outcome,
+                }
+
+            def ensure_active_goal(self, engine, agent):
+                return None
+
+            def sync_plan_from_intent(self, agent, intent):
+                return None
+
+            def record_blocker(self, agent, blocker):
+                return None
+
+            async def update(self, engine, agent, event):
+                return None
+
+            def event_advances(self, event, goal):
+                return False
+
+            def select_next_goal(self, engine, agent, drive_state=None):
+                return None
+
+            def check_drive_shift(self, engine, agent):
+                return None
+
+        class NoopTimeline:
+            async def after_tick(self, engine, tick_events):
+                return None
+
+        class NoopMemory:
+            async def after_tick(self, engine, tick_events):
+                return None
+
+        class NoopEnrichment:
+            async def after_tick(self, engine, tick_events):
+                return None
+
+        session = _make_session()
+        engine = Engine(
+            session,
+            pressure_policy=NoopPressure(),
+            social_policy=NoopSocial(),
+            goal_policy=NoopGoal(),
+            timeline_policy=NoopTimeline(),
+            memory_policy=NoopMemory(),
+            enrichment_policy=NoopEnrichment(),
+        )
+        assert engine.pressure_policy.__class__.__name__ == "NoopPressure"
+        assert engine.social_policy.__class__.__name__ == "NoopSocial"
+        assert engine.goal_policy.__class__.__name__ == "NoopGoal"
+        assert engine.timeline_policy.__class__.__name__ == "NoopTimeline"
+        assert engine.memory_policy.__class__.__name__ == "NoopMemory"
+        assert engine.enrichment_policy.__class__.__name__ == "NoopEnrichment"
+
     def test_engine_default_uses_llm_decision_source(self):
         from babel.engine import Engine
         session = _make_session()
         engine = Engine(session)
         assert isinstance(engine.decision_source, LLMDecisionSource)
 
+    def test_engine_accepts_split_social_policies(self):
+        from babel.engine import Engine
+
+        class ProjectionOnly:
+            def build_relation_context(self, session, agent):
+                del session, agent
+                return [{"name": "Bob", "type": "watchful"}]
+
+        class MutationOnly:
+            def apply(self, engine, agent, response, errors):
+                del engine, agent, response, errors
+                return None
+
+        session = _make_session()
+        engine = Engine(
+            session,
+            social_projection_policy=ProjectionOnly(),
+            social_mutation_policy=MutationOnly(),
+        )
+        ctx = engine._build_context(session.agents["a1"])
+        assert ctx.relations[0]["type"] == "watchful"
+
+    def test_engine_accepts_split_goal_policies(self):
+        from babel.engine import Engine
+
+        class ProjectionOnly:
+            def build_goal_context(self, agent):
+                del agent
+                return {
+                    "active_goal": {"text": "split projection"},
+                    "ongoing_intent": {"objective": "move first"},
+                    "last_outcome": "projection owned",
+                }
+
+        class MutationOnly:
+            def ensure_active_goal(self, engine, agent):
+                return None
+
+            def sync_plan_from_intent(self, agent, intent):
+                return None
+
+            def record_blocker(self, agent, blocker):
+                return None
+
+            async def update(self, engine, agent, event):
+                return None
+
+            def event_advances(self, event, goal):
+                return False
+
+            def select_next_goal(self, engine, agent, drive_state=None):
+                return None
+
+            def check_drive_shift(self, engine, agent):
+                return None
+
+        session = _make_session()
+        engine = Engine(
+            session,
+            goal_projection_policy=ProjectionOnly(),
+            goal_mutation_policy=MutationOnly(),
+        )
+        ctx = engine._build_context(session.agents["a1"])
+        assert ctx.active_goal["text"] == "split projection"
+        assert ctx.ongoing_intent["objective"] == "move first"
+        assert ctx.last_outcome == "projection owned"
+
+
+class TestPolicyResolvers(unittest.TestCase):
+    def test_resolve_social_policies_maps_legacy_combined_policy(self):
+        class LegacySocial:
+            def build_relation_context(self, session, agent):
+                del session, agent
+                return [{"name": "Bob", "type": "ally"}]
+
+            def apply(self, engine, agent, response, errors):
+                del engine, agent, response, errors
+                return None
+
+        legacy = LegacySocial()
+        projection, mutation, combined = resolve_social_policies(social_policy=legacy)
+
+        assert projection is legacy
+        assert mutation is legacy
+        assert combined is legacy
+
+    def test_resolve_goal_policies_maps_legacy_combined_policy(self):
+        class LegacyGoal:
+            def build_goal_context(self, agent):
+                del agent
+                return {"active_goal": {"text": "legacy"}, "ongoing_intent": None, "last_outcome": ""}
+
+            def ensure_active_goal(self, engine, agent):
+                return None
+
+            def sync_plan_from_intent(self, agent, intent):
+                return None
+
+            def record_blocker(self, agent, blocker):
+                return None
+
+            async def update(self, engine, agent, event):
+                return None
+
+            def event_advances(self, event, goal):
+                return False
+
+            def select_next_goal(self, engine, agent, drive_state=None):
+                return None
+
+            def check_drive_shift(self, engine, agent):
+                return None
+
+        legacy = LegacyGoal()
+        projection, mutation, combined = resolve_goal_policies(goal_policy=legacy)
+
+        assert projection is legacy
+        assert mutation is legacy
+        assert combined is legacy
+
     def test_engine_build_context(self):
         from babel.engine import Engine
         session = _make_session()
         engine = Engine(session)
         agent = session.agents["a1"]
+        agent.immediate_intent = "gain Bob's confidence"
+        agent.immediate_approach = "act helpful before asking questions"
+        agent.immediate_next_step = "speak to Bob calmly"
+        agent.last_outcome = "Alice saw Bob hiding a package."
         ctx = engine._build_context(agent)
         assert ctx.agent_id == "a1"
         assert ctx.agent_name == "Alice"
@@ -426,6 +711,82 @@ class TestEngineDecisionSource(unittest.TestCase):
         assert "market" in ctx.reachable_locations
         assert len(ctx.available_locations) == 3
         assert len(ctx.world_rules) == 2
+        assert ctx.ongoing_intent["objective"] == "gain Bob's confidence"
+        assert ctx.last_outcome == "Alice saw Bob hiding a package."
+
+    def test_engine_build_context_respects_goal_policy_projection(self):
+        from babel.engine import Engine
+
+        class CustomGoalProjection:
+            def build_goal_context(self, agent):
+                return {
+                    "active_goal": {"text": "shadow Bob", "progress": 0.5},
+                    "ongoing_intent": {
+                        "objective": "corner Bob privately",
+                        "approach": "stay out of sight",
+                        "next_step": "follow him to the market",
+                    },
+                    "last_outcome": "Bob noticed a tail.",
+                }
+
+            def ensure_active_goal(self, engine, agent):
+                return None
+
+            def sync_plan_from_intent(self, agent, intent):
+                return None
+
+            def record_blocker(self, agent, blocker):
+                return None
+
+            async def update(self, engine, agent, event):
+                return None
+
+            def event_advances(self, event, goal):
+                return False
+
+            def select_next_goal(self, engine, agent, drive_state=None):
+                return None
+
+            def check_drive_shift(self, engine, agent):
+                return None
+
+        session = _make_session()
+        engine = Engine(session, goal_policy=CustomGoalProjection())
+        agent = session.agents["a1"]
+        ctx = engine._build_context(agent)
+
+        assert ctx.active_goal["text"] == "shadow Bob"
+        assert ctx.ongoing_intent["objective"] == "corner Bob privately"
+        assert ctx.last_outcome == "Bob noticed a tail."
+
+    @patch("babel.engine.create_memory_from_event", new_callable=AsyncMock)
+    def test_engine_syncs_goal_plan_from_intent(self, mock_create_memory):
+        from babel.engine import Engine
+
+        class IntentSource:
+            async def decide(self, context):
+                return ActionOutput(
+                    type=ActionType.OBSERVE,
+                    content="studying Bob's reactions",
+                    intent={
+                        "objective": "win Bob's trust",
+                        "approach": "offer useful insight before asking questions",
+                        "next_step": "watch how Bob reacts to the mention of the dock",
+                        "rationale": "he looks ready to slip away",
+                    },
+                )
+
+        session = _make_session()
+        engine = Engine(session, decision_source=IntentSource())
+        agent = session.agents["a1"]
+        engine._running = True
+
+        event = asyncio.get_event_loop().run_until_complete(engine._resolve_agent_action(agent))
+        assert event.action_type == "observe"
+        assert agent.active_goal is not None
+        assert agent.active_goal.strategy == "offer useful insight before asking questions"
+        assert agent.active_goal.next_step == "watch how Bob reacts to the mention of the dock"
+        assert agent.immediate_intent == "win Bob's trust"
 
 
 # ── Integration: ScriptedDecisionSource runs 10 ticks ──

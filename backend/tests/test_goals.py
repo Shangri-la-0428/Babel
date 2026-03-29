@@ -76,15 +76,25 @@ class TestGoalStateModel(unittest.TestCase):
         self.assertEqual(g.started_tick, 0)
         self.assertEqual(g.progress, 0.0)
         self.assertEqual(g.stall_count, 0)
+        self.assertEqual(g.strategy, "")
+        self.assertEqual(g.next_step, "")
+        self.assertEqual(g.success_criteria, "")
+        self.assertEqual(g.blockers, [])
 
     def test_custom_values(self):
         g = GoalState(
             text="build shelter", status="stalled",
             started_tick=5, progress=0.6, stall_count=3,
+            strategy="gather dry wood first",
+            next_step="inspect the ruined watchtower",
+            success_criteria="have a weatherproof sleeping spot",
+            blockers=["night is approaching"],
         )
         self.assertEqual(g.status, "stalled")
         self.assertEqual(g.progress, 0.6)
         self.assertEqual(g.stall_count, 3)
+        self.assertEqual(g.strategy, "gather dry wood first")
+        self.assertIn("night is approaching", g.blockers)
 
     def test_model_dump(self):
         g = GoalState(text="explore", started_tick=1, progress=0.3)
@@ -119,6 +129,9 @@ class TestFromSeedGoals(unittest.TestCase):
         seed = AgentSeed(id="a1", name="Alice", location="plaza")
         state = AgentState.from_seed(seed)
         self.assertEqual(state.immediate_intent, "")
+        self.assertEqual(state.immediate_approach, "")
+        self.assertEqual(state.immediate_next_step, "")
+        self.assertEqual(state.last_outcome, "")
 
 
 # ── _event_advances_goal Tests ──────────────────────────
@@ -252,8 +265,9 @@ class TestUpdateGoals(unittest.TestCase):
         asyncio.get_event_loop().run_until_complete(
             self.engine._update_goals(agent, event)
         )
-        self.assertAlmostEqual(agent.active_goal.progress, 0.15)
+        self.assertAlmostEqual(agent.active_goal.progress, 0.22)
         self.assertEqual(agent.active_goal.stall_count, 0)
+        self.assertEqual(agent.active_goal.last_progress_reason, "Alice found the artifact nearby")
 
     def test_stall_count_increases_on_non_advancing_event(self):
         agent = self.session.agents["a1"]
@@ -279,7 +293,13 @@ class TestUpdateGoals(unittest.TestCase):
 
     @patch("babel.engine.replan_goal", new_callable=AsyncMock)
     def test_stall_triggers_replan(self, mock_replan):
-        mock_replan.return_value = "search the eastern cave for clues"
+        mock_replan.return_value = {
+            "text": "search the eastern cave for clues",
+            "strategy": "follow the smugglers' trail",
+            "next_step": "question the sentry at the cave mouth",
+            "success_criteria": "find evidence that narrows the artifact's location",
+            "blockers": ["the sentry does not trust Alice"],
+        }
         agent = self.session.agents["a1"]
         agent.active_goal = GoalState(
             text="find the artifact", stall_count=4,
@@ -290,6 +310,8 @@ class TestUpdateGoals(unittest.TestCase):
         )
         mock_replan.assert_called_once()
         self.assertEqual(agent.active_goal.text, "search the eastern cave for clues")
+        self.assertEqual(agent.active_goal.strategy, "follow the smugglers' trail")
+        self.assertEqual(agent.active_goal.next_step, "question the sentry at the cave mouth")
         self.assertEqual(agent.active_goal.status, "active")
 
     @patch("babel.engine.replan_goal", new_callable=AsyncMock)
@@ -364,12 +386,19 @@ class TestGoalPromptIntegration(unittest.TestCase):
                 "status": "active",
                 "stall_count": 0,
                 "started_tick": 1,
+                "strategy": "ask around before moving",
+                "next_step": "speak to Bob first",
+                "success_criteria": "learn where the artifact was seen last",
+                "blockers": ["Bob is hiding something"],
             },
         )
         self.assertIn("Core Goals:", prompt)
         self.assertIn("Active Goal (your current focus):", prompt)
         self.assertIn('"find artifact"', prompt)
         self.assertIn("progress: 30%", prompt)
+        self.assertIn("Current strategy: ask around before moving", prompt)
+        self.assertIn("Next step to make progress: speak to Bob first", prompt)
+        self.assertIn("Success looks like: learn where the artifact was seen last", prompt)
         self.assertIn("advance your active goal", prompt)
 
     def test_stalled_goal_shows_stall_info(self):
@@ -417,6 +446,34 @@ class TestGoalPromptIntegration(unittest.TestCase):
         self.assertNotIn("Core Goals:", prompt)
         self.assertNotIn("Active Goal", prompt)
         self.assertNotIn("advance your active goal", prompt)
+
+    def test_ongoing_intent_rendered_in_prompt(self):
+        from babel.prompts import build_user_prompt
+
+        prompt = build_user_prompt(
+            world_rules=["rule1"],
+            agent_name="Alice",
+            agent_personality="brave",
+            agent_goals=["find artifact"],
+            agent_location="plaza",
+            agent_inventory=[],
+            agent_memory=[],
+            tick=10,
+            visible_agents=[],
+            recent_events=[],
+            available_locations=["plaza"],
+            ongoing_intent={
+                "objective": "win Bob's trust",
+                "approach": "offer useful information first",
+                "next_step": "start a careful conversation",
+            },
+            last_outcome="Alice noticed Bob hesitating near the market gate.",
+        )
+        self.assertIn("[Your Ongoing Intent]", prompt)
+        self.assertIn("win Bob's trust", prompt)
+        self.assertIn("offer useful information first", prompt)
+        self.assertIn("start a careful conversation", prompt)
+        self.assertIn("[What Happened Last Time]", prompt)
 
 
 # ── Engine Init Goal Test ───────────────────────────────

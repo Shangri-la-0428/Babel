@@ -430,6 +430,18 @@ class TestRelationAutoUpdate:
         assert r.strength == 1.0  # clamped at max
         assert r.type == "ally"
 
+    def test_social_ledger_updates_metrics(self):
+        session = _make_session()
+        r = session.update_relation(
+            "a1", "a2", 0.08, tick=10,
+            social={"trust": 0.06, "tension": -0.03, "familiarity": 0.05, "debt": 0.12},
+            note="shared a scarce ration",
+        )
+        assert r.trust > 0.5
+        assert r.familiarity > 0.1
+        assert r.debt_balance == pytest.approx(0.12)
+        assert r.last_interaction == "shared a scarce ration"
+
 
 class TestPromptRelations:
     """Test that prompt builder includes relations."""
@@ -450,13 +462,15 @@ class TestPromptRelations:
             recent_events=[],
             available_locations=["吧台", "VIP包间"],
             agent_relations=[
-                {"name": "Bob", "type": "ally", "strength": 0.9},
-                {"name": "Charlie", "type": "hostile", "strength": 0.1},
+                {"name": "Bob", "type": "ally", "strength": 0.9, "trust": 0.8, "tension": 0.1, "familiarity": 0.7, "debt_balance": 0.2},
+                {"name": "Charlie", "type": "hostile", "strength": 0.1, "trust": 0.2, "tension": 0.8, "familiarity": 0.4},
             ],
         )
         assert "[Your Relationships]" in prompt
         assert "Bob: ally" in prompt
         assert "Charlie: hostile" in prompt
+        assert "trust: 0.8" in prompt
+        assert "tension: 0.8" in prompt
 
     def test_reachable_locations_in_prompt(self):
         from babel.prompts import build_user_prompt
