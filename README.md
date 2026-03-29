@@ -48,7 +48,7 @@ design/      设计系统（tokens, 组件, Tailwind preset）
 ### 安装 / Install
 
 ```bash
-git clone https://github.com/Shangri-la-0428/babel.git
+git clone https://github.com/Shangri-la-0428/Babel.git
 cd babel
 ./install.sh
 ```
@@ -62,8 +62,26 @@ babel
 浏览器自动打开 → 点击右上角 **Settings** → 填入 API Key → 开始。
 设置保存在浏览器中，只需配置一次。`Ctrl+C` 停止。
 
+默认会在启动前自动检查更新，并在本地工作区干净时自动快进到最新版本。
+如果你本地改过代码、分支已分叉，或当前离线，自动更新会跳过，不会强拉代码。
+
+手动更新：
+
+```bash
+babel update
+```
+
+临时关闭自动更新：
+
+```bash
+BABEL_AUTO_UPDATE=0 babel
+```
+
 *Browser opens automatically → click Settings → enter your API Key → start.
 Settings persist in browser. Configure once. `Ctrl+C` to stop.*
+
+*BABEL checks for updates before launch and fast-forwards automatically when the local checkout is clean.
+If you have local edits, a diverged branch, or no network, it skips the update safely.*
 
 ### Docker
 

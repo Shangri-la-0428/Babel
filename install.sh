@@ -29,4 +29,6 @@ fi
 
 echo ""
 echo "[BABEL] Done! Type 'babel' anywhere to start."
+echo "[BABEL] 'babel' will auto-check for updates when your local checkout is clean."
+echo "[BABEL] Use 'babel update' to force an update check."
 echo "  Then open http://localhost:3000 and configure your API key in Settings."
