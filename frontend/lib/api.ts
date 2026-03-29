@@ -47,7 +47,22 @@ export interface BabelSettings {
   tickDelay: number;
 }
 
+export interface BabelSettingsProfile extends BabelSettings {
+  id: string;
+  name: string;
+  cachedModels: string[];
+}
+
+export interface BabelSettingsStore {
+  version: number;
+  activeProfileId: string;
+  profiles: BabelSettingsProfile[];
+}
+
 const SETTINGS_KEY = "babel_settings";
+const SETTINGS_PROFILES_KEY = "babel_settings_profiles";
+const SETTINGS_BOOTSTRAP_KEY = "babel_settings_bootstrap_profiles";
+const SETTINGS_VERSION = 2;
 
 const DEFAULT_SETTINGS: BabelSettings = {
   apiKey: "",
@@ -56,19 +71,295 @@ const DEFAULT_SETTINGS: BabelSettings = {
   tickDelay: 3.0,
 };
 
-export function loadSettings(): BabelSettings {
-  if (typeof window === "undefined") return DEFAULT_SETTINGS;
+const SETTINGS_BOOTSTRAP_ENV = process.env.NEXT_PUBLIC_BABEL_BOOTSTRAP_PROFILES || "";
+
+function createProfileId(): string {
+  return `profile_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function clampTickDelay(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_SETTINGS.tickDelay;
+  return Math.max(0.5, Math.min(30, parsed));
+}
+
+function normalizeSettings(raw: Partial<BabelSettings> | null | undefined): BabelSettings {
+  return {
+    apiKey: typeof raw?.apiKey === "string" ? raw.apiKey.trim() : DEFAULT_SETTINGS.apiKey,
+    apiBase: typeof raw?.apiBase === "string" ? raw.apiBase.trim() : DEFAULT_SETTINGS.apiBase,
+    model: typeof raw?.model === "string" ? raw.model.trim() : DEFAULT_SETTINGS.model,
+    tickDelay: clampTickDelay(raw?.tickDelay),
+  };
+}
+
+function normalizeProfile(
+  raw: Partial<BabelSettingsProfile> | null | undefined,
+  fallbackName: string,
+): BabelSettingsProfile {
+  const settings = normalizeSettings(raw);
+  return {
+    id: typeof raw?.id === "string" && raw.id.trim() ? raw.id.trim() : createProfileId(),
+    name: typeof raw?.name === "string" && raw.name.trim() ? raw.name.trim() : fallbackName,
+    cachedModels: Array.isArray(raw?.cachedModels)
+      ? raw.cachedModels.filter((model): model is string => typeof model === "string" && model.trim().length > 0)
+      : [],
+    ...settings,
+  };
+}
+
+function createDefaultProfile(overrides?: Partial<BabelSettingsProfile>): BabelSettingsProfile {
+  const fallbackName =
+    typeof overrides?.name === "string" && overrides.name.trim()
+      ? overrides.name.trim()
+      : "Default";
+  return normalizeProfile({ ...DEFAULT_SETTINGS, ...overrides }, fallbackName);
+}
+
+function createDefaultStore(): BabelSettingsStore {
+  const profile = createDefaultProfile();
+  return {
+    version: SETTINGS_VERSION,
+    activeProfileId: profile.id,
+    profiles: [profile],
+  };
+}
+
+function parseBootstrapProfiles(): BabelSettingsProfile[] {
+  if (!SETTINGS_BOOTSTRAP_ENV.trim()) return [];
+
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const raw = JSON.parse(SETTINGS_BOOTSTRAP_ENV);
+    if (!Array.isArray(raw)) return [];
+
+    return raw.map((profile, index) =>
+      normalizeProfile(
+        typeof profile === "object" && profile !== null
+          ? (profile as Partial<BabelSettingsProfile>)
+          : undefined,
+        index === 0 ? "Bootstrap" : `Bootstrap ${index + 1}`,
+      ),
+    );
   } catch {
-    return DEFAULT_SETTINGS;
+    return [];
   }
 }
 
+function applyBootstrapProfiles(store: BabelSettingsStore): {
+  store: BabelSettingsStore;
+  changed: boolean;
+} {
+  if (typeof window === "undefined") {
+    return { store, changed: false };
+  }
+
+  const bootstrapProfiles = parseBootstrapProfiles();
+  if (bootstrapProfiles.length === 0) {
+    return { store, changed: false };
+  }
+
+  try {
+    if (localStorage.getItem(SETTINGS_BOOTSTRAP_KEY) === SETTINGS_BOOTSTRAP_ENV) {
+      return { store, changed: false };
+    }
+  } catch {
+    return { store, changed: false };
+  }
+
+  const profiles = [...store.profiles];
+  let changed = false;
+  let firstBootstrapProfileId: string | null = null;
+
+  for (const incoming of bootstrapProfiles) {
+    const matchIndex = profiles.findIndex(
+      (profile) =>
+        profile.id === incoming.id ||
+        profile.name.trim().toLowerCase() === incoming.name.trim().toLowerCase(),
+    );
+
+    if (matchIndex >= 0) {
+      profiles[matchIndex] = {
+        ...profiles[matchIndex],
+        ...incoming,
+        cachedModels:
+          incoming.cachedModels.length > 0
+            ? incoming.cachedModels
+            : profiles[matchIndex].cachedModels,
+      };
+      if (!firstBootstrapProfileId) {
+        firstBootstrapProfileId = profiles[matchIndex].id;
+      }
+    } else {
+      profiles.push(incoming);
+      if (!firstBootstrapProfileId) {
+        firstBootstrapProfileId = incoming.id;
+      }
+    }
+
+    changed = true;
+  }
+
+  const currentActiveProfile =
+    profiles.find((profile) => profile.id === store.activeProfileId) || profiles[0];
+  const shouldActivateBootstrap =
+    !!firstBootstrapProfileId &&
+    (!currentActiveProfile?.apiKey.trim() || !currentActiveProfile?.model.trim());
+
+  try {
+    localStorage.setItem(SETTINGS_BOOTSTRAP_KEY, SETTINGS_BOOTSTRAP_ENV);
+  } catch {
+    // Ignore localStorage write failures and continue with the in-memory store.
+  }
+
+  return {
+    changed,
+    store: {
+      version: SETTINGS_VERSION,
+      activeProfileId: shouldActivateBootstrap
+        ? firstBootstrapProfileId!
+        : profiles.some((profile) => profile.id === store.activeProfileId)
+          ? store.activeProfileId
+          : profiles[0].id,
+      profiles,
+    },
+  };
+}
+
+function normalizeStore(raw: unknown): BabelSettingsStore | null {
+  if (!raw || typeof raw !== "object") return null;
+  const candidate = raw as {
+    activeProfileId?: unknown;
+    profiles?: unknown;
+  };
+  if (!Array.isArray(candidate.profiles) || candidate.profiles.length === 0) return null;
+
+  const profiles = candidate.profiles.map((profile, index) =>
+    normalizeProfile(
+      typeof profile === "object" && profile !== null
+        ? (profile as Partial<BabelSettingsProfile>)
+        : undefined,
+      index === 0 ? "Default" : `Profile ${index + 1}`,
+    )
+  );
+
+  const activeProfileId =
+    typeof candidate.activeProfileId === "string" &&
+    profiles.some((profile) => profile.id === candidate.activeProfileId)
+      ? candidate.activeProfileId
+      : profiles[0].id;
+
+  return {
+    version: SETTINGS_VERSION,
+    activeProfileId,
+    profiles,
+  };
+}
+
+function readLegacySettings(): BabelSettings | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return null;
+    return normalizeSettings(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function toSettings(profile: BabelSettingsProfile): BabelSettings {
+  return {
+    apiKey: profile.apiKey,
+    apiBase: profile.apiBase,
+    model: profile.model,
+    tickDelay: profile.tickDelay,
+  };
+}
+
+function getProfileById(store: BabelSettingsStore, profileId: string): BabelSettingsProfile {
+  return store.profiles.find((profile) => profile.id === profileId) || store.profiles[0];
+}
+
+export function createSettingsProfile(
+  seed?: Partial<BabelSettingsProfile>,
+): BabelSettingsProfile {
+  const fallbackName =
+    typeof seed?.name === "string" && seed.name.trim()
+      ? seed.name.trim()
+      : "New Profile";
+  return normalizeProfile(seed, fallbackName);
+}
+
+export function loadSettingsProfiles(): BabelSettingsStore {
+  if (typeof window === "undefined") return createDefaultStore();
+
+  try {
+    const raw = localStorage.getItem(SETTINGS_PROFILES_KEY);
+    if (raw) {
+      const parsed = normalizeStore(JSON.parse(raw));
+      if (parsed) {
+        const bootstrapped = applyBootstrapProfiles(parsed);
+        if (bootstrapped.changed) {
+          saveSettingsProfiles(bootstrapped.store);
+        }
+        return bootstrapped.store;
+      }
+    }
+  } catch {
+    // Fall back to legacy single-profile storage.
+  }
+
+  const legacy = readLegacySettings();
+  if (legacy) {
+    const profile = createDefaultProfile({ ...legacy, name: "Default" });
+    const store = {
+      version: SETTINGS_VERSION,
+      activeProfileId: profile.id,
+      profiles: [profile],
+    };
+    const bootstrapped = applyBootstrapProfiles(store);
+    if (bootstrapped.changed) {
+      saveSettingsProfiles(bootstrapped.store);
+    }
+    return bootstrapped.store;
+  }
+
+  const store = createDefaultStore();
+  const bootstrapped = applyBootstrapProfiles(store);
+  if (bootstrapped.changed) {
+    saveSettingsProfiles(bootstrapped.store);
+  }
+  return bootstrapped.store;
+}
+
+export function getActiveSettingsProfile(store: BabelSettingsStore): BabelSettingsProfile {
+  return getProfileById(store, store.activeProfileId);
+}
+
+export function loadSettings(): BabelSettings {
+  return toSettings(getActiveSettingsProfile(loadSettingsProfiles()));
+}
+
+export function saveSettingsProfiles(store: BabelSettingsStore): void {
+  if (typeof window === "undefined") return;
+
+  const normalized = normalizeStore(store) || createDefaultStore();
+  const activeProfile = getActiveSettingsProfile(normalized);
+
+  localStorage.setItem(SETTINGS_PROFILES_KEY, JSON.stringify(normalized));
+  // Keep the original key in sync so older code and tests still see the active config.
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(toSettings(activeProfile)));
+}
+
 export function saveSettings(settings: BabelSettings): void {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  const store = loadSettingsProfiles();
+  const nextStore: BabelSettingsStore = {
+    ...store,
+    profiles: store.profiles.map((profile) =>
+      profile.id === store.activeProfileId
+        ? { ...profile, ...normalizeSettings(settings) }
+        : profile
+    ),
+  };
+  saveSettingsProfiles(nextStore);
 }
 
 // ── Types ──
@@ -136,6 +427,7 @@ export interface WorldState {
   tick: number;
   status: string;
   locations: { name: string; description: string }[];
+  items?: WorldItemData[];
   rules: string[];
   agents: Record<string, AgentData>;
   recent_events: EventData[];
@@ -150,6 +442,14 @@ export interface SeedInfo {
   description: string;
   agent_count: number;
   location_count: number;
+}
+
+export interface WorldItemData {
+  name: string;
+  description: string;
+  origin: string;
+  properties: string[];
+  significance: string;
 }
 
 // ── Model listing (direct to LLM provider) ──
@@ -191,6 +491,25 @@ export interface SeedDetail {
   description: string;
   rules: string[];
   locations: { name: string; description: string }[];
+  items: WorldItemData[];
+  agents: {
+    id: string;
+    name: string;
+    description: string;
+    personality: string;
+    goals: string[];
+    inventory: string[];
+    location: string;
+  }[];
+  initial_events: string[];
+}
+
+export interface WorldSeedPayload {
+  name: string;
+  description: string;
+  rules: string[];
+  locations: { name: string; description: string }[];
+  items: WorldItemData[];
   agents: {
     id: string;
     name: string;
@@ -204,39 +523,54 @@ export interface SeedDetail {
 }
 
 export async function fetchSeedDetail(filename: string): Promise<SeedDetail> {
-  const res = await fetchWithTimeout(`${API_BASE}/api/seeds/${filename}`);
+  const res = await fetchWithTimeout(`${API_BASE}/api/seeds/${encodeURIComponent(filename)}`);
   assertOk(res);
   return res.json();
 }
 
-export async function createFromSeed(filename: string): Promise<{ session_id: string }> {
-  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/from-seed/${filename}`, {
+export async function createFromSeed(filename: string): Promise<{ session_id: string; seed_file?: string }> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/from-seed/${encodeURIComponent(filename)}`, {
     method: "POST",
   });
   assertOk(res);
   return res.json();
 }
 
-export async function createWorld(data: {
-  name: string;
-  description: string;
-  rules: string[];
-  locations: { name: string; description: string }[];
-  agents: {
-    id: string;
-    name: string;
-    description: string;
-    personality: string;
-    goals: string[];
-    inventory: string[];
-    location: string;
-  }[];
-  initial_events: string[];
-}): Promise<{ session_id: string }> {
+export async function deleteWorldSeed(filename: string): Promise<void> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/seeds/${encodeURIComponent(filename)}`, {
+    method: "DELETE",
+  });
+  assertOk(res);
+}
+
+export async function createWorld(data: WorldSeedPayload): Promise<{ session_id: string; seed_file?: string }> {
   const res = await fetchWithTimeout(`${API_BASE}/api/worlds`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
+  });
+  assertOk(res);
+  return res.json();
+}
+
+export async function updateWorldSeed(filename: string, data: WorldSeedPayload): Promise<SeedInfo> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/seeds/${encodeURIComponent(filename)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  assertOk(res);
+  return res.json();
+}
+
+export async function createOracleDraftSession(): Promise<{
+  session_id: string;
+  name: string;
+  tick: number;
+  status: string;
+}> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/oracle/draft`, {
+    method: "POST",
   });
   assertOk(res);
   return res.json();
@@ -337,7 +671,7 @@ export async function chatWithAgent(
   sessionId: string,
   agentId: string,
   message: string,
-  opts: { model?: string; api_key?: string; api_base?: string } = {}
+  opts: { model?: string; api_key?: string; api_base?: string; language?: string } = {}
 ): Promise<{ agent_id: string; agent_name: string; reply: string }> {
   const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/chat`, {
     method: "POST",
@@ -348,6 +682,7 @@ export async function chatWithAgent(
       model: opts.model ?? null,
       api_key: opts.api_key ?? null,
       api_base: opts.api_base ?? null,
+      language: opts.language ?? null,
     }),
     timeout: LONG_TIMEOUT,
   });
@@ -359,19 +694,32 @@ export async function enrichEntity(
   sessionId: string,
   entityType: "agent" | "item" | "location",
   entityId: string,
+  opts: { language?: string } = {},
 ): Promise<Record<string, unknown>> {
+  const settings = loadSettings();
   const res = await fetchWithTimeout(
     `${API_BASE}/api/worlds/${sessionId}/enrich`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entity_type: entityType, entity_id: entityId }),
+      body: JSON.stringify({
+        entity_type: entityType,
+        entity_id: entityId,
+        language: opts.language ?? null,
+        model: settings.model.trim() || null,
+        api_key: settings.apiKey.trim() || null,
+        api_base: settings.apiBase.trim() || null,
+      }),
       timeout: LONG_TIMEOUT,
     },
   );
   assertOk(res);
   const data = await res.json();
-  return data.details || data;
+  const details = data.details || data;
+  if (!details || Object.keys(details).length === 0) {
+    throw new Error("Empty entity details");
+  }
+  return details;
 }
 
 export async function getEntityDetails(
@@ -391,6 +739,26 @@ export async function getEntityDetails(
   }
 }
 
+export async function saveEntityDetails(
+  sessionId: string,
+  entityType: "agent" | "item" | "location",
+  entityId: string,
+  details: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/entity-details`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      entity_type: entityType,
+      entity_id: entityId,
+      details,
+    }),
+  });
+  assertOk(res);
+  const data = await res.json();
+  return data.details || details;
+}
+
 // ── Oracle (Omniscient Narrator) ──
 
 export interface OracleMessage {
@@ -404,7 +772,7 @@ export interface OracleMessage {
 export async function chatWithOracle(
   sessionId: string,
   message: string,
-  opts: { model?: string; api_key?: string; api_base?: string; signal?: AbortSignal; mode?: string } = {},
+  opts: { model?: string; api_key?: string; api_base?: string; signal?: AbortSignal; mode?: string; language?: string } = {},
 ): Promise<{ reply: string; message_id: string; mode?: string; seed?: Record<string, unknown> }> {
   const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/oracle`, {
     method: "POST",
@@ -415,11 +783,21 @@ export async function chatWithOracle(
       model: opts.model ?? null,
       api_key: opts.api_key ?? null,
       api_base: opts.api_base ?? null,
+      language: opts.language ?? null,
     }),
     timeout: LONG_TIMEOUT,
     signal: opts.signal,
   });
-  assertOk(res);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const data = await res.json();
+      if (typeof data?.detail === "string") detail = data.detail;
+    } catch {
+      // Ignore parse failures and fall back to generic status text.
+    }
+    throw new Error(detail || `${res.status} ${res.statusText}`);
+  }
   return res.json();
 }
 
@@ -444,6 +822,12 @@ export interface HumanWaitingContext {
   inventory: string[];
   visible_agents: { id: string; name: string; location: string }[];
   reachable_locations: string[];
+}
+
+export interface HumanStatus {
+  controlled_agents: string[];
+  waiting_agents: string[];
+  waiting_contexts: Record<string, HumanWaitingContext>;
 }
 
 export async function takeControl(sessionId: string, agentId: string): Promise<void> {
@@ -485,6 +869,24 @@ export async function submitHumanAction(
   assertOk(res);
 }
 
+export async function getHumanStatus(sessionId: string): Promise<HumanStatus> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/human-status`);
+  assertOk(res);
+  const data = await res.json();
+  return {
+    controlled_agents: Array.isArray(data?.controlled_agents)
+      ? data.controlled_agents.filter((agentId: unknown): agentId is string => typeof agentId === "string")
+      : [],
+    waiting_agents: Array.isArray(data?.waiting_agents)
+      ? data.waiting_agents.filter((agentId: unknown): agentId is string => typeof agentId === "string")
+      : [],
+    waiting_contexts:
+      data?.waiting_contexts && typeof data.waiting_contexts === "object"
+        ? (data.waiting_contexts as Record<string, HumanWaitingContext>)
+        : {},
+  };
+}
+
 export function createWebSocket(sessionId: string): WebSocket {
   const wsBase = API_BASE.replace(/^http/, "ws");
   return new WebSocket(`${wsBase}/ws/${sessionId}`);
@@ -503,6 +905,8 @@ export interface SavedSeedData {
   data: Record<string, unknown>;
   source_world: string;
   created_at: string;
+  virtual?: boolean;
+  context_session_id?: string;
 }
 
 export async function fetchAssets(type?: SeedTypeValue): Promise<SavedSeedData[]> {
@@ -514,16 +918,28 @@ export async function fetchAssets(type?: SeedTypeValue): Promise<SavedSeedData[]
   return res.json();
 }
 
-export async function saveAsset(data: {
+export interface AssetPayload {
   type: SeedTypeValue;
   name: string;
   description?: string;
   tags?: string[];
   data?: Record<string, unknown>;
   source_world?: string;
-}): Promise<{ id: string; name: string; type: string }> {
+}
+
+export async function saveAsset(data: AssetPayload): Promise<{ id: string; name: string; type: string }> {
   const res = await fetchWithTimeout(`${API_BASE}/api/assets`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  assertOk(res);
+  return res.json();
+}
+
+export async function updateAsset(id: string, data: Partial<AssetPayload>): Promise<SavedSeedData> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/assets/${id}`, {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
@@ -541,10 +957,17 @@ export async function generateSeed(
   sessionId: string,
   targetId: string = ""
 ): Promise<SavedSeedData> {
+  const settings = loadSettings();
   const res = await fetchWithTimeout(`${API_BASE}/api/assets/extract/${seedType}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId, target_id: targetId }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      target_id: targetId,
+      model: settings.model.trim() || null,
+      api_key: settings.apiKey.trim() || null,
+      api_base: settings.apiBase.trim() || null,
+    }),
     timeout: LONG_TIMEOUT,
   });
   assertOk(res);

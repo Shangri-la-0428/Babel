@@ -324,7 +324,7 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
                 onClick={() => onSelect(expandedBranch.id)}
                 className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform]"
               >
-                {expandedBranch.status !== "ended" ? t("resume") : t("world_review")} &rarr;
+                {t("resume")} &rarr;
               </button>
               <button
                 type="button"

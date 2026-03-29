@@ -136,6 +136,15 @@ async def test_create_world_returns_session_id(client):
 
 
 @pytest.mark.asyncio
+async def test_create_world_saved_seed_appears_in_seed_list(client):
+    await _create_world(client)
+    resp = await client.get("/api/seeds")
+    assert resp.status_code == 200
+    seeds = resp.json()
+    assert any(seed["name"] == "Test World" and str(seed["file"]).startswith("saved:") for seed in seeds)
+
+
+@pytest.mark.asyncio
 async def test_create_world_empty_agents_returns_400(client):
     bad_seed = {**MINIMAL_SEED, "agents": []}
     resp = await client.post("/api/worlds", json=bad_seed)
@@ -224,8 +233,136 @@ async def test_get_events_empty_initially(client):
     sid = await _create_world(client)
     resp = await client.get(f"/api/worlds/{sid}/events")
     assert resp.status_code == 200
-    # create_world (not from-seed) does not record initial events, so expect empty
-    assert isinstance(resp.json(), list)
+    events = resp.json()
+    assert isinstance(events, list)
+    assert len(events) >= 1
+    assert events[0]["result"] == "[WORLD] The sun rises over the town"
+
+
+@pytest.mark.asyncio
+async def test_saved_world_seed_detail_and_create_from_seed(client):
+    await _create_world(client)
+    seeds_resp = await client.get("/api/seeds")
+    saved_seed = next(seed for seed in seeds_resp.json() if seed["name"] == "Test World" and str(seed["file"]).startswith("saved:"))
+
+    detail_resp = await client.get(f"/api/seeds/{saved_seed['file']}")
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["initial_events"] == ["The sun rises over the town"]
+
+    create_resp = await client.post(f"/api/worlds/from-seed/{saved_seed['file']}")
+    assert create_resp.status_code == 200
+    new_sid = create_resp.json()["session_id"]
+
+    events_resp = await client.get(f"/api/worlds/{new_sid}/events")
+    assert events_resp.status_code == 200
+    assert len(events_resp.json()) >= 1
+
+
+@pytest.mark.asyncio
+async def test_world_items_roundtrip_through_seed_and_state(client):
+    seed_with_items = {
+        **MINIMAL_SEED,
+        "items": [
+            {
+                "name": "Command Terminal",
+                "description": "An old field command terminal.",
+                "origin": "Recovered from a wrecked shuttle",
+                "properties": ["portable", "encrypted"],
+                "significance": "It contains the last evacuation orders.",
+            }
+        ],
+    }
+
+    create_resp = await client.post("/api/worlds", json=seed_with_items)
+    assert create_resp.status_code == 200
+    payload = create_resp.json()
+    seed_file = payload["seed_file"]
+    session_id = payload["session_id"]
+
+    detail_resp = await client.get(f"/api/seeds/{seed_file}")
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["items"] == seed_with_items["items"]
+
+    state_resp = await client.get(f"/api/worlds/{session_id}/state")
+    assert state_resp.status_code == 200
+    state = state_resp.json()
+    assert state["items"] == seed_with_items["items"]
+
+
+@pytest.mark.asyncio
+async def test_patch_saved_world_seed_updates_items_in_place(client):
+    create_resp = await client.post("/api/worlds", json=MINIMAL_SEED)
+    assert create_resp.status_code == 200
+    seed_file = create_resp.json()["seed_file"]
+
+    updated_seed = {
+        **MINIMAL_SEED,
+        "name": "Test World Revised",
+        "items": [
+            {
+                "name": "Rhodes Badge",
+                "description": "A worn operator badge",
+                "origin": "Issued after the last mission",
+                "properties": ["metal", "inscribed"],
+                "significance": "Marks surviving members of the squad",
+            }
+        ],
+    }
+    patch_resp = await client.patch(f"/api/seeds/{seed_file}", json=updated_seed)
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["name"] == "Test World Revised"
+
+    detail_resp = await client.get(f"/api/seeds/{seed_file}")
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["name"] == "Test World Revised"
+    assert detail["items"] == updated_seed["items"]
+
+
+@pytest.mark.asyncio
+async def test_patch_asset_updates_seed_data(client):
+    create_resp = await client.post(
+        "/api/assets",
+        json={
+            "type": "item",
+            "name": "Neon Blade",
+            "description": "Old description",
+            "tags": ["weapon"],
+            "data": {
+                "name": "Neon Blade",
+                "description": "Old description",
+                "properties": ["glowing"],
+            },
+            "source_world": "test-session-001",
+        },
+    )
+    assert create_resp.status_code == 200
+    seed_id = create_resp.json()["id"]
+
+    patch_resp = await client.patch(
+        f"/api/assets/{seed_id}",
+        json={
+            "name": "Neon Blade Mk II",
+            "description": "Updated description",
+            "tags": ["weapon", "prototype"],
+            "data": {
+                "name": "Neon Blade",
+                "description": "Updated description",
+                "origin": "Recovered from the vault",
+                "properties": ["glowing", "charged"],
+                "significance": "A symbol of the old regime",
+            },
+        },
+    )
+    assert patch_resp.status_code == 200
+    updated = patch_resp.json()
+    assert updated["id"] == seed_id
+    assert updated["name"] == "Neon Blade Mk II"
+    assert updated["description"] == "Updated description"
+    assert updated["tags"] == ["weapon", "prototype"]
+    assert updated["data"]["name"] == "Neon Blade"
+    assert updated["data"]["origin"] == "Recovered from the vault"
 
 
 @pytest.mark.asyncio
@@ -322,6 +459,62 @@ async def test_inject_event_appears_in_events(mock_detect, client):
 
 
 @pytest.mark.asyncio
+@patch("babel.api.detect_new_character", new_callable=AsyncMock, return_value=None)
+async def test_minor_event_is_not_auto_saved_as_asset(mock_detect, client):
+    sid = await _create_world(client)
+    await client.post(
+        f"/api/worlds/{sid}/inject",
+        json={"content": "A glass falls off the tavern counter."},
+    )
+    resp = await client.get("/api/assets?type=event")
+    assert resp.status_code == 200
+    event_assets = resp.json()
+    assert all(asset["data"].get("content") != "A glass falls off the tavern counter." for asset in event_assets)
+
+
+@pytest.mark.asyncio
+async def test_major_initial_event_is_auto_saved_as_asset(client):
+    sid = await _create_world(
+        client,
+        {
+            **MINIMAL_SEED,
+            "initial_events": ["A massive earthquake tears through the entire city."],
+        },
+    )
+    assert sid
+    resp = await client.get("/api/assets?type=event")
+    assert resp.status_code == 200
+    event_assets = resp.json()
+    match = next(
+        (asset for asset in event_assets if asset["data"].get("content") == "A massive earthquake tears through the entire city."),
+        None,
+    )
+    assert match is not None
+    assert "major" in match["tags"]
+    assert "auto" in match["tags"]
+
+
+@pytest.mark.asyncio
+@patch("babel.api.detect_new_character", new_callable=AsyncMock, return_value=None)
+async def test_major_injected_event_is_auto_saved_as_asset(mock_detect, client):
+    sid = await _create_world(client)
+    await client.post(
+        f"/api/worlds/{sid}/inject",
+        json={"content": "外星人入侵整座城市，所有人开始紧急撤离。"},
+    )
+    resp = await client.get("/api/assets?type=event")
+    assert resp.status_code == 200
+    event_assets = resp.json()
+    match = next(
+        (asset for asset in event_assets if asset["data"].get("content") == "外星人入侵整座城市，所有人开始紧急撤离。"),
+        None,
+    )
+    assert match is not None
+    assert "major" in match["tags"]
+    assert "auto" in match["tags"]
+
+
+@pytest.mark.asyncio
 async def test_inject_event_nonexistent_returns_404(client):
     resp = await client.post(
         "/api/worlds/nonexistent/inject",
@@ -356,6 +549,155 @@ async def test_add_agent_to_existing_world(client):
     # Verify agent shows up in world state
     state = await client.get(f"/api/worlds/{sid}/state")
     assert "charlie" in state.json()["agents"]
+
+
+@pytest.mark.asyncio
+@patch("babel.api.chat_with_agent", new_callable=AsyncMock, return_value="当然。")
+async def test_chat_endpoint_passes_language(mock_chat, client):
+    sid = await _create_world(client)
+    resp = await client.post(
+        f"/api/worlds/{sid}/chat",
+        json={"agent_id": "alice", "message": "请用中文回答", "language": "cn"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["reply"] == "当然。"
+    assert mock_chat.await_args.kwargs["preferred_language"] == "cn"
+
+
+@pytest.mark.asyncio
+@patch("babel.api.enrich_entity", new_callable=AsyncMock, return_value={"description": "一把旧手枪。"})
+async def test_enrich_endpoint_passes_language(mock_enrich, client):
+    sid = await _create_world(client)
+    resp = await client.post(
+        f"/api/worlds/{sid}/enrich",
+        json={
+            "entity_type": "item",
+            "entity_id": "map",
+            "language": "cn",
+            "model": "gpt-4o-mini",
+            "api_key": "sk-test",
+            "api_base": "https://api.openai.com/v1",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["details"]["description"] == "一把旧手枪。"
+    assert mock_enrich.await_args.kwargs["preferred_language"] == "cn"
+
+
+@pytest.mark.asyncio
+@patch(
+    "babel.api.enrich_entity",
+    new_callable=AsyncMock,
+    return_value={"description": "一张磨损的地图。", "properties": ["折痕", "手写标记"]},
+)
+async def test_enrich_endpoint_uses_request_llm_config_for_restored_session(mock_enrich, client):
+    sid = await _create_world(client)
+    from babel.api import _engines
+
+    _engines.clear()
+    resp = await client.post(
+        f"/api/worlds/{sid}/enrich",
+        json={
+            "entity_type": "item",
+            "entity_id": "map",
+            "language": "cn",
+            "model": "grok-2",
+            "api_key": "xai-test-key",
+            "api_base": "https://api.x.ai/v1",
+        },
+    )
+    assert resp.status_code == 200
+    kwargs = mock_enrich.await_args.kwargs
+    assert kwargs["preferred_language"] == "cn"
+    assert kwargs["model"] == "grok-2"
+    assert kwargs["api_key"] == "xai-test-key"
+    assert kwargs["api_base"] == "https://api.x.ai/v1"
+
+
+@pytest.mark.asyncio
+async def test_enrich_endpoint_without_llm_config_returns_400_for_restored_session(client):
+    sid = await _create_world(client)
+    from babel.api import _engines
+
+    _engines.clear()
+    resp = await client.post(
+        f"/api/worlds/{sid}/enrich",
+        json={"entity_type": "item", "entity_id": "map"},
+    )
+    assert resp.status_code == 400
+    assert "LLM settings missing" in resp.text
+
+
+@pytest.mark.asyncio
+@patch("babel.api.enrich_entity", new_callable=AsyncMock, return_value={})
+async def test_enrich_endpoint_empty_response_returns_502(mock_enrich, client):
+    sid = await _create_world(client)
+    resp = await client.post(
+        f"/api/worlds/{sid}/enrich",
+        json={
+            "entity_type": "item",
+            "entity_id": "map",
+            "model": "gpt-4o-mini",
+            "api_key": "sk-test",
+            "api_base": "https://api.openai.com/v1",
+        },
+    )
+    assert resp.status_code == 502
+    assert mock_enrich.await_count == 1
+
+
+@pytest.mark.asyncio
+@patch(
+    "babel.api.enrich_entity",
+    new_callable=AsyncMock,
+    return_value={
+        "description": "一张磨损的地图。",
+        "origin": "从旧港口流出的走私品。",
+        "properties": ["防水包边"],
+        "significance": "标注着被遗忘的入口。",
+    },
+)
+async def test_extract_item_seed_uses_request_llm_config_for_restored_session(mock_enrich, client):
+    sid = await _create_world(client)
+    from babel.api import _engines
+
+    _engines.clear()
+    resp = await client.post(
+        "/api/assets/extract/item",
+        json={
+            "session_id": sid,
+            "target_id": "map",
+            "model": "gpt-4o-mini",
+            "api_key": "sk-test",
+            "api_base": "https://api.openai.com/v1",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "map"
+    assert data["description"] == "一张磨损的地图。"
+    kwargs = mock_enrich.await_args.kwargs
+    assert kwargs["model"] == "gpt-4o-mini"
+    assert kwargs["api_key"] == "sk-test"
+    assert kwargs["api_base"] == "https://api.openai.com/v1"
+
+
+@pytest.mark.asyncio
+@patch("babel.api.enrich_entity", new_callable=AsyncMock, return_value={})
+async def test_extract_item_seed_empty_response_returns_502(mock_enrich, client):
+    sid = await _create_world(client)
+    resp = await client.post(
+        "/api/assets/extract/item",
+        json={
+            "session_id": sid,
+            "target_id": "map",
+            "model": "gpt-4o-mini",
+            "api_key": "sk-test",
+            "api_base": "https://api.openai.com/v1",
+        },
+    )
+    assert resp.status_code == 502
+    assert mock_enrich.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -444,6 +786,68 @@ async def test_list_seed_files(client):
 
 
 @pytest.mark.asyncio
+async def test_delete_yaml_seed_hides_it_from_world_library(client):
+    resp = await client.delete("/api/seeds/cyber_bar.yaml")
+    assert resp.status_code == 200
+
+    seeds_resp = await client.get("/api/seeds")
+    assert seeds_resp.status_code == 200
+    filenames = [s["file"] for s in seeds_resp.json()]
+    assert "cyber_bar.yaml" not in filenames
+
+    detail_resp = await client.get("/api/seeds/cyber_bar.yaml")
+    assert detail_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_saved_world_seed_from_world_library(client):
+    await _create_world(client)
+    seeds_resp = await client.get("/api/seeds")
+    saved_seed = next(seed for seed in seeds_resp.json() if str(seed["file"]).startswith("saved:"))
+
+    delete_resp = await client.delete(f"/api/seeds/{saved_seed['file']}")
+    assert delete_resp.status_code == 200
+
+    refreshed_resp = await client.get("/api/seeds")
+    filenames = [s["file"] for s in refreshed_resp.json()]
+    assert saved_seed["file"] not in filenames
+
+
+@pytest.mark.asyncio
+async def test_delete_saved_world_seed_removes_linked_assets(client):
+    create_resp = await client.post("/api/worlds", json=MINIMAL_SEED)
+    assert create_resp.status_code == 200
+    session_id = create_resp.json()["session_id"]
+
+    seeds_resp = await client.get("/api/seeds")
+    saved_seed = next(seed for seed in seeds_resp.json() if str(seed["file"]).startswith("saved:"))
+
+    second_session_resp = await client.post(f"/api/worlds/from-seed/{saved_seed['file']}")
+    assert second_session_resp.status_code == 200
+    second_session_id = second_session_resp.json()["session_id"]
+
+    for asset in [
+        {"type": "item", "name": "World Scoped Item", "data": {"name": "World Scoped Item"}, "source_world": MINIMAL_SEED["name"]},
+        {"type": "item", "name": "Session Scoped Item", "data": {"name": "Session Scoped Item"}, "source_world": session_id},
+        {"type": "item", "name": "Branch Scoped Item", "data": {"name": "Branch Scoped Item"}, "source_world": second_session_id},
+        {"type": "item", "name": "Unrelated Item", "data": {"name": "Unrelated Item"}, "source_world": "Other World"},
+    ]:
+        resp = await client.post("/api/assets", json=asset)
+        assert resp.status_code == 200
+
+    delete_resp = await client.delete(f"/api/seeds/{saved_seed['file']}")
+    assert delete_resp.status_code == 200
+
+    assets_resp = await client.get("/api/assets")
+    assert assets_resp.status_code == 200
+    asset_names = {asset["name"] for asset in assets_resp.json()}
+    assert "World Scoped Item" not in asset_names
+    assert "Session Scoped Item" not in asset_names
+    assert "Branch Scoped Item" not in asset_names
+    assert "Unrelated Item" in asset_names
+
+
+@pytest.mark.asyncio
 async def test_save_asset(client):
     asset = {
         "type": "agent",
@@ -501,6 +905,74 @@ async def test_delete_asset(client):
 async def test_delete_nonexistent_asset_returns_404(client):
     resp = await client.delete("/api/assets/nonexistent_seed_id")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_session_removes_session_scoped_assets(client):
+    sid = await _create_world(client)
+
+    linked_resp = await client.post("/api/assets", json={
+        "type": "event",
+        "name": "Session Event",
+        "data": {"content": "Session Event"},
+        "source_world": sid,
+    })
+    assert linked_resp.status_code == 200
+
+    unrelated_resp = await client.post("/api/assets", json={
+        "type": "event",
+        "name": "Other Event",
+        "data": {"content": "Other Event"},
+        "source_world": "other-session",
+    })
+    assert unrelated_resp.status_code == 200
+
+    delete_resp = await client.delete(f"/api/sessions/{sid}")
+    assert delete_resp.status_code == 200
+
+    assets_resp = await client.get("/api/assets")
+    assert assets_resp.status_code == 200
+    asset_names = {asset["name"] for asset in assets_resp.json()}
+    assert "Session Event" not in asset_names
+    assert "Other Event" in asset_names
+
+
+@pytest.mark.asyncio
+async def test_asset_list_hides_stale_assets_from_deleted_world_sessions(client):
+    create_resp = await client.post("/api/worlds", json=MINIMAL_SEED)
+    assert create_resp.status_code == 200
+    session_id = create_resp.json()["session_id"]
+
+    seeds_resp = await client.get("/api/seeds")
+    saved_seed = next(seed for seed in seeds_resp.json() if str(seed["file"]).startswith("saved:"))
+    delete_resp = await client.delete(f"/api/seeds/{saved_seed['file']}")
+    assert delete_resp.status_code == 200
+
+    stale_asset_resp = await client.post("/api/assets", json={
+        "type": "item",
+        "name": "Stale Session Item",
+        "data": {"name": "Stale Session Item"},
+        "source_world": session_id,
+    })
+    assert stale_asset_resp.status_code == 200
+    stale_asset_id = stale_asset_resp.json()["id"]
+
+    healthy_asset_resp = await client.post("/api/assets", json={
+        "type": "item",
+        "name": "Healthy Item",
+        "data": {"name": "Healthy Item"},
+        "source_world": "External Import",
+    })
+    assert healthy_asset_resp.status_code == 200
+
+    assets_resp = await client.get("/api/assets")
+    assert assets_resp.status_code == 200
+    asset_names = {asset["name"] for asset in assets_resp.json()}
+    assert "Stale Session Item" not in asset_names
+    assert "Healthy Item" in asset_names
+
+    stale_detail_resp = await client.get(f"/api/assets/{stale_asset_id}")
+    assert stale_detail_resp.status_code == 404
 
 
 # ===================================================================

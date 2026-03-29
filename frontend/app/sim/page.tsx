@@ -14,6 +14,7 @@ import {
   SavedSeedData,
   HumanWaitingContext,
   getState,
+  getHumanStatus,
   runWorld,
   pauseWorld,
   stepWorld,
@@ -27,6 +28,7 @@ import {
 import { useLocale } from "@/lib/locale-context";
 import EventFeed from "@/components/EventFeed";
 import AssetPanel from "@/components/AssetPanel";
+import { buildAssetsHref, buildSimHref, buildWorldHref } from "@/lib/navigation";
 import ControlBar from "@/components/ControlBar";
 import Settings from "@/components/Settings";
 import InjectEvent from "@/components/InjectEvent";
@@ -39,13 +41,14 @@ const WorldShader = dynamic(() => import("@/components/WorldShader"), { ssr: fal
 const SeedPreview = lazy(() => import("@/components/SeedPreview"));
 const AgentChat = lazy(() => import("@/components/AgentChat"));
 const OracleDrawer = lazy(() => import("@/components/OracleDrawer"));
-const ActionPicker = lazy(() => import("@/components/ActionPicker"));
 
 const MAX_EVENTS = 500;
 
 function SimContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("id") || "";
+  const seedFile = searchParams.get("seed") || "";
+  const worldHref = buildWorldHref(seedFile || null);
 
   const [state, setState] = useState<WorldState | null>(null);
   const [events, setEvents] = useState<EventData[]>([]);
@@ -64,7 +67,7 @@ function SimContent() {
   const [oracleEverOpened, setOracleEverOpened] = useState(false);
   const [controlledAgents, setControlledAgents] = useState<Set<string>>(new Set());
   const [radarCollapsed, setRadarCollapsed] = useState(false);
-  const [waitingAgent, setWaitingAgent] = useState<{ id: string; context: HumanWaitingContext } | null>(null);
+  const [waitingAgents, setWaitingAgents] = useState<Record<string, HumanWaitingContext>>({});
   const { locale, toggle, t } = useLocale();
   const tRef = useRef(t);
   tRef.current = t;
@@ -78,6 +81,14 @@ function SimContent() {
   const { isNight, shaderEnergy, shaderRipple, tension } = useAtmosphere(state, status, events.length);
   const { showWorldBoot, showWorldEnded } = useWorldTransitions(status);
   const replay = useReplay(sessionId, tick);
+  const assetsHref = buildAssetsHref({
+    sessionId,
+    worldName: state?.name,
+    seedFile: seedFile || undefined,
+    backHref: sessionId
+      ? buildSimHref({ sessionId, seedFile: seedFile || undefined })
+      : "/",
+  });
 
   // Load initial state
   useEffect(() => {
@@ -92,6 +103,13 @@ function SimContent() {
         setStatus(s.status || "paused");
       })
       .catch(() => { if (mounted) setError(tRef.current("failed_load_state")); });
+    getHumanStatus(sessionId)
+      .then((humanStatus) => {
+        if (!mounted) return;
+        setControlledAgents(new Set(humanStatus.controlled_agents || []));
+        setWaitingAgents(humanStatus.waiting_contexts || {});
+      })
+      .catch(() => { /* human control hydration is best-effort */ });
     return () => { mounted = false; };
   }, [sessionId]);
 
@@ -187,16 +205,16 @@ function SimContent() {
             break;
 
           case "waiting_for_human":
-            setWaitingAgent({
-              id: data.data.agent_id,
-              context: {
+            setWaitingAgents((prev) => ({
+              ...prev,
+              [data.data.agent_id]: {
                 agent_name: data.data.agent_name,
                 location: data.data.location,
                 inventory: data.data.inventory || [],
                 visible_agents: data.data.visible_agents || [],
                 reachable_locations: data.data.reachable_locations || [],
               },
-            });
+            }));
             break;
 
           case "human_control":
@@ -209,6 +227,13 @@ function SimContent() {
               }
               return next;
             });
+            if (!data.data.controlled) {
+              setWaitingAgents((prev) => {
+                const next = { ...prev };
+                delete next[data.data.agent_id];
+                return next;
+              });
+            }
             break;
 
           case "error":
@@ -385,27 +410,35 @@ function SimContent() {
         next.delete(agentId);
         return next;
       });
-      if (waitingAgent?.id === agentId) setWaitingAgent(null);
+      setWaitingAgents((prev) => {
+        const next = { ...prev };
+        delete next[agentId];
+        return next;
+      });
     } catch {
       setError(t("control_failed"));
     }
-  }, [sessionId, waitingAgent, t]);
+  }, [sessionId, t]);
 
-  const handleSubmitHumanAction = useCallback(async (actionType: string, target: string, content: string) => {
-    if (!sessionId || !waitingAgent) return;
+  const handleSubmitHumanAction = useCallback(async (
+    agentId: string,
+    actionType: string,
+    target: string,
+    content: string,
+  ) => {
+    if (!sessionId) return;
     try {
-      await submitHumanAction(sessionId, waitingAgent.id, actionType, target, content);
-      setWaitingAgent(null);
+      await submitHumanAction(sessionId, agentId, actionType, target, content);
+      setWaitingAgents((prev) => {
+        const next = { ...prev };
+        delete next[agentId];
+        return next;
+      });
     } catch {
       setError(t("human_action_failed"));
+      throw new Error("human_action_failed");
     }
-  }, [sessionId, waitingAgent, t]);
-
-  const handleCancelWaiting = useCallback(() => {
-    // Don't dismiss — the agent is still waiting. User can release control instead.
-    // But we can hide the picker temporarily.
-    setWaitingAgent(null);
-  }, []);
+  }, [sessionId, t]);
 
   // Derived display values: replay overlays live state
   const displayState = replay.isReplay ? (replay.replayState ?? state) : state;
@@ -444,7 +477,7 @@ function SimContent() {
       <div className="min-h-screen flex flex-col items-center justify-center gap-3">
         <div className="text-micro text-t-dim tracking-widest">{"// ERROR"}</div>
         <div className="text-detail text-t-muted normal-case tracking-normal">{t("no_session")}</div>
-        <a href="/" className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center">
+        <a href={worldHref} className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform] inline-flex items-center">
           {t("go_home")}
         </a>
       </div>
@@ -513,7 +546,7 @@ function SimContent() {
       <h1 className="sr-only">{t("simulate")}</h1>
       <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
         <div className="flex items-center gap-4 min-w-0">
-          <a href="/" className="text-micro text-t-muted tracking-wider hover:text-primary transition-colors shrink-0">
+          <a href={worldHref} className="text-micro text-t-muted tracking-wider hover:text-primary transition-colors shrink-0">
             {t("back")}
           </a>
           <span className="text-t-dim shrink-0">|</span>
@@ -530,7 +563,7 @@ function SimContent() {
           )}
         </div>
         <div className="flex items-center gap-6">
-          <a href="/assets" className="text-micro text-t-muted tracking-widest hover:text-t-DEFAULT transition-colors">
+          <a href={assetsHref} className="text-micro text-t-muted tracking-widest hover:text-t-DEFAULT transition-colors">
             {t("assets")}
           </a>
           <button
@@ -657,12 +690,15 @@ function SimContent() {
           state={displayState}
           activeAgentId={activeAgentId}
           sessionId={sessionId}
+          seedFile={seedFile || undefined}
           onChat={handleOpenChat}
           onExtractAgent={handleGenerateAgentSeed}
           onExtractWorld={handleGenerateWorldSeed}
           controlledAgents={controlledAgents}
+          waitingAgents={waitingAgents}
           onTakeControl={handleTakeControl}
           onReleaseControl={handleReleaseControl}
+          onSubmitHumanAction={handleSubmitHumanAction}
         />
       </main>
 
@@ -698,17 +734,6 @@ function SimContent() {
             agentName={chatAgent.name}
             settings={settings}
             onClose={handleCloseChat}
-          />
-        </Suspense>
-      )}
-
-      {/* Human Action Picker (lazy) */}
-      {waitingAgent && (
-        <Suspense fallback={null}>
-          <ActionPicker
-            context={waitingAgent.context}
-            onSubmit={handleSubmitHumanAction}
-            onCancel={handleCancelWaiting}
           />
         </Suspense>
       )}

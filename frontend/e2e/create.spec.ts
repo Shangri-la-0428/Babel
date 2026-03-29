@@ -6,9 +6,9 @@ import { test, expect } from "@playwright/test";
  *
  * Create page structure:
  * - Nav with active "create"
- * - Form: world name, description, rules (textarea), locations (textarea),
- *         initial_events (textarea), agents (repeatable section)
- * - All text fields are normal <input> or <textarea>
+ * - Form: world name, description, rules (structured list), locations (structured cards),
+ *         initial_events (structured list), agents (repeatable section)
+ * - Text fields are inputs/textareas, while list sections use structured editors
  * - Labels use i18n keys rendered via CSS uppercase
  *
  * NOTE: The create page calls fetchAssets("agent") and fetchAssets("event")
@@ -44,12 +44,13 @@ test.describe("M2: Create World", () => {
   });
 
   // TC-M2-03 (P1)
-  test("should support multi-line rules input", async ({ page }) => {
-    // Find rules textarea (the first textarea after the form labels)
-    const textareas = page.locator("textarea");
-    const rulesTextarea = textareas.first();
-    await rulesTextarea.fill("Rule 1\nRule 2\nRule 3");
-    await expect(rulesTextarea).toHaveValue("Rule 1\nRule 2\nRule 3");
+  test("should support structured rules input", async ({ page }) => {
+    const ruleDraft = page.locator("#world-rule-draft");
+    await ruleDraft.fill("Rule 1");
+    await page.getByRole("button", { name: /添加规则|Add Rule/i }).click();
+
+    const firstRule = page.locator("#world-rule-0");
+    await expect(firstRule).toHaveValue("Rule 1");
   });
 
   // TC-M2-06 (P2)
@@ -164,18 +165,26 @@ test.describe("M2: Create World", () => {
     await expect(descTextarea).toHaveValue("A vast post-apocalyptic landscape");
   });
 
-  // TC-M2-01c (P1) — Locations textarea accepts multi-line input
-  test("should support multi-line locations input", async ({ page }) => {
-    const locationsTextarea = page.locator("#world-locations");
-    await locationsTextarea.fill("Tavern: A dark corner pub\nMarket: Busy marketplace");
-    await expect(locationsTextarea).toHaveValue("Tavern: A dark corner pub\nMarket: Busy marketplace");
+  // TC-M2-01c (P1) — Locations support structured editing
+  test("should support structured locations input", async ({ page }) => {
+    const locationName = page.locator('input[id^="location-name-"]').first();
+    const locationDescription = page.locator('textarea[id^="location-desc-"]').first();
+
+    await locationName.fill("Tavern");
+    await locationDescription.fill("A dark corner pub");
+
+    await expect(locationName).toHaveValue("Tavern");
+    await expect(locationDescription).toHaveValue("A dark corner pub");
   });
 
-  // TC-M2-01d (P1) — Initial events textarea accepts multi-line input
-  test("should support multi-line initial events input", async ({ page }) => {
-    const eventsTextarea = page.locator("#world-events");
-    await eventsTextarea.fill("A stranger arrives\nThe lights go out");
-    await expect(eventsTextarea).toHaveValue("A stranger arrives\nThe lights go out");
+  // TC-M2-01d (P1) — Initial events support structured editing
+  test("should support structured initial events input", async ({ page }) => {
+    const eventDraft = page.locator("#world-event-draft");
+    await eventDraft.fill("A stranger arrives");
+    await page.getByRole("button", { name: /添加事件|Add Event/i }).click();
+
+    const firstEvent = page.locator("#world-event-0");
+    await expect(firstEvent).toHaveValue("A stranger arrives");
   });
 
   // TC-M2-01e (P1) — Back button navigates to home
@@ -192,5 +201,34 @@ test.describe("M2: Create World", () => {
     await expect(cancelLink).toBeVisible();
     await cancelLink.click();
     await expect(page).toHaveURL("/", { timeout: 10_000 });
+  });
+
+  test("should return to world detail when opened from world edit", async ({ page }) => {
+    await page.route(/localhost:8000/, (route) => {
+      const url = route.request().url();
+      if (url.includes("/api/seeds/cyber_bar.json")) {
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            file: "cyber_bar.json",
+            name: "赛博酒吧",
+            description: "A gritty cyberpunk bar",
+            rules: ["No weapons in the bar"],
+            locations: [{ name: "Bar", description: "The main counter" }],
+            agents: [{ id: "a1", name: "Kai", description: "Bartender", personality: "Gruff", goals: ["Keep the peace"], inventory: ["Rag"], location: "Bar" }],
+            initial_events: ["A stranger walks in"],
+          }),
+        });
+      } else {
+        route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+      }
+    });
+
+    await page.goto("/create?seed=cyber_bar.json&back=%2F%3Fseed%3Dcyber_bar.json", { timeout: 30_000 });
+    await expect(page.locator("#world-name")).toHaveValue("赛博酒吧");
+
+    await page.getByRole("button", { name: /返回|Back/i }).click();
+    await expect(page).toHaveURL("/?seed=cyber_bar.json", { timeout: 10_000 });
   });
 });

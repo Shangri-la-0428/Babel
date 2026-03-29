@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { chatWithAgent, BabelSettings } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import Modal from "./Modal";
+import { ExpandableInput } from "./ui";
 
 interface ChatMessage {
   id: number;
@@ -26,7 +27,7 @@ export default function AgentChat({
   settings,
   onClose,
 }: AgentChatProps) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -41,8 +42,8 @@ export default function AgentChat({
     });
   }, [messages]);
 
-  const handleSend = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSend = useCallback(async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!input.trim() || loading) return;
 
     const userMsg = input.trim();
@@ -55,6 +56,7 @@ export default function AgentChat({
         model: settings.model || undefined,
         api_key: settings.apiKey || undefined,
         api_base: settings.apiBase || undefined,
+        language: locale,
       });
       setMessages((prev) => [...prev, { id: ++msgCounter.current, role: "agent", text: res.reply || "..." }]);
     } catch {
@@ -65,7 +67,7 @@ export default function AgentChat({
     } finally {
       setLoading(false);
     }
-  }, [input, loading, sessionId, agentId, settings, t]);
+  }, [input, loading, sessionId, agentId, settings, t, locale]);
 
   return (
     <Modal onClose={onClose} ariaLabel={t("chat_with", agentName)}>
@@ -115,22 +117,27 @@ export default function AgentChat({
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSend} className="flex gap-2 p-4 border-t border-b-DEFAULT shrink-0">
-        <input
-          type="text"
+      <form onSubmit={handleSend} className="flex items-end gap-2 p-4 border-t border-b-DEFAULT shrink-0">
+        <ExpandableInput
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onValueChange={setInput}
           placeholder={t("chat_placeholder", agentName)}
           maxLength={2000}
           disabled={loading}
           autoFocus
           aria-label={t("chat_placeholder", agentName)}
           className="flex-1 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void handleSend();
+            }
+          }}
         />
         <button
           type="submit"
           disabled={loading || !input.trim()}
-          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform]"
+          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform] shrink-0"
         >
           {t("send")}
         </button>

@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useLocale } from "@/lib/locale-context";
 import type { HumanWaitingContext } from "@/lib/api";
+import { ExpandableInput } from "./ui";
 
 const EXIT_MS = 150;
 
@@ -211,14 +212,16 @@ export default function ActionPicker({ context, onSubmit, onCancel }: ActionPick
                   <label className="text-micro text-t-dim tracking-widest mb-1 block">
                     {t("action_content")}
                   </label>
-                  <input
-                    type="text"
+                  <ExpandableInput
                     value={content}
-                    onChange={(e) => setContent(e.target.value)}
+                    onValueChange={setContent}
                     placeholder="..."
                     className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && canSubmit) handleSubmit();
+                      if (e.key === "Enter" && !e.shiftKey && canSubmit) {
+                        e.preventDefault();
+                        handleSubmit();
+                      }
                     }}
                   />
                 </div>

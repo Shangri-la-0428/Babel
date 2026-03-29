@@ -62,6 +62,14 @@ class ResourceSeed(BaseModel):
     description: str = ""
 
 
+class ItemSeed(BaseModel):
+    name: str
+    description: str = ""
+    origin: str = ""
+    properties: list[str] = Field(default_factory=list)
+    significance: str = ""
+
+
 class AgentSeed(BaseModel):
     id: str
     name: str
@@ -94,6 +102,7 @@ class WorldSeed(BaseModel):
     rules: list[str] = Field(default_factory=list)
     locations: list[LocationSeed] = Field(default_factory=list)
     resources: list[ResourceSeed] = Field(default_factory=list)
+    items: list[ItemSeed] = Field(default_factory=list)
     agents: list[AgentSeed] = Field(default_factory=list)
     initial_events: list[str] = Field(default_factory=list)
     time: TimeConfig = Field(default_factory=TimeConfig)

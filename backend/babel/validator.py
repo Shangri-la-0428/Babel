@@ -304,6 +304,17 @@ def validate_seed(seed) -> list[str]:
             errors.append(f"Duplicate agent ID: '{agent.id}'")
         seen_ids.add(agent.id)
 
+    # Check duplicate item names
+    seen_items: set[str] = set()
+    for item in getattr(seed, "items", []) or []:
+        normalized = item.name.strip()
+        if not normalized:
+            errors.append("Item name cannot be empty.")
+            continue
+        if normalized in seen_items:
+            errors.append(f"Duplicate item name: '{normalized}'")
+        seen_items.add(normalized)
+
     # Check agent locations exist
     for agent in seed.agents:
         if agent.location and agent.location not in seen_locs:

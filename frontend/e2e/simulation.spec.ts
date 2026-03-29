@@ -244,6 +244,24 @@ test.describe("M4: Asset Panel", () => {
       ).toBeVisible({ timeout: 5_000 });
     }
   });
+
+  test("should open world-scoped assets and navigate back to the same simulation", async ({ page }) => {
+    await createWorld(page);
+
+    const scopedAssetsLink = page.locator('a[href*="/assets?session=test-session-001"]').first();
+    await expect(scopedAssetsLink).toBeVisible();
+    await scopedAssetsLink.click();
+
+    await expect(page).toHaveURL(/\/assets\?session=test-session-001/);
+    await expect(
+      page.getByText(/只显示当前世界里的资产|Showing assets in this world only/i).first()
+    ).toBeVisible();
+    await expect(page.getByText("陈妈").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Rag").first()).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole("link", { name: /返回世界|Back to World/i }).click();
+    await expect(page).toHaveURL(/\/sim\?id=test-session-001/);
+  });
 });
 
 test.describe("M3: Simulation — Run/Pause Toggle", () => {
@@ -637,7 +655,7 @@ test.describe("P15: Disabled Button Reasons", () => {
     await createWorld(page);
 
     const injectForm = page.locator("form[aria-label='Inject']");
-    const submitBtn = injectForm.getByRole("button");
+    const submitBtn = injectForm.locator("button[type='submit']");
     // Button should be disabled when input is empty
     await expect(submitBtn).toBeDisabled();
   });

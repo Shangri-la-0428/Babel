@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, memo, useEffect, useRef } from "react";
+import { InputHTMLAttributes, ReactNode, Ref, TextareaHTMLAttributes, memo, useEffect, useRef, useState } from "react";
 import { useLocale } from "@/lib/locale-context";
 
 // ── StatusDot ──
@@ -240,6 +240,273 @@ export function FormLabel({
     <label htmlFor={htmlFor} className={`text-micro text-t-muted tracking-widest mb-1.5 block ${className}`}>
       {children}
     </label>
+  );
+}
+
+function assignRef<T>(ref: Ref<T> | undefined, value: T | null) {
+  if (!ref) return;
+  if (typeof ref === "function") {
+    ref(value);
+    return;
+  }
+  (ref as { current: T | null }).current = value;
+}
+
+function autoResizeTextarea(el: HTMLTextAreaElement | null, maxHeight: number) {
+  if (!el) return;
+  requestAnimationFrame(() => {
+    el.style.height = "0";
+    const nextHeight = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+  });
+}
+
+export function AutoTextarea({
+  className = "",
+  value,
+  maxHeight = 400,
+  textareaRef,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  value: string;
+  maxHeight?: number;
+  textareaRef?: Ref<HTMLTextAreaElement>;
+}) {
+  const innerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    autoResizeTextarea(innerRef.current, maxHeight);
+  }, [value, maxHeight]);
+
+  return (
+    <textarea
+      {...props}
+      ref={(el) => {
+        innerRef.current = el;
+        assignRef(textareaRef, el);
+      }}
+      value={value}
+      className={className}
+      style={{ ...(props.style || {}), maxHeight }}
+      onInput={(e) => {
+        autoResizeTextarea(e.currentTarget, maxHeight);
+        props.onInput?.(e);
+      }}
+    />
+  );
+}
+
+export function ExpandableInput({
+  value,
+  onValueChange,
+  className = "",
+  expandThreshold = 36,
+  minRows = 3,
+  maxHeight = 240,
+  alwaysExpandable = true,
+  type = "text",
+  inputRef,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange"> & {
+  value: string;
+  onValueChange: (value: string) => void;
+  expandThreshold?: number;
+  minRows?: number;
+  maxHeight?: number;
+  alwaysExpandable?: boolean;
+  inputRef?: Ref<HTMLInputElement | HTMLTextAreaElement>;
+}) {
+  const { t } = useLocale();
+  const [expanded, setExpanded] = useState(false);
+  const canExpand = type === "text" || type === "search" || type === "url";
+  const showToggle = canExpand && (alwaysExpandable || expanded || value.length > expandThreshold);
+
+  if (expanded) {
+    return (
+      <div className="flex min-w-0 flex-col gap-1">
+        <AutoTextarea
+          id={props.id}
+          name={props.name}
+          textareaRef={(el) => assignRef(inputRef, el)}
+          value={value}
+          placeholder={props.placeholder}
+          disabled={props.disabled}
+          readOnly={props.readOnly}
+          aria-label={props["aria-label"]}
+          aria-describedby={props["aria-describedby"]}
+          aria-labelledby={props["aria-labelledby"]}
+          maxLength={props.maxLength}
+          rows={minRows}
+          maxHeight={maxHeight}
+          autoFocus={props.autoFocus}
+          required={props.required}
+          autoComplete={props.autoComplete}
+          spellCheck={props.spellCheck}
+          tabIndex={props.tabIndex}
+          style={props.style}
+          onBlur={props.onBlur as TextareaHTMLAttributes<HTMLTextAreaElement>["onBlur"]}
+          onFocus={props.onFocus as TextareaHTMLAttributes<HTMLTextAreaElement>["onFocus"]}
+          onKeyDown={props.onKeyDown as TextareaHTMLAttributes<HTMLTextAreaElement>["onKeyDown"]}
+          onKeyUp={props.onKeyUp as TextareaHTMLAttributes<HTMLTextAreaElement>["onKeyUp"]}
+          onClick={props.onClick as TextareaHTMLAttributes<HTMLTextAreaElement>["onClick"]}
+          className={`${className} !h-auto min-h-[72px] py-2 resize-y`}
+          onChange={(e) => onValueChange(e.target.value.replace(/\s*\n+\s*/g, " "))}
+        />
+        {showToggle && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="self-end text-micro tracking-wider text-t-dim hover:text-primary transition-colors"
+          >
+            {t("collapse")}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative min-w-0">
+      <input
+        {...props}
+        ref={(el) => assignRef(inputRef, el)}
+        type={type}
+        value={value}
+        title={value || props.placeholder || undefined}
+        className={`${className}${showToggle ? " pr-16" : ""}`}
+        onChange={(e) => onValueChange(e.target.value)}
+      />
+      {showToggle && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 px-1 text-micro tracking-wider text-t-dim hover:text-primary transition-colors bg-void"
+        >
+          {t("expand")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function StringListEditor({
+  values,
+  onChange,
+  addLabel,
+  itemPlaceholder = "",
+  addPlaceholder = "",
+  className = "",
+  inputClassName = "",
+  disabled = false,
+  maxLength = 300,
+  idBase = "list-item",
+  emptyLabel = "",
+}: {
+  values: string[];
+  onChange: (values: string[]) => void;
+  addLabel: string;
+  itemPlaceholder?: string;
+  addPlaceholder?: string;
+  className?: string;
+  inputClassName?: string;
+  disabled?: boolean;
+  maxLength?: number;
+  idBase?: string;
+  emptyLabel?: string;
+}) {
+  const { t } = useLocale();
+  const [draft, setDraft] = useState("");
+
+  function updateItem(index: number, nextValue: string) {
+    onChange(values.map((value, valueIndex) => (valueIndex === index ? nextValue : value)));
+  }
+
+  function commitItem(index: number) {
+    const nextValue = (values[index] || "").trim();
+    if (!nextValue) {
+      onChange(values.filter((_, valueIndex) => valueIndex !== index));
+      return;
+    }
+    if (nextValue !== values[index]) {
+      updateItem(index, nextValue);
+    }
+  }
+
+  function removeItem(index: number) {
+    onChange(values.filter((_, valueIndex) => valueIndex !== index));
+  }
+
+  function addItem() {
+    const nextValue = draft.trim();
+    if (!nextValue) return;
+    onChange([...values, nextValue]);
+    setDraft("");
+  }
+
+  return (
+    <div className={`flex min-w-0 flex-col gap-2 ${className}`}>
+      {values.length === 0 && emptyLabel && (
+        <div className="text-micro text-t-dim tracking-wider normal-case">{emptyLabel}</div>
+      )}
+
+      {values.map((value, index) => (
+        <div key={`${idBase}-${index}`} className="flex min-w-0 items-end gap-2">
+          <span className="shrink-0 text-micro text-t-dim tracking-wider">
+            {String(index + 1).padStart(2, "0")}
+          </span>
+          <div className="min-w-0 flex-1">
+            <ExpandableInput
+              id={`${idBase}-${index}`}
+              value={value}
+              disabled={disabled}
+              maxLength={maxLength}
+              className={`w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${inputClassName}`.trim()}
+              placeholder={itemPlaceholder}
+              onValueChange={(nextValue) => updateItem(index, nextValue)}
+              onBlur={() => commitItem(index)}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => removeItem(index)}
+            disabled={disabled}
+            className="h-9 shrink-0 px-3 text-micro tracking-wider border border-danger text-danger hover:bg-danger/10 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+          >
+            {t("remove")}
+          </button>
+        </div>
+      ))}
+
+      <div className="flex min-w-0 items-end gap-2">
+        <span className="shrink-0 text-micro text-primary tracking-wider">+</span>
+        <div className="min-w-0 flex-1">
+          <ExpandableInput
+            id={`${idBase}-draft`}
+            value={draft}
+            disabled={disabled}
+            maxLength={maxLength}
+            className={`w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${inputClassName}`.trim()}
+            placeholder={addPlaceholder || itemPlaceholder}
+            onValueChange={setDraft}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                addItem();
+              }
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={addItem}
+          disabled={disabled || !draft.trim()}
+          className="inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+        >
+          {addLabel}
+        </button>
+      </div>
+    </div>
   );
 }
 

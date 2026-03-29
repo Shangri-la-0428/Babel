@@ -19,10 +19,11 @@ from pydantic import BaseModel
 from .db import (
     init_db, save_session, save_event, load_events, load_events_filtered,
     load_event_by_id, list_sessions, load_session, delete_session,
-    save_seed, list_seeds, get_seed, delete_seed, query_memories,
+    save_seed, list_seeds, get_seed, delete_seed, delete_seeds_by_source_worlds, query_memories,
     load_timeline, list_snapshots, load_nearest_snapshot,
     save_entity_details, load_entity_details, load_all_entity_details,
-    save_narrator_message, load_narrator_messages,
+    save_narrator_message, load_narrator_messages, hide_seed_ref,
+    is_seed_ref_hidden, list_hidden_seed_refs,
 )
 from .clock import world_time
 from .engine import Engine
@@ -71,6 +72,7 @@ app.add_middleware(
 )
 
 SEEDS_DIR = Path(__file__).parent / "seeds"
+SAVED_WORLD_PREFIX = "saved:"
 
 
 @app.get("/health")
@@ -86,6 +88,7 @@ class CreateWorldRequest(BaseModel):
     rules: list[str] = []
     locations: list[dict[str, str]] = []
     resources: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     agents: list[dict[str, Any]] = []
     initial_events: list[str] = []
 
@@ -125,6 +128,7 @@ class ChatRequest(BaseModel):
     model: str | None = None
     api_key: str | None = None
     api_base: str | None = None
+    language: str | None = None
 
 
 class SaveSeedRequest(BaseModel):
@@ -136,14 +140,36 @@ class SaveSeedRequest(BaseModel):
     source_world: str = ""
 
 
+class UpdateSeedRequest(BaseModel):
+    type: str | None = None
+    name: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+    data: dict[str, Any] | None = None
+    source_world: str | None = None
+
+
 class EnrichRequest(BaseModel):
     entity_type: str  # "agent", "item", "location"
     entity_id: str    # agent_id, item name, or location name
+    language: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    api_base: str | None = None
+
+
+class SaveEntityDetailsRequest(BaseModel):
+    entity_type: str
+    entity_id: str
+    details: dict[str, Any] = {}
 
 
 class ExtractSeedRequest(BaseModel):
     session_id: str
     target_id: str = ""  # agent_id, item name, location name, or event_id
+    model: str | None = None
+    api_key: str | None = None
+    api_base: str | None = None
 
 
 class OracleChatRequest(BaseModel):
@@ -152,6 +178,246 @@ class OracleChatRequest(BaseModel):
     model: str | None = None
     api_key: str | None = None
     api_base: str | None = None
+    language: str | None = None
+
+
+ORACLE_DRAFT_WORLD_NAME = "__ORACLE_DRAFT__"
+MAJOR_EVENT_KEYWORDS = (
+    "earthquake", "meteor", "invasion", "alien", "catastrophe", "disaster",
+    "outbreak", "plague", "war", "evacuation", "collapse", "blackout",
+    "地震", "海啸", "火山", "洪水", "瘟疫", "疫情", "入侵", "外星", "战争",
+    "灾难", "天灾", "崩塌", "封锁", "撤离", "陨石", "爆炸",
+)
+GLOBAL_SCOPE_KEYWORDS = (
+    "entire", "whole", "global", "everyone", "all agents", "city", "world",
+    "ship", "fleet", "station", "基地", "全城", "全岛", "整个", "所有人",
+    "全体", "世界", "舰船", "罗德岛", "整座",
+)
+
+
+def _build_oracle_draft_seed() -> WorldSeed:
+    """Create a minimal hidden session so Oracle can assist before a world exists."""
+    return WorldSeed(
+        name=ORACLE_DRAFT_WORLD_NAME,
+        description="Temporary Oracle draft session.",
+        locations=[
+            {
+                "name": "Genesis Chamber",
+                "description": "A liminal drafting chamber used for worldbuilding.",
+            }
+        ],
+        agents=[
+            {
+                "id": "oracle_architect",
+                "name": "Architect",
+                "description": "A placeholder agent that anchors draft sessions.",
+                "personality": "Neutral",
+                "goals": ["Hold the draft space steady."],
+                "inventory": [],
+                "location": "Genesis Chamber",
+            }
+        ],
+        narrator={
+            "persona": "A worldbuilding oracle that shapes coherent worlds from rough ideas."
+        },
+    )
+
+
+def _oracle_prefers_chinese(language: str | None, message: str) -> bool:
+    if any("\u4e00" <= ch <= "\u9fff" for ch in message):
+        return True
+    normalized = (language or "").strip().lower()
+    if normalized in {"cn", "zh", "zh-cn", "zh_cn", "chinese", "simplified chinese"}:
+        return True
+    return False
+
+
+def _saved_world_ref(seed_id: str) -> str:
+    return f"{SAVED_WORLD_PREFIX}{seed_id}"
+
+
+def _normalize_world_event_text(text: str) -> str:
+    normalized = text.strip()
+    if normalized.startswith("[WORLD]"):
+        normalized = normalized[len("[WORLD]"):].strip()
+    return normalized
+
+
+def _is_major_world_event(event: Event) -> bool:
+    action_type = event.action_type.value if hasattr(event.action_type, "value") else str(event.action_type)
+    if action_type != "world_event" or event.importance < 0.85:
+        return False
+
+    text = _normalize_world_event_text(str(event.action.get("content") or event.result or ""))
+    if not text:
+        return False
+
+    lowered = text.lower()
+    has_major_keyword = any(keyword in lowered for keyword in MAJOR_EVENT_KEYWORDS)
+    has_global_scope = any(keyword in lowered for keyword in GLOBAL_SCOPE_KEYWORDS)
+    return has_major_keyword or (has_global_scope and len(text) >= 18)
+
+
+async def _auto_save_major_event_seed(session: Session, event: Event) -> None:
+    if not _is_major_world_event(event):
+        return
+
+    action_type = event.action_type.value if hasattr(event.action_type, "value") else str(event.action_type)
+    content = _normalize_world_event_text(str(event.action.get("content") or event.result or ""))
+    if not content:
+        return
+
+    seed = SavedSeed(
+        id=f"auto_event_{session.id}_{event.id}",
+        type=SeedType.EVENT,
+        name=content[:60],
+        description=content,
+        tags=["major", "auto", action_type],
+        data={
+            "content": content,
+            "action_type": action_type,
+            "event_id": event.id,
+            "major": True,
+            "auto_saved": True,
+        },
+        source_world=session.id,
+    )
+    await save_seed(seed)
+
+
+def _serialize_seed_summary(seed_ref: str, world_seed: WorldSeed) -> dict[str, Any]:
+    return {
+        "file": seed_ref,
+        "name": world_seed.name,
+        "description": world_seed.description,
+        "agent_count": len(world_seed.agents),
+        "location_count": len(world_seed.locations),
+    }
+
+
+async def _load_world_seed_from_ref(seed_ref: str) -> WorldSeed:
+    if await is_seed_ref_hidden(seed_ref):
+        raise HTTPException(404, f"Seed file not found: {seed_ref}")
+
+    if seed_ref.startswith(SAVED_WORLD_PREFIX):
+        seed_id = seed_ref[len(SAVED_WORLD_PREFIX):]
+        saved = await get_seed(seed_id)
+        if not saved or saved.get("type") != SeedType.WORLD.value:
+            raise HTTPException(404, f"Saved world seed not found: {seed_ref}")
+        try:
+            return WorldSeed(**saved.get("data", {}))
+        except Exception as exc:
+            raise HTTPException(500, f"Saved world seed is invalid: {seed_ref}") from exc
+
+    path = SEEDS_DIR / seed_ref
+    if not path.exists():
+        raise HTTPException(404, f"Seed file not found: {seed_ref}")
+    return WorldSeed.from_yaml(str(path))
+
+
+async def _list_session_ids_for_world_name(world_name: str) -> list[str]:
+    """Find all saved sessions that belong to a given world name."""
+    if not world_name.strip():
+        return []
+
+    session_ids: list[str] = []
+    for session in await list_sessions():
+        raw_world_seed = session.get("world_seed")
+        try:
+            world_seed = json.loads(raw_world_seed) if isinstance(raw_world_seed, str) else raw_world_seed
+        except Exception:
+            continue
+        if isinstance(world_seed, dict) and world_seed.get("name") == world_name and session.get("id"):
+            session_ids.append(str(session["id"]))
+    return session_ids
+
+
+async def _delete_world_linked_assets(world_name: str) -> int:
+    """Delete assets linked to a world name and any sessions spawned from that world."""
+    source_worlds = [world_name, *(await _list_session_ids_for_world_name(world_name))]
+    return await delete_seeds_by_source_worlds(source_worlds)
+
+
+async def _list_visible_world_names() -> set[str]:
+    """Return world names that are still visible in the library."""
+    world_names: set[str] = set()
+    hidden_refs = set(await list_hidden_seed_refs())
+
+    for saved in await list_seeds(seed_type=SeedType.WORLD.value):
+        try:
+            world_names.add(WorldSeed(**saved.get("data", {})).name)
+        except Exception:
+            if saved.get("name"):
+                world_names.add(str(saved["name"]))
+
+    if SEEDS_DIR.exists():
+        for seed_file in SEEDS_DIR.glob("*.yaml"):
+            if seed_file.name in hidden_refs:
+                continue
+            try:
+                world_names.add(WorldSeed.from_yaml(str(seed_file)).name)
+            except Exception:
+                continue
+
+    return {name for name in world_names if name}
+
+
+async def _stale_asset_ids(assets: list[dict[str, Any]]) -> set[str]:
+    """Identify assets still pointing at deleted worlds kept alive only by old sessions."""
+    visible_world_names = await _list_visible_world_names()
+    if not assets:
+        return set()
+
+    session_world_by_id: dict[str, str] = {}
+    session_world_names: set[str] = set()
+    for session in await list_sessions():
+        raw_world_seed = session.get("world_seed")
+        try:
+            world_seed = json.loads(raw_world_seed) if isinstance(raw_world_seed, str) else raw_world_seed
+        except Exception:
+            continue
+        if not isinstance(world_seed, dict):
+            continue
+        world_name = str(world_seed.get("name") or "").strip()
+        session_id = str(session.get("id") or "").strip()
+        if not world_name or not session_id:
+            continue
+        session_world_by_id[session_id] = world_name
+        session_world_names.add(world_name)
+
+    stale_ids: set[str] = set()
+    for asset in assets:
+        source_world = str(asset.get("source_world") or "").strip()
+        asset_id = str(asset.get("id") or "").strip()
+        if not source_world or not asset_id:
+            continue
+
+        session_world_name = session_world_by_id.get(source_world)
+        if session_world_name and session_world_name not in visible_world_names:
+            stale_ids.add(asset_id)
+            continue
+
+        if source_world in session_world_names and source_world not in visible_world_names:
+            stale_ids.add(asset_id)
+
+    return stale_ids
+
+
+async def _record_initial_events(session: Session) -> None:
+    for text in session.world_seed.initial_events:
+        event = Event(
+            session_id=session.id,
+            tick=0,
+            agent_id=None,
+            agent_name=None,
+            action_type="world_event",
+            action={"content": text},
+            result=f"[WORLD] {text}",
+            importance=0.9,
+        )
+        session.events.append(event)
+        await save_event(event)
+        await _auto_save_major_event_seed(session, event)
 
 
 # ── WebSocket broadcast ───────────────────────────────
@@ -192,6 +458,10 @@ def make_event_callback(session_id: str):
     """Create an event callback that broadcasts + persists."""
     async def on_event(event: Event) -> None:
         await save_event(event)
+        async with _global_lock:
+            engine = _engines.get(session_id)
+        if engine:
+            await _auto_save_major_event_seed(engine.session, event)
         await broadcast(session_id, "event", _event_dict(event))
     return on_event
 
@@ -273,19 +543,26 @@ def _get_session_lock(session_id: str) -> asyncio.Lock:
 
 @app.get("/api/seeds")
 async def get_seeds() -> list[dict]:
-    """List available world seed files."""
+    """List available world seeds from YAML files and saved custom worlds."""
     seeds = []
+    hidden_refs = set(await list_hidden_seed_refs())
+    for saved in await list_seeds(seed_type=SeedType.WORLD.value):
+        seed_ref = _saved_world_ref(saved["id"])
+        if seed_ref in hidden_refs:
+            continue
+        try:
+            world_seed = WorldSeed(**saved.get("data", {}))
+            seeds.append(_serialize_seed_summary(seed_ref, world_seed))
+        except Exception as e:
+            logger.debug("Failed to parse saved world seed %s: %s", saved.get("id"), e)
+
     if SEEDS_DIR.exists():
         for f in SEEDS_DIR.glob("*.yaml"):
+            if f.name in hidden_refs:
+                continue
             try:
                 ws = WorldSeed.from_yaml(str(f))
-                seeds.append({
-                    "file": f.name,
-                    "name": ws.name,
-                    "description": ws.description,
-                    "agent_count": len(ws.agents),
-                    "location_count": len(ws.locations),
-                })
+                seeds.append(_serialize_seed_summary(f.name, ws))
             except Exception as e:
                 logger.debug("Failed to parse seed file %s: %s", f.name, e)
     return seeds
@@ -293,20 +570,84 @@ async def get_seeds() -> list[dict]:
 
 @app.get("/api/seeds/{filename}")
 async def get_seed_detail(filename: str) -> dict:
-    """Get full seed data from a YAML file."""
-    path = SEEDS_DIR / filename
-    if not path.exists():
-        raise HTTPException(404, f"Seed file not found: {filename}")
-    ws = WorldSeed.from_yaml(str(path))
+    """Get full seed data from a YAML file or a saved custom world."""
+    ws = await _load_world_seed_from_ref(filename)
     return {
         "file": filename,
         "name": ws.name,
         "description": ws.description,
         "rules": ws.rules,
         "locations": [loc.model_dump() for loc in ws.locations],
+        "items": [item.model_dump() for item in ws.items],
         "agents": [a.model_dump() for a in ws.agents],
         "initial_events": ws.initial_events,
     }
+
+
+@app.delete("/api/seeds/{filename:path}")
+async def delete_world_seed(filename: str) -> dict:
+    """Delete a world seed from the user's library view."""
+    if filename.startswith(SAVED_WORLD_PREFIX):
+        seed_id = filename[len(SAVED_WORLD_PREFIX):]
+        existing = await get_seed(seed_id)
+        if not existing or existing.get("type") != SeedType.WORLD.value:
+            raise HTTPException(404, "Seed not found")
+
+        world_name = ""
+        try:
+            world_name = WorldSeed(**existing.get("data", {})).name
+        except Exception:
+            world_name = str(existing.get("name") or "")
+
+        deleted = await delete_seed(seed_id)
+        if not deleted:
+            raise HTTPException(404, "Seed not found")
+        await _delete_world_linked_assets(world_name)
+        return {"deleted": True}
+
+    path = SEEDS_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, "Seed not found")
+
+    world_name = ""
+    try:
+        world_name = WorldSeed.from_yaml(str(path)).name
+    except Exception:
+        world_name = ""
+    await hide_seed_ref(filename)
+    await _delete_world_linked_assets(world_name)
+    return {"deleted": True}
+
+
+@app.patch("/api/seeds/{filename:path}")
+async def update_world_seed(filename: str, req: CreateWorldRequest) -> dict:
+    """Update a saved custom world seed in place."""
+    if not filename.startswith(SAVED_WORLD_PREFIX):
+        raise HTTPException(400, "Built-in YAML seeds are read-only")
+
+    seed_id = filename[len(SAVED_WORLD_PREFIX):]
+    existing = await get_seed(seed_id)
+    if not existing or existing.get("type") != SeedType.WORLD.value:
+        raise HTTPException(404, "Seed not found")
+
+    world_seed = WorldSeed(**req.model_dump())
+    seed_errors = validate_seed(world_seed)
+    if seed_errors:
+        raise HTTPException(400, f"Invalid world seed: {'; '.join(seed_errors)}")
+
+    saved_seed = SavedSeed(
+        id=seed_id,
+        type=SeedType.WORLD,
+        name=world_seed.name,
+        description=world_seed.description,
+        tags=existing.get("tags") or ["custom"],
+        data=world_seed.model_dump(),
+        source_world=existing.get("source_world", ""),
+        created_at=existing.get("created_at"),
+    )
+    await save_seed(saved_seed)
+
+    return _serialize_seed_summary(filename, world_seed)
 
 
 @app.post("/api/worlds")
@@ -318,7 +659,16 @@ async def create_world(req: CreateWorldRequest) -> dict:
         raise HTTPException(400, f"Invalid world seed: {'; '.join(seed_errors)}")
     session = Session(world_seed=world_seed)
     session.init_agents()
+    await _record_initial_events(session)
     await save_session(session)
+    saved_seed = SavedSeed(
+        type=SeedType.WORLD,
+        name=world_seed.name,
+        description=world_seed.description,
+        tags=["custom"],
+        data=world_seed.model_dump(),
+    )
+    await save_seed(saved_seed)
 
     # Store engine (not yet running)
     async with _global_lock:
@@ -329,6 +679,7 @@ async def create_world(req: CreateWorldRequest) -> dict:
 
     return {
         "session_id": session.id,
+        "seed_file": _saved_world_ref(saved_seed.id),
         "name": world_seed.name,
         "agents": [a.name for a in session.agents.values()],
         "tick": session.tick,
@@ -336,35 +687,12 @@ async def create_world(req: CreateWorldRequest) -> dict:
     }
 
 
-@app.post("/api/worlds/from-seed/{filename}")
-async def create_from_seed(filename: str) -> dict:
-    """Create a world from a seed YAML file."""
-    path = SEEDS_DIR / filename
-    if not path.exists():
-        raise HTTPException(404, f"Seed file not found: {filename}")
-
-    world_seed = WorldSeed.from_yaml(str(path))
-    seed_errors = validate_seed(world_seed)
-    if seed_errors:
-        raise HTTPException(400, f"Invalid seed file '{filename}': {'; '.join(seed_errors)}")
+@app.post("/api/oracle/draft")
+async def create_oracle_draft() -> dict:
+    """Create a hidden draft session for Oracle-assisted world creation."""
+    world_seed = _build_oracle_draft_seed()
     session = Session(world_seed=world_seed)
     session.init_agents()
-
-    # Record initial events
-    for text in world_seed.initial_events:
-        event = Event(
-            session_id=session.id,
-            tick=0,
-            agent_id=None,
-            agent_name=None,
-            action_type="world_event",
-            action={"content": text},
-            result=f"[WORLD] {text}",
-            importance=0.9,
-        )
-        session.events.append(event)
-        await save_event(event)
-
     await save_session(session)
 
     async with _global_lock:
@@ -375,6 +703,34 @@ async def create_from_seed(filename: str) -> dict:
 
     return {
         "session_id": session.id,
+        "name": world_seed.name,
+        "tick": session.tick,
+        "status": session.status.value,
+    }
+
+
+@app.post("/api/worlds/from-seed/{filename}")
+async def create_from_seed(filename: str) -> dict:
+    """Create a world from a seed YAML file or saved custom world."""
+    world_seed = await _load_world_seed_from_ref(filename)
+    seed_errors = validate_seed(world_seed)
+    if seed_errors:
+        raise HTTPException(400, f"Invalid seed file '{filename}': {'; '.join(seed_errors)}")
+    session = Session(world_seed=world_seed)
+    session.init_agents()
+
+    await _record_initial_events(session)
+    await save_session(session)
+
+    async with _global_lock:
+        _engines[session.id] = Engine(
+            session=session,
+            on_event=make_event_callback(session.id),
+        )
+
+    return {
+        "session_id": session.id,
+        "seed_file": filename,
         "name": world_seed.name,
         "agents": [a.name for a in session.agents.values()],
         "tick": session.tick,
@@ -537,6 +893,7 @@ async def _inject_event_inner(engine: Engine, session_id: str, req: InjectEventR
     )
     engine._append_event(event)
     await save_event(event)
+    await _auto_save_major_event_seed(engine.session, event)
 
     # Mark as urgent so agents react on next tick
     engine.inject_urgent_event(req.content)
@@ -768,6 +1125,7 @@ async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
         agent_memory=agent.memory,
         agent_description=agent.description,
         user_message=req.message,
+        preferred_language=req.language or "",
         model=req.model,
         api_key=req.api_key,
         api_base=req.api_base,
@@ -805,14 +1163,17 @@ async def oracle_chat_endpoint(session_id: str, req: OracleChatRequest) -> dict:
             seed_data = await generate_seed_draft(
                 user_message=req.message,
                 conversation_history=conv_history,
+                preferred_language=req.language or "",
                 model=req.model,
                 api_key=req.api_key,
                 api_base=req.api_base,
             )
             # Persist messages
             await save_narrator_message(session_id, "user", req.message, session.tick)
-            import json as _json
-            reply_text = f"World seed generated: {seed_data.get('name', 'Untitled')}"
+            if _oracle_prefers_chinese(req.language, req.message):
+                reply_text = f"世界种子已生成：{seed_data.get('name', '未命名世界')}"
+            else:
+                reply_text = f"World seed generated: {seed_data.get('name', 'Untitled')}"
             msg_id = await save_narrator_message(session_id, "oracle", reply_text, session.tick)
             return {
                 "reply": reply_text,
@@ -869,6 +1230,7 @@ async def oracle_chat_endpoint(session_id: str, req: OracleChatRequest) -> dict:
         user_message=req.message,
         narrator_persona=persona,
         world_time_display=time_display,
+        preferred_language=req.language or "",
         model=req.model,
         api_key=req.api_key,
         api_base=req.api_base,
@@ -952,6 +1314,12 @@ async def enrich_entity_endpoint(session_id: str, req: EnrichRequest) -> dict:
     if entity_context:
         world_desc = f"{world_desc}\n\n[Entity Context]\n{entity_context}"
 
+    model = req.model or engine.model
+    api_key = req.api_key or engine.api_key
+    api_base = req.api_base or engine.api_base
+    if not api_key or not model:
+        raise HTTPException(400, "LLM settings missing for detail generation")
+
     # 4. Call enrichment LLM
     enriched = await enrich_entity(
         entity_type=req.entity_type,
@@ -959,10 +1327,13 @@ async def enrich_entity_endpoint(session_id: str, req: EnrichRequest) -> dict:
         current_details=current_details,
         relevant_events=relevant_event_strings,
         world_desc=world_desc,
-        model=engine.model,
-        api_key=engine.api_key,
-        api_base=engine.api_base,
+        preferred_language=req.language or "",
+        model=model,
+        api_key=api_key,
+        api_base=api_base,
     )
+    if not enriched:
+        raise HTTPException(502, f"{req.entity_type.title()} detail generation returned no content")
 
     # 5. Save to DB
     await save_entity_details(
@@ -993,6 +1364,28 @@ async def get_entity_details(
     if not existing:
         return {"details": None}
     return {"details": existing.get("details", {})}
+
+
+@app.patch("/api/worlds/{session_id}/entity-details")
+async def save_entity_details_endpoint(session_id: str, req: SaveEntityDetailsRequest) -> dict:
+    """Persist manually edited local details for a world entity."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    await save_entity_details(
+        session_id=session_id,
+        entity_type=req.entity_type,
+        entity_id=req.entity_id,
+        details=req.details,
+        tick=engine.session.tick,
+    )
+    return {
+        "entity_type": req.entity_type,
+        "entity_id": req.entity_id,
+        "details": req.details,
+        "tick": engine.session.tick,
+    }
 
 
 # ── Feature 4: Session replay ─────────────────────────
@@ -1038,7 +1431,13 @@ async def get_replay(session_id: str, limit: int = 500, offset: int = 0) -> dict
 @app.get("/api/assets")
 async def get_assets(type: str | None = None) -> list[dict]:
     """List saved seeds, optionally filtered by type."""
-    return await list_seeds(seed_type=type)
+    assets = await list_seeds(seed_type=type)
+    stale_ids = await _stale_asset_ids(assets)
+    if stale_ids:
+        for stale_id in stale_ids:
+            await delete_seed(stale_id)
+        assets = [asset for asset in assets if asset.get("id") not in stale_ids]
+    return assets
 
 
 @app.get("/api/assets/{seed_id}")
@@ -1046,6 +1445,9 @@ async def get_asset(seed_id: str) -> dict:
     """Get a single saved seed."""
     seed = await get_seed(seed_id)
     if not seed:
+        raise HTTPException(404, "Seed not found")
+    if seed.get("id") in await _stale_asset_ids([seed]):
+        await delete_seed(seed_id)
         raise HTTPException(404, "Seed not found")
     return seed
 
@@ -1065,6 +1467,28 @@ async def create_asset(req: SaveSeedRequest) -> dict:
     return {"id": seed.id, "name": seed.name, "type": seed.type.value}
 
 
+@app.patch("/api/assets/{seed_id}")
+async def update_asset(seed_id: str, req: UpdateSeedRequest) -> dict:
+    """Update an existing seed in the asset library."""
+    existing = await get_seed(seed_id)
+    if not existing:
+        raise HTTPException(404, "Seed not found")
+
+    seed_type = req.type or existing["type"]
+    seed = SavedSeed(
+        id=existing["id"],
+        type=SeedType(seed_type),
+        name=req.name if req.name is not None else existing["name"],
+        description=req.description if req.description is not None else existing["description"],
+        tags=req.tags if req.tags is not None else existing["tags"],
+        data=req.data if req.data is not None else existing["data"],
+        source_world=req.source_world if req.source_world is not None else existing.get("source_world", ""),
+        created_at=existing["created_at"],
+    )
+    await save_seed(seed)
+    return seed.model_dump()
+
+
 @app.delete("/api/sessions/{session_id}")
 async def api_delete_session(session_id: str) -> dict:
     """Delete a session and all its data."""
@@ -1075,6 +1499,7 @@ async def api_delete_session(session_id: str) -> dict:
     deleted = await delete_session(session_id)
     if not deleted:
         raise HTTPException(404, "Session not found")
+    await delete_seeds_by_source_worlds([session_id])
     return {"deleted": True}
 
 
@@ -1134,12 +1559,70 @@ async def extract_item_seed(req: ExtractSeedRequest) -> dict:
     if not found:
         raise HTTPException(404, f"Item not found: {item_name}")
 
+    existing = await load_entity_details(req.session_id, "item", item_name)
+    details = existing.get("details", {}) if existing else {}
+
+    if not details:
+        model = req.model or engine.model
+        api_key = req.api_key or engine.api_key
+        api_base = req.api_base or engine.api_base
+        if not api_key or not model:
+            raise HTTPException(400, "LLM settings missing for item seed generation")
+        relevant_event_strings: list[str] = []
+        all_events = await load_events(req.session_id, limit=200)
+        search_term = item_name.lower()
+        for event in all_events:
+            result_text = (event.get("result") or "").lower()
+            action_text = json.dumps(event.get("action", {})).lower()
+            if search_term in result_text or search_term in action_text:
+                relevant_event_strings.append(event.get("result", ""))
+
+        unique_events: list[str] = []
+        seen: set[str] = set()
+        for event_text in relevant_event_strings:
+            if event_text and event_text not in seen:
+                seen.add(event_text)
+                unique_events.append(event_text)
+
+        world_desc = f"{engine.session.world_seed.description}\n\n[Entity Context]\nItem: {item_name}"
+        details = await enrich_entity(
+            entity_type="item",
+            entity_name=item_name,
+            current_details={},
+            relevant_events=unique_events[:20],
+            world_desc=world_desc,
+            preferred_language="",
+            model=model,
+            api_key=api_key,
+            api_base=api_base,
+        )
+        if not details:
+            raise HTTPException(502, "Item seed generation returned no content")
+        await save_entity_details(
+            session_id=req.session_id,
+            entity_type="item",
+            entity_id=item_name,
+            details=details,
+            tick=engine.session.tick,
+        )
+
+    description = str(details.get("description") or "")
+    properties = details.get("properties")
+    if not isinstance(properties, list):
+        properties = []
+
     seed = SavedSeed(
         type=SeedType.ITEM,
         name=item_name,
-        description="",
+        description=description,
         tags=[],
-        data={"name": item_name},
+        data={
+            "name": item_name,
+            **({"description": description} if description else {}),
+            **({"origin": details.get("origin")} if details.get("origin") else {}),
+            **({"properties": properties} if properties else {}),
+            **({"significance": details.get("significance")} if details.get("significance") else {}),
+        },
         source_world=req.session_id,
     )
     return seed.model_dump()
@@ -1346,6 +1829,7 @@ def _serialize_state(engine: Engine) -> dict:
         "status": session.status.value,
         "world_time": {"display": wt.display, "period": wt.period, "day": wt.day, "is_night": wt.is_night},
         "locations": [loc.model_dump() for loc in session.world_seed.locations],
+        "items": [item.model_dump() for item in session.world_seed.items],
         "rules": session.world_seed.rules,
         "agents": {
             aid: {
@@ -1372,5 +1856,9 @@ def _serialize_state(engine: Engine) -> dict:
 async def _serialize_state_async(engine: Engine) -> dict:
     """Serialize engine state including entity details from DB."""
     state = _serialize_state(engine)
-    state["entity_details"] = await load_all_entity_details(engine.session.id)
+    details_rows = await load_all_entity_details(engine.session.id)
+    state["entity_details"] = {
+        f"{row['entity_type']}:{row['entity_id']}": row.get("details", {})
+        for row in details_rows
+    }
     return state

@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { fetchSeeds, fetchSeedDetail, createFromSeed, createWorld, getSessions, saveAsset, SeedInfo, SeedDetail } from "@/lib/api";
+import { Suspense, useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { fetchSeeds, fetchSeedDetail, createFromSeed, createWorld, deleteWorldSeed, getSessions, fetchAssets, saveAsset, updateAsset, updateWorldSeed, SavedSeedData, SeedInfo, SeedDetail, WorldItemData, enrichEntity } from "@/lib/api";
+import { collapseSessionHistory } from "@/lib/session-history";
+import { buildAssetsHref, buildCreateHref, buildSimHref, buildWorldHref } from "@/lib/navigation";
 import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
 import Settings from "@/components/Settings";
 import Timeline from "@/components/Timeline";
-import { StatusDot, ErrorBanner, EmptyState, SkeletonLine, GlitchReveal, DecodeText } from "@/components/ui";
+import { AutoTextarea, StatusDot, ErrorBanner, EmptyState, SkeletonLine, GlitchReveal, DecodeText, ExpandableInput, StringListEditor } from "@/components/ui";
 import WorldBootOverlay from "@/components/WorldBootOverlay";
+import { buildItemHolders, mergeWorldItemsWithInventories, normalizeWorldItem } from "@/lib/world-items";
 
 interface SessionRecord {
   id: string;
@@ -20,50 +23,34 @@ interface SessionRecord {
 
 type AssetTab = "agents" | "items" | "locations" | "rules" | "events";
 
-/** Auto-resize a textarea to fit its content (batched via rAF) */
-function autoResize(el: HTMLTextAreaElement | null) {
-  if (!el) return;
-  requestAnimationFrame(() => {
-    el.style.height = "0";
-    const h = Math.min(el.scrollHeight, 400);
-    el.style.height = h + "px";
-    el.style.overflowY = el.scrollHeight > 400 ? "auto" : "hidden";
-  });
+function sanitizeList(values: string[]): string[] {
+  return values.map((value) => value.trim()).filter(Boolean);
 }
 
-/** Textarea that grows/shrinks with content */
-function AutoTextarea({ className, value, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { value: string }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { autoResize(ref.current); }, [value]);
-  return (
-    <textarea
-      ref={ref}
-      className={className}
-      value={value}
-      style={{ maxHeight: 400 }}
-      onInput={(e) => autoResize(e.currentTarget)}
-      {...props}
-    />
-  );
-}
-
-export default function Home() {
+function HomeContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { locale, toggle, t } = useLocale();
   const tRef = useRef(t);
   tRef.current = t;
+  const selectedSeedFile = searchParams.get("seed") || "";
   const [seeds, setSeeds] = useState<SeedInfo[]>([]);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [oracleGreetIdx] = useState(() => Math.floor(Math.random() * 4));
   const [loading, setLoading] = useState(false);
+  const [deletingSeedFile, setDeletingSeedFile] = useState<string | null>(null);
   const [seedsLoading, setSeedsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedSeed, setSelectedSeed] = useState<SeedInfo | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [assetTab, setAssetTab] = useState<AssetTab>("agents");
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [expandedLocation, setExpandedLocation] = useState<number | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [itemDrafts, setItemDrafts] = useState<Record<string, string>>({});
+  const [exportedItemMap, setExportedItemMap] = useState<Map<string, SavedSeedData>>(new Map());
+  const [generatingItem, setGeneratingItem] = useState<string | null>(null);
+  const [exportingItem, setExportingItem] = useState<string | null>(null);
   const [editDetail, setEditDetail] = useState<SeedDetail | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [bootOverlay, setBootOverlay] = useState<{ worldName: string; targetUrl: string } | null>(null);
@@ -71,6 +58,25 @@ export default function Home() {
   const assetTabIndicatorRef = useRef<HTMLSpanElement>(null);
   // Settings saved to localStorage by Settings component; home page only shows/hides the panel
   const noop = () => {};
+
+  const selectedSeed = useMemo(
+    () => seeds.find((seed) => seed.file === selectedSeedFile) || null,
+    [seeds, selectedSeedFile],
+  );
+
+  const selectedSeedMeta = useMemo<SeedInfo | null>(() => {
+    if (selectedSeed) return selectedSeed;
+    if (selectedSeedFile && editDetail?.file === selectedSeedFile) {
+      return {
+        file: editDetail.file,
+        name: editDetail.name,
+        description: editDetail.description,
+        agent_count: editDetail.agents.length,
+        location_count: editDetail.locations.length,
+      };
+    }
+    return null;
+  }, [selectedSeed, selectedSeedFile, editDetail]);
 
   function markSaved(id: string) {
     setSavedIds((prev) => new Set(prev).add(id));
@@ -92,7 +98,7 @@ export default function Home() {
           inventory: agent.inventory,
           location: agent.location,
         },
-        source_world: selectedSeed?.name,
+        source_world: selectedSeedMeta?.name,
       });
       markSaved(agent.id);
     } catch { /* ignore */ }
@@ -106,44 +112,154 @@ export default function Home() {
         description: loc.description,
         tags: [],
         data: { name: loc.name, description: loc.description },
-        source_world: selectedSeed?.name,
+        source_world: selectedSeedMeta?.name,
       });
       markSaved(`loc_${loc.name}`);
     } catch { /* ignore */ }
   }
 
+  const getItemSeedKey = useCallback((seed: SavedSeedData): string => {
+    const seedName = typeof seed.data?.name === "string" ? seed.data.name.trim() : "";
+    return seedName || seed.name;
+  }, []);
+
+  const getItemSeedKeys = useCallback((seed: SavedSeedData): string[] => {
+    const previousNames = Array.isArray(seed.data?.previous_names)
+      ? seed.data.previous_names.map((value) => String(value).trim()).filter(Boolean)
+      : [];
+    return Array.from(new Set([getItemSeedKey(seed), seed.name.trim(), ...previousNames].filter(Boolean)));
+  }, [getItemSeedKey]);
+
+  const syncSeedDetailItems = useCallback((detail: SeedDetail): SeedDetail => {
+    return {
+      ...detail,
+      items: mergeWorldItemsWithInventories(detail.items || [], detail.agents || []),
+    };
+  }, []);
+
+  function updateWorldItem(oldName: string, patch: Partial<WorldItemData>) {
+    setEditDetail((prev) => {
+      if (!prev) return prev;
+      const mergedItems = mergeWorldItemsWithInventories(prev.items || [], prev.agents || []);
+      const existingIndex = mergedItems.findIndex((item) => item.name === oldName);
+      if (existingIndex < 0) {
+        const nextName = typeof patch.name === "string" ? patch.name.trim() : oldName.trim();
+        if (!nextName) return prev;
+        return {
+          ...prev,
+          items: [...mergedItems, normalizeWorldItem({ name: nextName, ...patch })],
+        };
+      }
+
+      const nextItems = [...mergedItems];
+      nextItems[existingIndex] = normalizeWorldItem({
+        ...nextItems[existingIndex],
+        ...patch,
+      });
+      return {
+        ...prev,
+        items: nextItems.filter((item) => item.name),
+      };
+    });
+  }
+
+  async function handleCommitItemRename(oldName: string) {
+    const nextName = (itemDrafts[oldName] || "").trim();
+    if (!editDetail || !nextName || nextName === oldName) return;
+
+    setEditDetail((prev) => {
+      if (!prev) return prev;
+      const mergedItems = mergeWorldItemsWithInventories(prev.items || [], prev.agents || []);
+      const existingItem =
+        mergedItems.find((item) => item.name === oldName) || normalizeWorldItem({ name: oldName });
+      const renamedItems = mergedItems
+        .filter((item) => item.name !== oldName)
+        .filter((item) => item.name !== nextName);
+      renamedItems.push(normalizeWorldItem({ ...existingItem, name: nextName }));
+      return {
+        ...prev,
+        items: renamedItems,
+        agents: prev.agents.map((agent) => ({
+          ...agent,
+          inventory: (agent.inventory || []).map((item) => (item === oldName ? nextName : item)),
+        })),
+      };
+    });
+
+    setItemDrafts((prev) => {
+      const next = { ...prev };
+      delete next[oldName];
+      next[nextName] = nextName;
+      return next;
+    });
+    setExpandedItem(nextName);
+  }
+
   function handleEditWorld() {
-    if (!editDetail) return;
+    if (!editDetail || !selectedSeedMeta) return;
     try {
       localStorage.setItem("babel_edit_seed", JSON.stringify(editDetail));
     } catch { /* quota exceeded — navigate anyway */ }
-    router.push("/create");
+    router.push(
+      buildCreateHref({
+        seedFile: selectedSeedMeta.file,
+        backHref: buildWorldHref(selectedSeedMeta.file),
+      }),
+    );
   }
 
   async function handleSaveLaunch() {
-    if (!editDetail) return;
+    if (!editDetail || !selectedSeedMeta) return;
     setLoading(true);
     setError(null);
     try {
       const data = {
         name: editDetail.name,
         description: editDetail.description,
-        rules: editDetail.rules,
+        rules: sanitizeList(editDetail.rules),
         locations: editDetail.locations,
+        items: mergeWorldItemsWithInventories(editDetail.items || [], editDetail.agents || [])
+          .map((item) => normalizeWorldItem(item))
+          .filter((item) => item.name),
         agents: editDetail.agents.map((a) => ({
           id: a.id,
           name: a.name,
           description: a.description,
           personality: a.personality,
-          goals: a.goals,
-          inventory: a.inventory,
+          goals: sanitizeList(a.goals),
+          inventory: sanitizeList(a.inventory),
           location: a.location,
         })),
-        initial_events: editDetail.initial_events,
+        initial_events: sanitizeList(editDetail.initial_events),
       };
-      const res = await createWorld(data);
+      let res: { session_id: string; seed_file?: string };
+      if (selectedSeedMeta.file.startsWith("saved:")) {
+        await updateWorldSeed(selectedSeedMeta.file, data);
+        setSeeds((prev) =>
+          prev.map((seed) =>
+            seed.file === selectedSeedMeta.file
+              ? {
+                  ...seed,
+                  name: data.name,
+                  description: data.description,
+                  agent_count: data.agents.length,
+                  location_count: data.locations.length,
+                }
+              : seed,
+          ),
+        );
+        res = await createFromSeed(selectedSeedMeta.file);
+      } else {
+        res = await createWorld(data);
+      }
       if (!res?.session_id) throw new Error("No session_id");
-      setBootOverlay({ worldName: editDetail.name, targetUrl: `/sim?id=${res.session_id}` });
+      setBootOverlay({
+        worldName: editDetail.name,
+        targetUrl: buildSimHref({
+          sessionId: res.session_id,
+          seedFile: res.seed_file || undefined,
+        }),
+      });
     } catch {
       setError(t("failed_create"));
       setLoading(false);
@@ -240,20 +356,101 @@ export default function Home() {
     }
   }, [seeds.length]);
 
-  async function handleSelectSeed(seed: SeedInfo) {
-    setSelectedSeed(seed);
+  useEffect(() => {
+    if (!selectedSeedFile) {
+      setEditDetail(null);
+      setDetailLoading(false);
+      setAssetTab("agents");
+      setExpandedAgent(null);
+      setExpandedItem(null);
+      setExpandedLocation(null);
+      setItemDrafts({});
+      setExportedItemMap(new Map());
+      return;
+    }
+
+    let cancelled = false;
     setEditDetail(null);
     setDetailLoading(true);
     setAssetTab("agents");
     setExpandedAgent(null);
+    setExpandedItem(null);
     setExpandedLocation(null);
+    setItemDrafts({});
+    setExportedItemMap(new Map());
+    (async () => {
+      try {
+        const detail = await fetchSeedDetail(selectedSeedFile);
+        if (!cancelled) {
+          const cloned = JSON.parse(JSON.stringify(detail)) as SeedDetail;
+          setEditDetail(syncSeedDetailItems(cloned));
+        }
+      } catch {
+        if (!cancelled) {
+          setError(tRef.current("failed_load_detail"));
+          router.replace(buildWorldHref(null));
+        }
+      } finally {
+        if (!cancelled) {
+          setDetailLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSeedFile, router, syncSeedDetailItems]);
+
+  useEffect(() => {
+    if (!selectedSeedMeta?.name) {
+      setExportedItemMap(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    fetchAssets("item")
+      .then((assets) => {
+        if (cancelled || !Array.isArray(assets)) return;
+        const next = new Map<string, SavedSeedData>();
+        assets
+          .filter((asset) => asset.source_world === selectedSeedMeta.name)
+          .forEach((asset) => {
+            getItemSeedKeys(asset).forEach((key) => next.set(key, asset));
+          });
+        setExportedItemMap(next);
+      })
+      .catch(() => {
+        if (!cancelled) setExportedItemMap(new Map());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSeedMeta?.name, getItemSeedKeys]);
+
+  function handleSelectSeed(seed: SeedInfo) {
+    router.push(buildWorldHref(seed.file));
+  }
+
+  async function handleDeleteWorldSeed(seed: SeedInfo) {
+    if (deletingSeedFile) return;
+    if (typeof window !== "undefined" && !window.confirm(t("world_delete_confirm"))) {
+      return;
+    }
+    setDeletingSeedFile(seed.file);
+    setError(null);
     try {
-      const detail = await fetchSeedDetail(seed.file);
-      setEditDetail(JSON.parse(JSON.stringify(detail)));
+      await deleteWorldSeed(seed.file);
+      setSeeds((prev) => prev.filter((item) => item.file !== seed.file));
+      setEditDetail(null);
+      if (selectedSeedFile === seed.file) {
+        router.replace(buildWorldHref(null));
+      }
     } catch {
-      setError(t("failed_load_detail"));
+      setError(t("delete_failed"));
     } finally {
-      setDetailLoading(false);
+      setDeletingSeedFile(null);
     }
   }
 
@@ -264,7 +461,13 @@ export default function Home() {
       const res = await createFromSeed(filename);
       if (!res?.session_id) throw new Error("No session_id");
       const seedName = seeds.find((s) => s.file === filename)?.name || "WORLD";
-      setBootOverlay({ worldName: seedName, targetUrl: `/sim?id=${res.session_id}` });
+      setBootOverlay({
+        worldName: seedName,
+        targetUrl: buildSimHref({
+          sessionId: res.session_id,
+          seedFile: res.seed_file || filename,
+        }),
+      });
     } catch {
       setError(t("failed_create"));
       setLoading(false);
@@ -284,8 +487,16 @@ export default function Home() {
     return map;
   }, [sessions]);
 
+  const visibleSessionsByWorld = useMemo(() => {
+    const map = new Map<string, { sessions: (SessionRecord & { world_name: string })[]; hiddenDraftCount: number }>();
+    for (const [worldName, worldSessions] of Array.from(sessionsByWorld.entries())) {
+      map.set(worldName, collapseSessionHistory(worldSessions));
+    }
+    return map;
+  }, [sessionsByWorld]);
+
   function getWorldSessions(seedName: string) {
-    return sessionsByWorld.get(seedName) || [];
+    return visibleSessionsByWorld.get(seedName) || { sessions: [], hiddenDraftCount: 0 };
   }
 
   // ── Boot overlay (world entry transition) ──
@@ -297,24 +508,26 @@ export default function Home() {
   );
 
   // ── World detail view ──
-  if (selectedSeed) {
-    const worldSessions = getWorldSessions(selectedSeed.name);
+  if (selectedSeedFile && selectedSeedMeta) {
+    const worldSessionGroup = getWorldSessions(selectedSeedMeta.name);
+    const worldSessions = worldSessionGroup.sessions;
+    const latestWorldSessionId = worldSessions[0]?.id || "";
 
     const ed = editDetail;
+    const assetsHref = buildAssetsHref({
+      worldName: selectedSeedMeta.name,
+      seedFile: selectedSeedMeta.file,
+      backHref: buildWorldHref(selectedSeedMeta.file),
+    });
 
-    // Aggregate all items from all agents' inventories
-    let allItems: { name: string; holders: string[] }[] = [];
+    // Aggregate world-local item details with current holders.
+    let allItems: Array<WorldItemData & { holders: string[] }> = [];
     if (ed) {
-      const itemMap = new Map<string, string[]>();
-      for (const agent of ed.agents) {
-        for (const item of (agent.inventory || [])) {
-          if (!item) continue;
-          const holders = itemMap.get(item) || [];
-          holders.push(agent.name || agent.id);
-          itemMap.set(item, holders);
-        }
-      }
-      allItems = Array.from(itemMap.entries()).map(([name, holders]) => ({ name, holders }));
+      const holdersByItem = buildItemHolders(ed.agents);
+      allItems = mergeWorldItemsWithInventories(ed.items || [], ed.agents || []).map((item) => ({
+        ...item,
+        holders: holdersByItem.get(item.name) || [],
+      }));
     }
 
     const ASSET_TABS: { key: AssetTab; label: string; count: number }[] = [
@@ -328,6 +541,74 @@ export default function Home() {
     const inputCls = "w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors";
     const textareaCls = "w-full min-h-[36px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-none focus:border-primary focus:outline-none hover:border-b-hover transition-colors";
     const fieldLabel = "text-micro text-t-muted tracking-widest mb-1.5 block";
+
+    const handleGenerateWorldItem = async (item: WorldItemData & { holders: string[] }) => {
+      if (!latestWorldSessionId || generatingItem) return;
+      setGeneratingItem(item.name);
+      setError(null);
+      try {
+        const details = await enrichEntity(latestWorldSessionId, "item", item.name, { language: locale });
+        updateWorldItem(item.name, {
+          description: typeof details.description === "string" ? details.description : item.description,
+          origin: typeof details.origin === "string" ? details.origin : item.origin,
+          properties: Array.isArray(details.properties) ? details.properties.map(String) : item.properties,
+          significance: typeof details.significance === "string" ? details.significance : item.significance,
+        });
+      } catch {
+        setError(t("gen_item_failed"));
+      } finally {
+        setGeneratingItem(null);
+      }
+    };
+
+    const handleExportWorldItem = async (item: WorldItemData & { holders: string[] }) => {
+      if (exportingItem) return;
+      setExportingItem(item.name);
+      setError(null);
+      const payload = {
+        type: "item" as const,
+        name: item.name,
+        description: item.description,
+        tags: [],
+        data: {
+          name: item.name,
+          description: item.description,
+          origin: item.origin,
+          properties: item.properties,
+          significance: item.significance,
+          holders: item.holders,
+        },
+        source_world: selectedSeedMeta.name,
+      };
+      try {
+        const existing = exportedItemMap.get(item.name) || null;
+        let updatedSeed: SavedSeedData;
+        if (existing) {
+          updatedSeed = await updateAsset(existing.id, payload);
+        } else {
+          const saved = await saveAsset(payload);
+          updatedSeed = {
+            id: saved.id,
+            type: "item",
+            name: item.name,
+            description: item.description,
+            tags: [],
+            data: payload.data,
+            source_world: selectedSeedMeta.name,
+            created_at: "",
+          };
+        }
+        setExportedItemMap((prev) => {
+          const next = new Map(prev);
+          getItemSeedKeys(updatedSeed).forEach((key) => next.set(key, updatedSeed));
+          return next;
+        });
+      } catch {
+        setError(t("save_failed"));
+      } finally {
+        setExportingItem(null);
+      }
+    };
 
     return (
       <div className="h-screen flex flex-col bg-void">
@@ -348,9 +629,9 @@ export default function Home() {
         {/* Nav — world context */}
         <nav aria-label="Main navigation" className="flex items-center justify-between h-14 px-6 border-b border-b-DEFAULT shrink-0">
           <div className="flex items-center gap-4">
-            <button
+              <button
               type="button"
-              onClick={() => setSelectedSeed(null)}
+              onClick={() => router.push(buildWorldHref(null))}
               className="text-micro text-t-muted tracking-wider hover:text-primary transition-colors"
             >
               {t("back")}
@@ -358,13 +639,13 @@ export default function Home() {
             <span className="text-t-dim">|</span>
             <a href="/" className="font-sans text-subheading font-bold tracking-widest text-primary hover:drop-shadow-[0_0_8px_var(--color-primary-glow-strong)] hover:animate-[logo-glitch_300ms_ease] transition-[filter]">BABEL</a>
             <span className="text-t-dim">/</span>
-            <span className="text-body font-semibold text-primary truncate max-w-[300px] drop-shadow-[0_0_8px_var(--color-primary-glow)]">{selectedSeed.name}</span>
+            <span className="text-body font-semibold text-primary truncate max-w-[300px] drop-shadow-[0_0_8px_var(--color-primary-glow)]">{selectedSeedMeta.name}</span>
           </div>
           <div className="flex items-center gap-6">
             <a href="/create" className="text-micro text-t-muted tracking-widest hover:text-t-DEFAULT transition-colors">
               {t("create")}
             </a>
-            <a href="/assets" className="text-micro text-t-muted tracking-widest hover:text-t-DEFAULT transition-colors">
+            <a href={assetsHref} className="text-micro text-t-muted tracking-widest hover:text-t-DEFAULT transition-colors">
               {t("assets")}
             </a>
             <button
@@ -410,17 +691,18 @@ export default function Home() {
                 {ed ? (
                   <div className="flex flex-col gap-2">
                     <label htmlFor="world-name" className="sr-only">{t("world_name")}</label>
-                    <input
+                    <ExpandableInput
                       id="world-name"
                       required
                       aria-required="true"
                       className="font-sans font-bold text-heading leading-none tracking-tight bg-transparent border-b border-transparent hover:border-b-hover focus:border-primary focus:outline-none transition-colors w-full"
                       value={ed.name}
-                      onChange={(e) => updateEdit({ name: e.target.value })}
+                      onValueChange={(value) => updateEdit({ name: value })}
                     />
                     <label htmlFor="world-desc" className="sr-only">{t("description")}</label>
                     <AutoTextarea
                       id="world-desc"
+                      rows={2}
                       className="text-detail text-t-muted normal-case tracking-normal leading-relaxed bg-transparent border border-transparent hover:border-b-hover focus:border-primary focus:outline-none transition-colors resize-none overflow-hidden w-full"
                       value={ed.description}
                       onChange={(e) => updateEdit({ description: e.target.value })}
@@ -428,16 +710,16 @@ export default function Home() {
                   </div>
                 ) : (
                   <>
-                    <h1 className="font-sans font-bold text-heading leading-none tracking-tight">{selectedSeed.name}</h1>
-                    <p className="mt-1.5 text-detail text-t-muted normal-case tracking-normal leading-relaxed">{selectedSeed.description}</p>
+                    <h1 className="font-sans font-bold text-heading leading-none tracking-tight">{selectedSeedMeta.name}</h1>
+                    <p className="mt-1.5 text-detail text-t-muted normal-case tracking-normal leading-relaxed">{selectedSeedMeta.description}</p>
                   </>
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0 pt-1">
                 <button
                   type="button"
-                  onClick={() => handleStartNew(selectedSeed.file)}
-                  disabled={loading}
+                  onClick={() => handleStartNew(selectedSeedMeta.file)}
+                  disabled={loading || deletingSeedFile === selectedSeedMeta.file}
                   className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {loading ? t("creating") : t("world_start_new")}
@@ -445,7 +727,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={handleSaveLaunch}
-                  disabled={loading || !ed}
+                  disabled={loading || !ed || deletingSeedFile === selectedSeedMeta.file}
                   className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,box-shadow,transform]"
                 >
                   {loading ? t("creating") : t("save_launch")}
@@ -453,14 +735,28 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={handleEditWorld}
-                  disabled={!ed}
+                  disabled={!ed || deletingSeedFile === selectedSeedMeta.file}
                   className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {t("edit_world")}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteWorldSeed(selectedSeedMeta)}
+                  disabled={deletingSeedFile === selectedSeedMeta.file}
+                  className="h-9 px-4 text-micro font-medium tracking-wider border border-danger text-danger hover:bg-danger/10 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                >
+                  {deletingSeedFile === selectedSeedMeta.file ? t("loading") : t("delete")}
+                </button>
               </div>
             </div>
           </div>
+
+          {worldSessionGroup.hiddenDraftCount > 0 && (
+            <div className="px-6 py-2 border-b border-b-DEFAULT text-micro text-warning tracking-wider">
+              {t("timeline_hidden_duplicates", String(worldSessionGroup.hiddenDraftCount))}
+            </div>
+          )}
 
           {/* Timeline — branching visualization */}
           <Timeline
@@ -471,7 +767,7 @@ export default function Home() {
               created_at: s.created_at,
             }))}
             onSelect={(id) => router.push(`/sim?id=${id}`)}
-            onNew={() => handleStartNew(selectedSeed.file)}
+            onNew={() => handleStartNew(selectedSeedMeta.file)}
             onDeleted={(id) => setSessions((prev) => prev.filter((s) => s.id !== id))}
           />
 
@@ -551,44 +847,46 @@ export default function Home() {
                           </button>
                           {expandedAgent === agent.id && (
                             <div className="border-t border-b-DEFAULT bg-void px-4 py-3 animate-slide-down flex flex-col gap-3">
-                              <div className="grid grid-cols-2 gap-3">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div>
                                   <label htmlFor={`ed-agent-name-${ai}`} className={fieldLabel}>{t("name")}</label>
-                                  <input id={`ed-agent-name-${ai}`} className={inputCls} value={agent.name} onChange={(e) => updateAgent(ai, { name: e.target.value })} />
+                                  <ExpandableInput id={`ed-agent-name-${ai}`} className={inputCls} value={agent.name} onValueChange={(value) => updateAgent(ai, { name: value })} />
                                 </div>
                                 <div>
                                   <label htmlFor={`ed-agent-personality-${ai}`} className={fieldLabel}>{t("personality")}</label>
-                                  <input id={`ed-agent-personality-${ai}`} className={inputCls} value={agent.personality} onChange={(e) => updateAgent(ai, { personality: e.target.value })} />
+                                  <ExpandableInput id={`ed-agent-personality-${ai}`} className={inputCls} value={agent.personality} onValueChange={(value) => updateAgent(ai, { personality: value })} />
                                 </div>
                               </div>
                               <div>
                                 <label htmlFor={`ed-agent-desc-${ai}`} className={fieldLabel}>{t("description")}</label>
-                                <AutoTextarea id={`ed-agent-desc-${ai}`} className={textareaCls} value={agent.description} onChange={(e) => updateAgent(ai, { description: e.target.value })} />
+                                <AutoTextarea id={`ed-agent-desc-${ai}`} rows={3} className={textareaCls} value={agent.description} onChange={(e) => updateAgent(ai, { description: e.target.value })} />
                               </div>
                               <div>
                                 <label htmlFor={`ed-agent-goals-${ai}`} className={fieldLabel}>{t("goals")}</label>
-                                <AutoTextarea
-                                  id={`ed-agent-goals-${ai}`}
-                                  className={textareaCls}
-                                  value={(agent.goals || []).join("\n")}
-                                  placeholder={t("ph_goals")}
-                                  onChange={(e) => updateAgent(ai, { goals: e.target.value.split("\n").filter(Boolean) })}
+                                <StringListEditor
+                                  idBase={`ed-agent-goals-${ai}`}
+                                  values={agent.goals || []}
+                                  addLabel={t("add_goal")}
+                                  itemPlaceholder={t("ph_goals")}
+                                  addPlaceholder={t("ph_goals")}
+                                  onChange={(value) => updateAgent(ai, { goals: value })}
                                 />
                               </div>
-                              <div className="grid grid-cols-2 gap-3">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div>
                                   <label htmlFor={`ed-agent-inv-${ai}`} className={fieldLabel}>{t("inventory")}</label>
-                                  <input
-                                    id={`ed-agent-inv-${ai}`}
-                                    className={inputCls}
-                                    value={(agent.inventory || []).join(", ")}
-                                    placeholder={t("ph_inventory")}
-                                    onChange={(e) => updateAgent(ai, { inventory: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                                  <StringListEditor
+                                    idBase={`ed-agent-inv-${ai}`}
+                                    values={agent.inventory || []}
+                                    addLabel={t("add_inventory_item")}
+                                    itemPlaceholder={t("ph_inventory")}
+                                    addPlaceholder={t("ph_inventory")}
+                                    onChange={(value) => updateAgent(ai, { inventory: value })}
                                   />
                                 </div>
                                 <div>
                                   <label htmlFor={`ed-agent-loc-${ai}`} className={fieldLabel}>{t("starting_location")}</label>
-                                  <input id={`ed-agent-loc-${ai}`} className={inputCls} value={agent.location} onChange={(e) => updateAgent(ai, { location: e.target.value })} />
+                                  <ExpandableInput id={`ed-agent-loc-${ai}`} className={inputCls} value={agent.location} onValueChange={(value) => updateAgent(ai, { location: value })} />
                                 </div>
                               </div>
                               <div className="flex items-center gap-3 pt-1">
@@ -624,19 +922,174 @@ export default function Home() {
                           {t("panel_no_items")}
                         </div>
                       ) : (
-                        allItems.map((item) => (
-                          <div key={item.name} className="border border-b-DEFAULT bg-surface-1 px-4 py-3 hover:border-b-hover transition-colors">
-                            <div className="flex items-center justify-between">
-                              <span className="text-body font-semibold">{item.name}</span>
+                        allItems.map((item, itemIndex) => {
+                          const exportedSeed = exportedItemMap.get(item.name) || null;
+                          const itemDraft = itemDrafts[item.name] ?? item.name;
+                          const hasNarrative = Boolean(
+                            item.description.trim() ||
+                            item.origin.trim() ||
+                            item.properties.length > 0 ||
+                            item.significance.trim(),
+                          );
+
+                          return (
+                            <div key={item.name} className="border border-b-DEFAULT hover:border-b-hover transition-colors">
+                              <button
+                                type="button"
+                                aria-expanded={expandedItem === item.name}
+                                onClick={() => {
+                                  setExpandedItem(expandedItem === item.name ? null : item.name);
+                                  setItemDrafts((prev) => ({
+                                    ...prev,
+                                    [item.name]: prev[item.name] ?? item.name,
+                                  }));
+                                }}
+                                className="w-full px-4 py-3 flex items-center gap-3 text-left bg-surface-1 hover:bg-surface-3 transition-colors"
+                              >
+                                <StatusDot status="warning" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-body font-semibold truncate">{item.name}</div>
+                                  <div className="text-micro text-t-dim tracking-wider mt-0.5 truncate">
+                                    {t("panel_held_by")}: {item.holders.join(" / ")}
+                                  </div>
+                                </div>
+                                <span className="text-micro text-t-dim tracking-wider shrink-0">
+                                  {expandedItem === item.name ? "\u25BE" : "\u25B8"}
+                                </span>
+                              </button>
+                              {expandedItem === item.name && (
+                                <div className="border-t border-b-DEFAULT bg-void px-4 py-3 animate-slide-down flex flex-col gap-3">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                      <label htmlFor={`ed-item-name-${itemIndex}`} className={fieldLabel}>{t("name")}</label>
+                                      <ExpandableInput
+                                        id={`ed-item-name-${itemIndex}`}
+                                        className={inputCls}
+                                        value={itemDraft}
+                                        onValueChange={(value) =>
+                                          setItemDrafts((prev) => ({
+                                            ...prev,
+                                            [item.name]: value,
+                                          }))
+                                        }
+                                      />
+                                    </div>
+                                    <div>
+                                      <div className={fieldLabel}>{t("panel_held_by")}</div>
+                                      {item.holders.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {item.holders.map((holder) => (
+                                            <span key={holder} className="text-micro text-info tracking-wider px-2 py-0.5 border border-info/40">
+                                              {holder}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div className="text-detail text-t-dim normal-case tracking-normal">
+                                          {t("world_item_unassigned")}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <label htmlFor={`ed-item-desc-${itemIndex}`} className={fieldLabel}>{t("description")}</label>
+                                    <AutoTextarea
+                                      id={`ed-item-desc-${itemIndex}`}
+                                      rows={3}
+                                      className={textareaCls}
+                                      value={item.description}
+                                      onChange={(e) => updateWorldItem(item.name, { description: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label htmlFor={`ed-item-origin-${itemIndex}`} className={fieldLabel}>{t("origin")}</label>
+                                    <AutoTextarea
+                                      id={`ed-item-origin-${itemIndex}`}
+                                      rows={3}
+                                      className={textareaCls}
+                                      value={item.origin}
+                                      onChange={(e) => updateWorldItem(item.name, { origin: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className={fieldLabel}>{t("properties")}</label>
+                                    <StringListEditor
+                                      idBase={`ed-item-properties-${itemIndex}`}
+                                      values={item.properties}
+                                      addLabel={t("add_property")}
+                                      itemPlaceholder={t("ph_item_property")}
+                                      addPlaceholder={t("ph_item_property")}
+                                      onChange={(value) => updateWorldItem(item.name, { properties: value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label htmlFor={`ed-item-significance-${itemIndex}`} className={fieldLabel}>{t("significance")}</label>
+                                    <AutoTextarea
+                                      id={`ed-item-significance-${itemIndex}`}
+                                      rows={3}
+                                      className={textareaCls}
+                                      value={item.significance}
+                                      onChange={(e) => updateWorldItem(item.name, { significance: e.target.value })}
+                                    />
+                                  </div>
+
+                                  {!hasNarrative && (
+                                    <div className="text-detail text-t-dim normal-case tracking-normal">
+                                      {t("world_item_empty")}
+                                    </div>
+                                  )}
+
+                                  {exportedSeed && (
+                                    <div className="text-micro text-primary tracking-wider">
+                                      {t("world_item_exported")}
+                                    </div>
+                                  )}
+
+                                  <div className="flex items-center gap-3 pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleCommitItemRename(item.name)}
+                                      disabled={!itemDraft.trim() || itemDraft.trim() === item.name}
+                                      className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                      {t("save")}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleGenerateWorldItem(item)}
+                                      disabled={!latestWorldSessionId || generatingItem === item.name}
+                                      className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                      {generatingItem === item.name
+                                        ? t("generating")
+                                        : hasNarrative
+                                        ? t("optimize_item")
+                                        : t("generate_details")}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleExportWorldItem(item)}
+                                      disabled={!item.name.trim() || exportingItem === item.name}
+                                      className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                      {exportingItem === item.name
+                                        ? t("saving")
+                                        : exportedSeed
+                                        ? t("export_seed_update")
+                                        : t("export_to_seed_library")}
+                                    </button>
+                                  </div>
+                                  {!latestWorldSessionId && (
+                                    <div className="text-micro text-t-dim tracking-wider normal-case">
+                                      {t("world_item_generate_requires_timeline")}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            <div className="mt-1 flex items-center gap-2">
-                              <span className="text-micro text-t-dim tracking-widest">{t("panel_held_by")}:</span>
-                              {item.holders.map((h) => (
-                                <span key={h} className="text-micro text-info tracking-wider">{h}</span>
-                              ))}
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   )}
@@ -664,11 +1117,11 @@ export default function Home() {
                             <div className="border-t border-b-DEFAULT bg-void px-4 py-3 animate-slide-down flex flex-col gap-3">
                               <div>
                                 <label htmlFor={`ed-loc-name-${li}`} className={fieldLabel}>{t("name")}</label>
-                                <input id={`ed-loc-name-${li}`} className={inputCls} value={loc.name} onChange={(e) => updateLocation(li, { name: e.target.value })} />
+                                <ExpandableInput id={`ed-loc-name-${li}`} className={inputCls} value={loc.name} onValueChange={(value) => updateLocation(li, { name: value })} />
                               </div>
                               <div>
                                 <label htmlFor={`ed-loc-desc-${li}`} className={fieldLabel}>{t("description")}</label>
-                                <AutoTextarea id={`ed-loc-desc-${li}`} className={textareaCls} value={loc.description} onChange={(e) => updateLocation(li, { description: e.target.value })} />
+                                <AutoTextarea id={`ed-loc-desc-${li}`} rows={3} className={textareaCls} value={loc.description} onChange={(e) => updateLocation(li, { description: e.target.value })} />
                               </div>
                               {/* Agents here */}
                               {(() => {
@@ -706,43 +1159,40 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Rules tab — editable (one rule per line) */}
+                  {/* Rules tab — editable */}
                   {assetTab === "rules" && ed && (
                     <div className="p-3">
-                      <label htmlFor="ed-rules" className="sr-only">{t("rules")}</label>
-                      <AutoTextarea
-                        id="ed-rules"
-                        className={textareaCls}
-                        value={(ed.rules || []).join("\n")}
-                        placeholder={t("ph_rules")}
-                        onChange={(e) => updateEdit({ rules: e.target.value.split("\n").filter(Boolean) })}
+                      <label htmlFor="ed-rules-draft" className="sr-only">{t("rules")}</label>
+                      <StringListEditor
+                        idBase="ed-rules"
+                        values={ed.rules || []}
+                        addLabel={t("add_rule")}
+                        itemPlaceholder={t("ph_rules")}
+                        addPlaceholder={t("ph_rules")}
+                        onChange={(value) => updateEdit({ rules: value })}
                       />
-                      <div className="mt-1.5 text-micro text-t-dim tracking-wider normal-case">
-                        {t("one_per_line")}
-                      </div>
                     </div>
                   )}
 
-                  {/* Events tab — editable (one event per line) */}
+                  {/* Events tab — editable */}
                   {assetTab === "events" && ed && (
                     <div className="p-3">
-                      <label htmlFor="ed-events" className="sr-only">{t("initial_events")}</label>
-                      <AutoTextarea
-                        id="ed-events"
-                        className={textareaCls}
-                        value={(ed.initial_events || []).join("\n")}
-                        placeholder={t("ph_events")}
-                        onChange={(e) => updateEdit({ initial_events: e.target.value.split("\n").filter(Boolean) })}
+                      <label htmlFor="ed-events-draft" className="sr-only">{t("initial_events")}</label>
+                      <StringListEditor
+                        idBase="ed-events"
+                        values={ed.initial_events || []}
+                        addLabel={t("add_event")}
+                        itemPlaceholder={t("ph_events")}
+                        addPlaceholder={t("ph_events")}
+                        onChange={(value) => updateEdit({ initial_events: value })}
                       />
-                      <div className="mt-1.5 text-micro text-t-dim tracking-wider normal-case">
-                        {t("one_per_line")}
-                      </div>
                     </div>
                   )}
                 </div>
               )}
             </div>
-          </div>
+        </div>
+
       </div>
     );
   }
@@ -846,7 +1296,7 @@ export default function Home() {
               <div className={`flex flex-col gap-px bg-b-DEFAULT stagger-in relative overflow-hidden transition-opacity duration-slow ${detailLoading ? "opacity-40 pointer-events-none" : ""}`}>
                 <span className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/8 to-transparent bg-[length:200%_100%] animate-[boot-sweep_700ms_cubic-bezier(0.16,1,0.3,1)_both] pointer-events-none z-10" aria-hidden="true" />
                 {seeds.map((seed) => {
-                  const saveCount = getWorldSessions(seed.name).length;
+                  const saveCount = getWorldSessions(seed.name).sessions.length;
                   return (
                     <button
                       type="button"
@@ -881,5 +1331,13 @@ export default function Home() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <HomeContent />
+    </Suspense>
   );
 }

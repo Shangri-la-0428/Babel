@@ -1,6 +1,7 @@
+import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { StatusDot, Badge, ErrorBanner, EmptyState, FormLabel, DetailSection } from "@/components/ui";
+import { StatusDot, Badge, ErrorBanner, EmptyState, FormLabel, DetailSection, ExpandableInput, StringListEditor } from "@/components/ui";
 
 // Mock useLocale for components that need it
 vi.mock("@/lib/locale-context", () => ({
@@ -179,5 +180,79 @@ describe("DetailSection", () => {
     const { container } = render(<DetailSection label="Test">Content</DetailSection>);
     const div = container.firstChild as HTMLElement;
     expect(div.className).toContain("border-b");
+  });
+});
+
+describe("ExpandableInput", () => {
+  it("supports manual expand and collapse for text fields", () => {
+    const onValueChange = vi.fn();
+    const { container } = render(
+      <ExpandableInput id="expandable" value="Short text" onValueChange={onValueChange} className="w-full h-9" />
+    );
+
+    fireEvent.click(screen.getByText("expand"));
+    expect(container.querySelector("textarea")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("collapse"));
+    expect(container.querySelector("input")).toBeTruthy();
+  });
+
+  it("normalizes line breaks when expanded", () => {
+    const onValueChange = vi.fn();
+    const { container } = render(
+      <ExpandableInput id="expandable-lines" value="Line" onValueChange={onValueChange} className="w-full h-9" />
+    );
+
+    fireEvent.click(screen.getByText("expand"));
+    const textarea = container.querySelector("textarea");
+    expect(textarea).toBeTruthy();
+    fireEvent.change(textarea!, { target: { value: "alpha\nbeta" } });
+    expect(onValueChange).toHaveBeenLastCalledWith("alpha beta");
+  });
+});
+
+describe("StringListEditor", () => {
+  it("adds a new independent item", () => {
+    function Harness() {
+      const [items, setItems] = React.useState<string[]>(["dagger"]);
+      return (
+        <StringListEditor
+          values={items}
+          onChange={setItems}
+          addLabel="add"
+          itemPlaceholder="item"
+          addPlaceholder="item"
+        />
+      );
+    }
+
+    render(<Harness />);
+    const inputs = screen.getAllByRole("textbox");
+    fireEvent.change(inputs[1], { target: { value: "torch" } });
+    fireEvent.click(screen.getByText("add"));
+    expect(screen.getAllByRole("textbox")).toHaveLength(3);
+    expect(screen.getByDisplayValue("dagger")).toBeTruthy();
+    expect(screen.getByDisplayValue("torch")).toBeTruthy();
+  });
+
+  it("removes an emptied item on blur instead of merging text", () => {
+    function Harness() {
+      const [items, setItems] = React.useState<string[]>(["dagger", "torch"]);
+      return (
+        <StringListEditor
+          values={items}
+          onChange={setItems}
+          addLabel="add"
+          itemPlaceholder="item"
+        />
+      );
+    }
+
+    render(<Harness />);
+    const inputs = screen.getAllByRole("textbox");
+    fireEvent.change(inputs[0], { target: { value: "" } });
+    fireEvent.blur(inputs[0]);
+    expect(screen.queryByDisplayValue("dagger")).toBeNull();
+    expect(screen.getByDisplayValue("torch")).toBeTruthy();
   });
 });

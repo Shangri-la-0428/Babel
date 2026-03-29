@@ -77,6 +77,8 @@ test.describe("M1: Home Page — World Discovery", () => {
     // Click a seed
     await page.locator("button").filter({ hasText: "赛博酒吧" }).click();
 
+    await expect(page).toHaveURL(/\/\?seed=cyber_bar\.json/, { timeout: 10_000 });
+
     // Should navigate to detail view with action buttons
     await expect(page.getByRole("button", { name: /Save & Launch|保存并启动/ })).toBeVisible({ timeout: 10_000 });
 
@@ -164,8 +166,16 @@ test.describe("M1: Home Page — World Discovery", () => {
     // Click Back
     await page.getByRole("button", { name: /^←/ }).click();
 
+    await expect(page).toHaveURL("/", { timeout: 10_000 });
+
     // Should see seed list again
     await expect(page.locator("button").filter({ hasText: "赛博酒吧" })).toBeVisible();
+  });
+
+  test("should restore the same world detail after refresh", async ({ page }) => {
+    await page.goto("/?seed=cyber_bar.json");
+    await expect(page.getByRole("button", { name: /Save & Launch|保存并启动/ })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("赛博酒吧").first()).toBeVisible();
   });
 });
 
@@ -259,7 +269,31 @@ test.describe("M1.2: Timeline & Session History", () => {
     await expect(page.getByRole("button", { name: /Edit|编辑/i })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole("button", { name: /Edit|编辑/i }).click();
-    await expect(page).toHaveURL(/\/create/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/create\?seed=cyber_bar\.json/, { timeout: 15_000 });
+  });
+
+  test("should open scoped assets from world detail and show world agents and items", async ({ page }) => {
+    await mockBackendAPIs(page);
+    await page.goto("/");
+    await page.locator("button").filter({ hasText: "赛博酒吧" }).click();
+
+    await page.locator('a[href*="/assets?world="]').first().click();
+    await expect(page).toHaveURL(/\/assets\?world=.*seed=cyber_bar\.json/, { timeout: 10_000 });
+
+    await expect(page.getByText("Kai").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Rag").first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("should expand world item rows and expose edit controls", async ({ page }) => {
+    await mockBackendAPIs(page);
+    await page.goto("/");
+    await page.locator("button").filter({ hasText: "赛博酒吧" }).click();
+
+    await page.getByRole("tab", { name: /物品|Item/i }).click();
+    await page.getByRole("button", { name: /Rag/ }).click();
+
+    await expect(page.locator('input[id^="ed-item-name-"]').first()).toHaveValue("Rag");
+    await expect(page.getByRole("button", { name: /创建并编辑种子|Create & Edit Seed/i }).first()).toBeVisible();
   });
 });
 

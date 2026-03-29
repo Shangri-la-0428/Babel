@@ -186,9 +186,28 @@ Rules:
 - Respond ONLY as this character. Do not break character.
 - Your response should reflect the character's personality, goals, knowledge, and current emotional state.
 - You only know what your character has experienced (their memory). Do not reference events you haven't witnessed.
+- Obey any explicit response-language directive in the prompt. If none is given, follow the user's language.
 - Keep responses concise and natural — 1-4 sentences unless a longer reply is warranted.
 - Do not output JSON. Respond in plain text, as the character would speak.\
 """
+
+
+def _resolve_response_language(
+    preferred_language: str = "",
+    user_message: str = "",
+    source_text: str = "",
+) -> str:
+    """Resolve a stable response language hint from user intent or source material."""
+    combined = f"{user_message}\n{source_text}"
+    if any("\u4e00" <= ch <= "\u9fff" for ch in combined):
+        return "Simplified Chinese"
+
+    normalized = preferred_language.strip().lower()
+    if normalized in {"cn", "zh", "zh-cn", "zh_cn", "chinese", "simplified chinese"}:
+        return "Simplified Chinese"
+    if normalized in {"en", "en-us", "en-gb", "english"}:
+        return "English"
+    return "Match the user's language exactly"
 
 
 def build_chat_prompt(
@@ -200,12 +219,14 @@ def build_chat_prompt(
     agent_memory: list[str],
     agent_description: str,
     user_message: str,
+    preferred_language: str = "",
 ) -> str:
     goals_text = "\n".join(f"- {g}" for g in agent_goals) if agent_goals else "(none)"
     inv_text = ", ".join(agent_inventory) if agent_inventory else "(empty)"
     memory_text = "(no memories yet)"
     if agent_memory:
         memory_text = "\n".join(f"- {m}" for m in agent_memory[-10:])
+    response_language = _resolve_response_language(preferred_language, user_message)
 
     return f"""\
 [Your Character]
@@ -222,6 +243,9 @@ Inventory: {inv_text}
 
 [User speaks to you]
 "{user_message}"
+
+[Response Language]
+Use {response_language} for the reply unless the user explicitly requests another language.
 
 [Instruction]
 Respond in character as {agent_name}. Plain text only, no JSON."""
@@ -336,6 +360,7 @@ Rules:
 - Ground all details in the entity's actual event history. Do not invent facts that contradict events.
 - Keep descriptions vivid but concise (2-4 sentences each).
 - Maintain consistency with the world's tone and setting.
+- Obey any explicit response-language directive in the prompt. If none is given, follow the world's working language.
 
 Schema by entity type:
 
@@ -371,6 +396,7 @@ def build_enrichment_prompt(
     current_details: dict,
     relevant_events: list[str],
     world_desc: str,
+    preferred_language: str = "",
 ) -> str:
     """Build the user prompt for entity enrichment."""
     current_text = "(no existing details)"
@@ -380,6 +406,10 @@ def build_enrichment_prompt(
     events_text = "(no events recorded)"
     if relevant_events:
         events_text = "\n".join(f"- {e}" for e in relevant_events[-15:])
+    response_language = _resolve_response_language(
+        preferred_language=preferred_language,
+        source_text=f"{world_desc}\n{entity_name}\n{current_text}\n{events_text}",
+    )
 
     return f"""\
 [World]
@@ -394,6 +424,9 @@ Name: {entity_name}
 
 [Event History Involving This Entity]
 {events_text}
+
+[Response Language]
+Write all human-readable fields in {response_language} unless the source material clearly requests another language.
 
 [Instruction]
 Generate enriched details for this {entity_type} as JSON. Match the schema for "{entity_type}" exactly. Only JSON, nothing else."""
@@ -411,7 +444,7 @@ Rules:
 - Reference agents by name and locations precisely.
 - Be authoritative — you KNOW, you do not guess.
 - Help the user understand dynamics, suggest interventions, predict consequences.
-- Speak in the language the user writes in.
+- Obey any explicit response-language directive in the prompt. If none is given, follow the user's language.
 - Keep responses focused and insightful (2-6 sentences unless the user asks for detail).
 - You may speculate about what agents might do, but mark it as prediction.
 - Do NOT role-play as any agent. You are the narrator, not a character.\
@@ -429,6 +462,7 @@ def build_oracle_prompt(
     user_message: str,
     narrator_persona: str = "",
     world_time_display: str = "",
+    preferred_language: str = "",
 ) -> str:
     """Build the user prompt for the Oracle narrator."""
     rules_text = "\n".join(f"- {r}" for r in world_rules) if world_rules else "(no rules)"
@@ -482,6 +516,7 @@ def build_oracle_prompt(
         persona_line = f"\n[Narrator Persona]\n{narrator_persona}\n"
 
     time_line = f"\nTime: {world_time_display}" if world_time_display else ""
+    response_language = _resolve_response_language(preferred_language, user_message)
 
     return f"""\
 [World]
@@ -500,6 +535,9 @@ Name: {world_name}
 {details_text}
 {conv_text}
 {persona_line}
+[Response Language]
+Use {response_language} for the reply unless the user explicitly requests another language.
+
 [User Message]
 "{user_message}"
 
@@ -569,6 +607,7 @@ WorldSeed JSON schema:
 def build_creative_prompt(
     user_message: str,
     conversation_history: list[dict[str, str]] | None = None,
+    preferred_language: str = "",
 ) -> str:
     """Build the user prompt for Oracle creative mode (seed generation)."""
     conv_text = ""
@@ -578,10 +617,14 @@ def build_creative_prompt(
             role = "USER" if msg.get("role") == "user" else "ORACLE"
             lines.append(f"{role}: {msg.get('content', '')}")
         conv_text = "\n[Conversation History]\n" + "\n".join(lines) + "\n"
+    response_language = _resolve_response_language(preferred_language, user_message)
 
     return f"""\
 {conv_text}[User's World Idea]
 "{user_message}"
+
+[Response Language]
+Write all human-readable fields in {response_language} unless the user explicitly asks for another language.
 
 [Instruction]
 Generate a complete WorldSeed JSON from this idea. \

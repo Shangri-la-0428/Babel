@@ -104,10 +104,10 @@ const EventItem = memo(function EventItem({
           type="button"
           onClick={() => onSeed(event.id)}
           className="text-micro tracking-wider transition-[colors,opacity] text-t-dim opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-primary"
-          title={t("extract_seed")}
-          aria-label={t("extract_seed")}
+          title={t("save_event")}
+          aria-label={t("save_event")}
         >
-          {t("seed")}
+          {t("save_event")}
         </button>
       )}
     </div>

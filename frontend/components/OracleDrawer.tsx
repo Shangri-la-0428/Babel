@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { chatWithOracle, getOracleHistory, createWorld, OracleMessage, BabelSettings } from "@/lib/api";
+import { chatWithOracle, getOracleHistory, createWorld, OracleMessage, BabelSettings, WorldSeedPayload } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import { OracleWaveform } from "./OracleWaveform";
 import { OracleParticles } from "./OracleParticles";
 import OracleHeader from "./OracleHeader";
 import OracleChat from "./OracleChat";
+import { ExpandableInput } from "./ui";
 
 type OracleMode = "narrate" | "create";
 
@@ -16,6 +17,97 @@ interface OracleDrawerProps {
   open: boolean;
   onClose: () => void;
   tick: number;
+  initialMode?: OracleMode;
+  onApplySeed?: (seed: Record<string, unknown>) => void;
+  applySeedLabel?: string;
+}
+
+function sanitizeStringList(values: unknown): string[] {
+  return Array.isArray(values)
+    ? values.map((value) => String(value).trim()).filter(Boolean)
+    : [];
+}
+
+function normalizeGeneratedSeed(raw: Record<string, unknown>): WorldSeedPayload {
+  const locations = Array.isArray(raw.locations)
+    ? raw.locations
+        .map((location) => {
+          if (!location || typeof location !== "object") return null;
+          const entry = location as { name?: unknown; description?: unknown };
+          const name = typeof entry.name === "string" ? entry.name.trim() : "";
+          if (!name) return null;
+          return {
+            name,
+            description: typeof entry.description === "string" ? entry.description : "",
+          };
+        })
+        .filter((location): location is { name: string; description: string } => Boolean(location))
+    : [];
+
+  const items = Array.isArray(raw.items)
+    ? raw.items
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const entry = item as {
+            name?: unknown;
+            description?: unknown;
+            origin?: unknown;
+            properties?: unknown;
+            significance?: unknown;
+          };
+          const name = typeof entry.name === "string" ? entry.name.trim() : "";
+          if (!name) return null;
+          return {
+            name,
+            description: typeof entry.description === "string" ? entry.description : "",
+            origin: typeof entry.origin === "string" ? entry.origin : "",
+            properties: sanitizeStringList(entry.properties),
+            significance: typeof entry.significance === "string" ? entry.significance : "",
+          };
+        })
+        .filter((item): item is WorldSeedPayload["items"][number] => Boolean(item))
+    : [];
+
+  const agents = Array.isArray(raw.agents)
+    ? raw.agents
+        .map((agent, index) => {
+          if (!agent || typeof agent !== "object") return null;
+          const entry = agent as {
+            id?: unknown;
+            name?: unknown;
+            description?: unknown;
+            personality?: unknown;
+            goals?: unknown;
+            inventory?: unknown;
+            location?: unknown;
+          };
+          const name = typeof entry.name === "string" ? entry.name.trim() : "";
+          if (!name) return null;
+          return {
+            id:
+              typeof entry.id === "string" && entry.id.trim()
+                ? entry.id
+                : `oracle_agent_${Date.now()}_${index}`,
+            name,
+            description: typeof entry.description === "string" ? entry.description : "",
+            personality: typeof entry.personality === "string" ? entry.personality : "",
+            goals: sanitizeStringList(entry.goals),
+            inventory: sanitizeStringList(entry.inventory),
+            location: typeof entry.location === "string" ? entry.location : "",
+          };
+        })
+        .filter((agent): agent is WorldSeedPayload["agents"][number] => Boolean(agent))
+    : [];
+
+  return {
+    name: typeof raw.name === "string" ? raw.name : "",
+    description: typeof raw.description === "string" ? raw.description : "",
+    rules: sanitizeStringList(raw.rules),
+    locations,
+    items,
+    agents,
+    initial_events: sanitizeStringList(raw.initial_events),
+  };
 }
 
 export default function OracleDrawer({
@@ -24,9 +116,12 @@ export default function OracleDrawer({
   open,
   onClose,
   tick,
+  initialMode = "narrate",
+  onApplySeed,
+  applySeedLabel,
 }: OracleDrawerProps) {
-  const { t } = useLocale();
-  const [mode, setMode] = useState<OracleMode>("narrate");
+  const { t, locale } = useLocale();
+  const [mode, setMode] = useState<OracleMode>(initialMode);
   const [messages, setMessages] = useState<OracleMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -36,7 +131,7 @@ export default function OracleDrawer({
   const [generatedSeed, setGeneratedSeed] = useState<Record<string, unknown> | null>(null);
   const [creatingSeed, setCreatingSeed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const latestMsgId = useRef<string | null>(null);
   const sendControllerRef = useRef<AbortController | null>(null);
@@ -148,6 +243,7 @@ export default function OracleDrawer({
         api_base: settings.apiBase || undefined,
         signal: controller.signal,
         mode,
+        language: locale,
       });
       const oracleMsg: OracleMessage = {
         id: res.message_id,
@@ -162,9 +258,16 @@ export default function OracleDrawer({
       if (res.mode === "create" && res.seed) {
         setGeneratedSeed(res.seed);
       }
-    } catch {
+    } catch (err) {
       if (!controller.signal.aborted) {
-        setError(t("oracle_failed"));
+        const detail = err instanceof Error ? err.message : "";
+        if (mode === "create" && detail) {
+          setError(`${t("oracle_create_failed")} ${detail}`);
+        } else if (mode === "create") {
+          setError(t("oracle_create_failed"));
+        } else {
+          setError(t("oracle_failed"));
+        }
       }
     } finally {
       if (sendControllerRef.current === controller) {
@@ -172,7 +275,7 @@ export default function OracleDrawer({
         sendControllerRef.current = null;
       }
     }
-  }, [input, loading, sessionId, settings, tick, t, mode]);
+  }, [input, loading, sessionId, settings, tick, t, mode, locale]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -186,18 +289,22 @@ export default function OracleDrawer({
     if (newMode === "create") setGeneratedSeed(null);
   }, []);
 
-  const handleCreateWorld = useCallback(async () => {
+  const handlePrimaryAction = useCallback(async () => {
     if (!generatedSeed || creatingSeed) return;
+    if (onApplySeed) {
+      onApplySeed(generatedSeed);
+      return;
+    }
     setCreatingSeed(true);
     try {
-      const result = await createWorld(generatedSeed as Parameters<typeof createWorld>[0]);
+      const result = await createWorld(normalizeGeneratedSeed(generatedSeed));
       window.location.href = `/sim?id=${result.session_id}`;
     } catch {
       setError(t("failed_create"));
     } finally {
       setCreatingSeed(false);
     }
-  }, [generatedSeed, creatingSeed, t]);
+  }, [generatedSeed, creatingSeed, onApplySeed, t]);
 
   return (
     <div
@@ -237,13 +344,14 @@ export default function OracleDrawer({
           scrollRef={scrollRef}
           onSend={handleSend}
           onDismissError={handleDismissError}
-          onCreateWorld={handleCreateWorld}
+          onPrimaryAction={handlePrimaryAction}
+          primaryActionLabel={onApplySeed ? (applySeedLabel || t("oracle_apply_seed")) : t("oracle_create_world")}
           t={t as (key: string, ...args: string[]) => string}
         />
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="flex gap-2 p-4 border-t border-b-DEFAULT shrink-0 relative overflow-hidden">
+      <form onSubmit={handleSubmit} className="flex items-end gap-2 p-4 border-t border-b-DEFAULT shrink-0 relative overflow-hidden">
         {sendCount > 0 && (
           <span
             key={sendCount}
@@ -251,22 +359,27 @@ export default function OracleDrawer({
             aria-hidden="true"
           />
         )}
-        <input
-          ref={inputRef}
-          type="text"
+        <ExpandableInput
+          inputRef={inputRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onValueChange={setInput}
           placeholder={mode === "create" ? t("oracle_create_placeholder") : t("oracle_placeholder")}
           maxLength={2000}
           disabled={loading}
           aria-label={mode === "create" ? t("oracle_create_placeholder") : t("oracle_placeholder")}
           className="flex-1 min-w-0 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void handleSend();
+            }
+          }}
         />
         <button
           type="submit"
           disabled={loading || !input.trim()}
           aria-label={t("oracle_send")}
-          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform]"
+          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform] shrink-0"
         >
           {t("oracle_send")}
         </button>

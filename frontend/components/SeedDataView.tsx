@@ -67,9 +67,10 @@ export function renderSeedData(
     case "item":
       return (
         <div className="flex flex-col gap-3">
-          <DataField label={t("name")} value={data.name as string} />
-          <DataField label={t("description")} value={(data.description as string) || ""} />
-          <DataField label={t("tags_label")} value={(data.tags as string[]) || []} />
+          <DataField label={t("panel_holders")} value={(data.holders as string[]) || []} />
+          <DataField label={t("origin")} value={(data.origin as string) || ""} />
+          <DataField label={t("properties")} value={(data.properties as string[]) || []} />
+          <DataField label={t("significance")} value={(data.significance as string) || ""} />
         </div>
       );
     case "location":

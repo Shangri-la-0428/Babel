@@ -5,6 +5,7 @@ import { SavedSeedData, saveAsset } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import { TYPE_STYLES, renderSeedData } from "./SeedDataView";
 import Modal from "./Modal";
+import { AutoTextarea, ExpandableInput } from "./ui";
 
 export default function SeedPreview({
   seed,
@@ -77,17 +78,16 @@ export default function SeedPreview({
       <div className="px-5 py-4 border-b border-b-DEFAULT flex flex-col gap-3 shrink-0">
         <div>
           <label htmlFor="seed-name" className="text-micro text-t-muted tracking-widest block mb-1.5">{t("seed_name")}</label>
-          <input
+          <ExpandableInput
             id="seed-name"
-            type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onValueChange={setName}
             className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
           />
         </div>
         <div>
           <label htmlFor="seed-desc" className="text-micro text-t-muted tracking-widest block mb-1.5">{t("seed_desc")}</label>
-          <textarea
+          <AutoTextarea
             id="seed-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -97,11 +97,10 @@ export default function SeedPreview({
         </div>
         <div>
           <label htmlFor="seed-tags" className="text-micro text-t-muted tracking-widest block mb-1.5">{t("seed_tags")}</label>
-          <input
+          <ExpandableInput
             id="seed-tags"
-            type="text"
             value={tagsInput}
-            onChange={(e) => setTagsInput(e.target.value)}
+            onValueChange={setTagsInput}
             className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
           />
         </div>
@@ -120,7 +119,7 @@ export default function SeedPreview({
       {/* Footer */}
       <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-b-DEFAULT bg-surface-1 shrink-0">
         {saveError && (
-          <span className="text-micro text-danger tracking-wider mr-auto">{t("delete_failed")}</span>
+          <span className="text-micro text-danger tracking-wider mr-auto">{t("save_failed")}</span>
         )}
         <button
           type="button"

@@ -1,11 +1,37 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
-import { AgentData, WorldState, SavedSeedData, RelationData, generateSeed, fetchAssets, enrichEntity } from "@/lib/api";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { AgentData, WorldState, SavedSeedData, RelationData, HumanWaitingContext, fetchAssets, enrichEntity, saveAsset, saveEntityDetails, updateAsset } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
-import { StatusDot } from "./ui";
+import { AutoTextarea, ExpandableInput, StatusDot, StringListEditor } from "./ui";
+import SeedDetail from "./SeedDetail";
+import Modal from "./Modal";
+import { assetMatchesContext, buildAssetsHref, buildSimHref } from "@/lib/navigation";
 
 type Tab = "agents" | "items" | "locations" | "world";
+
+function entityCacheKey(entityType: "agent" | "item" | "location", entityId: string): string {
+  return `${entityType}:${entityId}`;
+}
+
+function normalizeItemDetails(details?: Record<string, unknown> | null) {
+  return {
+    description: typeof details?.description === "string" ? details.description : "",
+    origin: typeof details?.origin === "string" ? details.origin : "",
+    properties: Array.isArray(details?.properties) ? details.properties.map(String).filter(Boolean) : [],
+    significance: typeof details?.significance === "string" ? details.significance : "",
+  };
+}
+
+function hasItemNarrative(details?: Record<string, unknown> | null): boolean {
+  const normalized = normalizeItemDetails(details);
+  return Boolean(
+    normalized.description.trim() ||
+    normalized.origin.trim() ||
+    normalized.properties.length > 0 ||
+    normalized.significance.trim(),
+  );
+}
 
 // ── Agent list item (expandable) ──
 const RELATION_COLORS: Record<string, string> = {
@@ -23,6 +49,219 @@ const GOAL_STATUS_COLORS: Record<string, string> = {
   failed: "text-danger border-danger",
 };
 
+const HUMAN_ACTION_TYPES = [
+  { key: "speak", needsTarget: true, needsContent: true, targetType: "agent" },
+  { key: "move", needsTarget: true, needsContent: false, targetType: "location" },
+  { key: "trade", needsTarget: true, needsContent: true, targetType: "agent" },
+  { key: "use_item", needsTarget: true, needsContent: false, targetType: "item" },
+  { key: "observe", needsTarget: false, needsContent: false, targetType: null },
+  { key: "wait", needsTarget: false, needsContent: false, targetType: null },
+] as const;
+
+type HumanActionKey = typeof HUMAN_ACTION_TYPES[number]["key"];
+
+function InlineHumanControl({
+  agentId,
+  context,
+  waiting,
+  onSubmit,
+}: {
+  agentId: string;
+  context: HumanWaitingContext;
+  waiting: boolean;
+  onSubmit?: (agentId: string, actionType: string, target: string, content: string) => Promise<void> | void;
+}) {
+  const { t } = useLocale();
+  const [selectedAction, setSelectedAction] = useState<HumanActionKey>("speak");
+  const [target, setTarget] = useState("");
+  const [content, setContent] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const actionDef = useMemo(
+    () => HUMAN_ACTION_TYPES.find((action) => action.key === selectedAction) || HUMAN_ACTION_TYPES[0],
+    [selectedAction],
+  );
+
+  const sameLocAgents = useMemo(
+    () => context.visible_agents.filter((agent) => agent.location === context.location),
+    [context],
+  );
+
+  const otherLocations = useMemo(
+    () => context.reachable_locations.filter((location) => location !== context.location),
+    [context],
+  );
+
+  const targetOptions = useMemo(() => {
+    switch (actionDef.targetType) {
+      case "agent":
+        return sameLocAgents.map((agent) => ({ value: agent.id, label: agent.name }));
+      case "location":
+        return otherLocations.map((location) => ({ value: location, label: location }));
+      case "item":
+        return context.inventory.map((item) => ({ value: item, label: item }));
+      default:
+        return [];
+    }
+  }, [actionDef.targetType, context.inventory, otherLocations, sameLocAgents]);
+
+  useEffect(() => {
+    if (!actionDef.needsTarget) {
+      if (target) setTarget("");
+      return;
+    }
+    if (targetOptions.some((option) => option.value === target)) return;
+    setTarget(targetOptions.length === 1 ? targetOptions[0].value : "");
+  }, [actionDef.needsTarget, target, targetOptions]);
+
+  const canSubmit = waiting && Boolean(selectedAction) && (!actionDef.needsTarget || Boolean(target));
+
+  async function handleSubmit() {
+    if (!canSubmit || submitting || !onSubmit) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onSubmit(agentId, selectedAction, target, content.trim());
+      if (selectedAction === "speak" || selectedAction === "trade") {
+        setContent("");
+      }
+    } catch {
+      setSubmitError(t("human_action_failed"));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-b-DEFAULT">
+      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-b-DEFAULT">
+        <span className={`text-micro tracking-widest ${waiting ? "text-primary" : "text-t-dim"}`}>
+          {waiting ? t("waiting_for_action") : t("manual_control_standby")}
+        </span>
+        <span className="text-micro text-t-dim tracking-wider shrink-0">{context.agent_name}</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-px bg-b-DEFAULT border-b border-b-DEFAULT">
+        <div className="bg-void px-3 py-2 min-w-0">
+          <div className="text-micro text-t-dim tracking-widest mb-0.5">{t("you_are_here")}</div>
+          <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
+            {context.location || "\u2014"}
+          </div>
+        </div>
+        <div className="bg-void px-3 py-2 min-w-0">
+          <div className="text-micro text-t-dim tracking-widest mb-0.5">{t("your_inventory")}</div>
+          <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
+            {context.inventory.length > 0 ? context.inventory.join(", ") : "\u2014"}
+          </div>
+        </div>
+        <div className="bg-void px-3 py-2 min-w-0">
+          <div className="text-micro text-t-dim tracking-widest mb-0.5">{t("nearby_agents")}</div>
+          <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
+            {sameLocAgents.length > 0 ? sameLocAgents.map((agent) => agent.name).join(", ") : "\u2014"}
+          </div>
+        </div>
+        <div className="bg-void px-3 py-2 min-w-0">
+          <div className="text-micro text-t-dim tracking-widest mb-0.5">{t("reachable")}</div>
+          <div className="text-detail text-t-secondary normal-case tracking-normal truncate">
+            {otherLocations.length > 0 ? otherLocations.join(", ") : "\u2014"}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-px bg-b-DEFAULT border-b border-b-DEFAULT">
+        {HUMAN_ACTION_TYPES.map((action) => {
+          const isSelected = selectedAction === action.key;
+          const isDisabled =
+            (action.targetType === "agent" && sameLocAgents.length === 0) ||
+            (action.targetType === "location" && otherLocations.length === 0) ||
+            (action.targetType === "item" && context.inventory.length === 0);
+
+          return (
+            <button
+              type="button"
+              key={action.key}
+              onClick={() => {
+                if (isDisabled) return;
+                setSelectedAction(action.key);
+                setSubmitError(null);
+              }}
+              disabled={isDisabled}
+              className={`bg-void px-3 py-2 text-micro tracking-widest transition-colors ${
+                isSelected
+                  ? "text-primary shadow-[inset_0_-1px_0_var(--color-primary)]"
+                  : isDisabled
+                  ? "text-t-dim opacity-40 cursor-not-allowed"
+                  : "text-t-muted hover:text-t-DEFAULT hover:bg-surface-1"
+              }`}
+            >
+              {t(`action_${action.key}` as Parameters<typeof t>[0])}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex gap-px bg-b-DEFAULT border-b border-b-DEFAULT">
+        {actionDef.needsTarget && (
+          <div className="flex-1 bg-void px-3 py-2">
+            <label className="text-micro text-t-dim tracking-widest mb-1 block">
+              {t("action_target")}
+            </label>
+            <select
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              disabled={!waiting}
+              className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover disabled:opacity-50 transition-colors"
+            >
+              <option value="">---</option>
+              {targetOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {actionDef.needsContent && (
+          <div className="flex-1 bg-void px-3 py-2">
+            <label className="text-micro text-t-dim tracking-widest mb-1 block">
+              {t("action_content")}
+            </label>
+            <ExpandableInput
+              value={content}
+              onValueChange={setContent}
+              placeholder={t("manual_instruction_placeholder")}
+              disabled={!waiting}
+              className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && canSubmit) {
+                  e.preventDefault();
+                  void handleSubmit();
+                }
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="px-4 py-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void handleSubmit()}
+          disabled={!canSubmit || submitting}
+          className="h-8 px-3 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_12px_var(--color-primary-glow)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary disabled:hover:text-void disabled:hover:shadow-none transition-[colors,box-shadow,transform]"
+        >
+          {submitting ? t("submitting_action") : t("action_submit")}
+        </button>
+        <span className="min-w-0 flex-1 text-micro tracking-wider text-t-dim break-words">
+          {submitError || (waiting ? t("manual_control_ready_hint") : t("manual_control_waiting_hint"))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function AgentRow({
   agent,
   agentId,
@@ -39,8 +278,11 @@ function AgentRow({
   relations,
   agentNames,
   isHumanControlled,
+  manualContext,
+  waitingForHuman,
   onTakeControl,
   onReleaseControl,
+  onSubmitHumanAction,
 }: {
   agent: AgentData;
   agentId: string;
@@ -57,8 +299,11 @@ function AgentRow({
   relations: RelationData[];
   agentNames: Record<string, string>;
   isHumanControlled?: boolean;
+  manualContext?: HumanWaitingContext | null;
+  waitingForHuman?: boolean;
   onTakeControl?: () => void;
   onReleaseControl?: () => void;
+  onSubmitHumanAction?: (agentId: string, actionType: string, target: string, content: string) => Promise<void> | void;
 }) {
   const { t } = useLocale();
   const isDead = agent.status === "dead";
@@ -361,17 +606,17 @@ function AgentRow({
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={onEnrich}
                   disabled={enriching}
-                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {enriching ? t("enriching") : t("enrich")}
                 </button>
                 {enrichError && (
-                  <span className="text-micro text-danger tracking-wider">{t("enrich_failed")}</span>
+                  <span className="min-w-0 flex-1 text-micro text-danger tracking-wider break-words">{t("enrich_failed")}</span>
                 )}
               </div>
             )}
@@ -380,25 +625,19 @@ function AgentRow({
           {/* Actions */}
           {!isDead && (
             <div className="flex items-center gap-2 px-4 py-2">
-              {isHumanControlled ? (
-                <button
-                  type="button"
-                  key="controlled"
-                  onClick={onReleaseControl}
-                  className="h-8 px-3 text-micro tracking-wider border border-primary text-primary hover:bg-primary hover:text-void active:scale-[0.97] transition-[colors,transform] animate-[event-flash_600ms_ease]"
-                >
-                  <span className="transition-all duration-150">{t("release_control")}</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  key="autonomous"
-                  onClick={onTakeControl}
-                  className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
-                >
-                  <span className="transition-all duration-150">{t("take_control")}</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={isHumanControlled ? onReleaseControl : onTakeControl}
+                className={`h-8 px-3 text-micro tracking-wider border active:scale-[0.97] transition-[colors,transform] ${
+                  isHumanControlled
+                    ? "border-primary text-primary hover:bg-primary hover:text-void animate-[event-flash_600ms_ease]"
+                    : "border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary"
+                }`}
+              >
+                <span className="transition-all duration-150">
+                  {t(isHumanControlled ? "release_control" : "take_control")}
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={onChat}
@@ -415,6 +654,14 @@ function AgentRow({
               </button>
             </div>
           )}
+          {isHumanControlled && manualContext && (
+            <InlineHumanControl
+              agentId={agentId}
+              context={manualContext}
+              waiting={Boolean(waitingForHuman)}
+              onSubmit={onSubmitHumanAction}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -427,46 +674,171 @@ interface ItemInfo {
   holders: { agentId: string; agentName: string }[];
 }
 
+function WorldItemDetailModal({
+  itemName,
+  holders,
+  initialDetails,
+  saving,
+  errorMessage,
+  onClose,
+  onSave,
+}: {
+  itemName: string;
+  holders: { agentId: string; agentName: string }[];
+  initialDetails: Record<string, unknown> | null;
+  saving: boolean;
+  errorMessage?: string | null;
+  onClose: () => void;
+  onSave: (details: Record<string, unknown>) => Promise<void> | void;
+}) {
+  const { t } = useLocale();
+  const [draft, setDraft] = useState(() => normalizeItemDetails(initialDetails));
+
+  useEffect(() => {
+    setDraft(normalizeItemDetails(initialDetails));
+  }, [initialDetails]);
+
+  return (
+    <Modal onClose={onClose} ariaLabel={itemName} width="w-[560px]">
+      <div className="flex flex-col flex-1 min-h-0 animate-[seed-detail-enter_200ms_ease-out_both]">
+        <div className="px-6 py-4 border-b border-b-DEFAULT flex items-center justify-between shrink-0">
+          <div className="min-w-0">
+            <div className="text-micro text-warning tracking-widest mb-1">{t("world_item_details")}</div>
+            <div className="text-body font-semibold truncate">{itemName}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-micro text-t-muted tracking-wider hover:text-t-DEFAULT transition-colors"
+          >
+            {t("close")}
+          </button>
+        </div>
+
+        <div className="px-6 py-3 border-b border-b-DEFAULT text-detail text-t-dim normal-case tracking-normal">
+          {t("world_item_local_only")}
+        </div>
+
+        <div className="px-6 py-4 overflow-y-auto flex-1 flex flex-col gap-4">
+          <div>
+            <div className="text-micro text-t-muted tracking-widest mb-1.5">{t("panel_held_by")}</div>
+            {holders.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {holders.map((holder) => (
+                  <span key={holder.agentId} className="text-micro text-info tracking-wider px-2 py-0.5 border border-info/40">
+                    {holder.agentName}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="text-detail text-t-dim normal-case tracking-normal">{t("world_item_unassigned")}</div>
+            )}
+          </div>
+          <div>
+            <label htmlFor="world-item-description" className="text-micro text-t-muted tracking-widest mb-1.5 block">{t("description")}</label>
+            <AutoTextarea
+              id="world-item-description"
+              rows={4}
+              className="w-full min-h-[88px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-none focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+              value={draft.description}
+              onChange={(e) => setDraft((prev) => ({ ...prev, description: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label htmlFor="world-item-origin" className="text-micro text-t-muted tracking-widest mb-1.5 block">{t("origin")}</label>
+            <AutoTextarea
+              id="world-item-origin"
+              rows={4}
+              className="w-full min-h-[88px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-none focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+              value={draft.origin}
+              onChange={(e) => setDraft((prev) => ({ ...prev, origin: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="text-micro text-t-muted tracking-widest mb-1.5 block">{t("properties")}</label>
+            <StringListEditor
+              idBase={`world-item-properties-${itemName}`}
+              values={draft.properties}
+              addLabel={t("add_property")}
+              itemPlaceholder={t("ph_item_property")}
+              addPlaceholder={t("ph_item_property")}
+              onChange={(value) => setDraft((prev) => ({ ...prev, properties: value }))}
+            />
+          </div>
+          <div>
+            <label htmlFor="world-item-significance" className="text-micro text-t-muted tracking-widest mb-1.5 block">{t("significance")}</label>
+            <AutoTextarea
+              id="world-item-significance"
+              rows={4}
+              className="w-full min-h-[88px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-none focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+              value={draft.significance}
+              onChange={(e) => setDraft((prev) => ({ ...prev, significance: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        <div className="px-6 py-3 border-t border-b-DEFAULT flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => void onSave(draft)}
+            disabled={saving}
+            className="h-8 px-4 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+          >
+            {saving ? t("saving") : t("save_world_item_details")}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="h-8 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {t("cancel")}
+          </button>
+          {errorMessage && (
+            <span className="min-w-0 flex-1 text-micro text-danger tracking-wider break-words">
+              {errorMessage}
+            </span>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function ItemRow({
   item,
   expanded,
   onToggle,
-  cachedDetail,
-  onGenerate,
+  exportedSeed,
+  localDetails,
+  onGenerateDetails,
+  onEditDetails,
+  onExportSeed,
+  onEditExportedSeed,
+  exporting,
   generating,
-  error,
-  enrichedDetails,
-  enriching,
-  enrichError,
-  onEnrich,
+  errorMessage,
 }: {
   item: ItemInfo;
   expanded: boolean;
   onToggle: () => void;
-  cachedDetail: SavedSeedData | null;
-  onGenerate: () => void;
+  exportedSeed: SavedSeedData | null;
+  localDetails: Record<string, unknown> | null;
+  onGenerateDetails: () => void;
+  onEditDetails: () => void;
+  onExportSeed: () => void;
+  onEditExportedSeed: () => void;
+  exporting: boolean;
   generating: boolean;
-  error?: boolean;
-  enrichedDetails: Record<string, unknown> | null;
-  enriching: boolean;
-  enrichError: boolean;
-  onEnrich: () => void;
+  errorMessage?: string | null;
 }) {
   const { t } = useLocale();
-  const detail = cachedDetail?.data;
-  const description = (detail?.description as string) || "";
-
-  // Auto-enrich when expanded and no enrichment exists
-  const autoEnrichRef = useRef(false);
-  useEffect(() => {
-    if (expanded && !enrichedDetails && !enriching && !enrichError && !autoEnrichRef.current) {
-      autoEnrichRef.current = true;
-      onEnrich();
-    }
-    if (!expanded) {
-      autoEnrichRef.current = false;
-    }
-  }, [expanded, enrichedDetails, enriching, enrichError, onEnrich]);
+  const localItemDetails = normalizeItemDetails(localDetails);
+  const assetDetails = normalizeItemDetails(exportedSeed?.data || null);
+  const hasLocalNarrative = hasItemNarrative(localDetails);
+  const hasExportedNarrative = Boolean(
+    assetDetails.description || assetDetails.origin || assetDetails.properties.length > 0 || assetDetails.significance,
+  );
 
   return (
     <div className="border border-b-DEFAULT hover:border-b-hover transition-colors">
@@ -490,13 +862,6 @@ function ItemRow({
       {/* Expanded content — accordion transition */}
       <div className="accordion-grid border-t border-b-DEFAULT" data-open={expanded}>
         <div className="accordion-inner bg-void">
-          {/* Description (cached or empty) */}
-          {description && (
-            <div className="px-4 py-2 border-b border-b-DEFAULT">
-              <div className="text-micro text-t-muted tracking-widest mb-1">{t("description")}</div>
-              <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">{description}</div>
-            </div>
-          )}
           {/* Holders */}
           <div className="px-4 py-2 border-b border-b-DEFAULT">
             <div className="text-micro text-t-muted tracking-widest mb-1">{t("panel_held_by")}</div>
@@ -509,31 +874,95 @@ function ItemRow({
               ))}
             </div>
           </div>
-          {/* Enrichment */}
+          {/* World-local details */}
           <div className="px-4 py-2 border-b border-b-DEFAULT">
-            {enrichedDetails ? (
+            <div className="text-micro text-t-muted tracking-widest mb-1">{t("world_item_details")}</div>
+            {hasLocalNarrative ? (
               <>
-                {enrichedDetails.description && (
+                {localItemDetails.description && (
+                  <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                    {localItemDetails.description}
+                  </div>
+                )}
+                {localItemDetails.origin && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// " + t("origin").toUpperCase()}</div>
+                    <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                      {localItemDetails.origin}
+                    </div>
+                  </>
+                )}
+                {localItemDetails.properties.length > 0 && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// " + t("properties").toUpperCase()}</div>
+                    <div className="flex flex-wrap gap-1">
+                      {localItemDetails.properties.map((property, index) => (
+                        <span key={index} className="text-detail text-t-secondary px-2 py-0.5 border border-b-DEFAULT normal-case tracking-normal">
+                          {property}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {localItemDetails.significance && (
+                  <>
+                    <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// " + t("significance").toUpperCase()}</div>
+                    <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                      {localItemDetails.significance}
+                    </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <div className="text-detail text-t-dim normal-case tracking-normal">{t("world_item_empty")}</div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={onEditDetails}
+                className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
+              >
+                {t("edit_item_details")}
+              </button>
+              <button
+                type="button"
+                onClick={onGenerateDetails}
+                disabled={generating}
+                className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {generating ? t("generating") : hasLocalNarrative ? t("optimize_item") : t("generate_details")}
+              </button>
+              {errorMessage && (
+                <span className="min-w-0 flex-1 text-micro text-danger tracking-wider break-words">{errorMessage}</span>
+              )}
+            </div>
+          </div>
+          {/* Exported asset seed */}
+          <div className="px-4 py-2 border-b border-b-DEFAULT">
+            <div className="text-micro text-t-muted tracking-widest mb-1">{t("asset_seed_label")}</div>
+            {exportedSeed ? (
+              <>
+                {assetDetails.description && (
                   <>
                     <div className="text-micro text-t-dim tracking-widest mt-1 mb-1">{"// DESCRIPTION"}</div>
                     <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
-                      {enrichedDetails.description as string}
+                      {assetDetails.description}
                     </div>
                   </>
                 )}
-                {enrichedDetails.origin && (
+                {assetDetails.origin && (
                   <>
                     <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// ORIGIN"}</div>
                     <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
-                      {enrichedDetails.origin as string}
+                      {assetDetails.origin}
                     </div>
                   </>
                 )}
-                {(enrichedDetails.properties as string[])?.length > 0 && (
+                {assetDetails.properties.length > 0 && (
                   <>
                     <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// PROPERTIES"}</div>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {(enrichedDetails.properties as string[]).map((prop, i) => (
+                      {assetDetails.properties.map((prop, i) => (
                         <span key={i} className="text-detail text-t-secondary px-2 py-0.5 border border-b-DEFAULT normal-case tracking-normal">
                           {prop}
                         </span>
@@ -541,49 +970,48 @@ function ItemRow({
                     </div>
                   </>
                 )}
-                {enrichedDetails.significance && (
+                {assetDetails.significance && (
                   <>
                     <div className="text-micro text-t-dim tracking-widest mt-3 mb-1">{"// SIGNIFICANCE"}</div>
                     <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
-                      {enrichedDetails.significance as string}
+                      {assetDetails.significance}
                     </div>
                   </>
                 )}
+                {!hasExportedNarrative && (
+                  <div className="text-micro text-t-dim tracking-wider">{t("world_item_exported_sparse")}</div>
+                )}
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <span className="text-micro text-primary tracking-wider">{t("world_item_exported")}</span>
+                  <button
+                    type="button"
+                    onClick={onEditExportedSeed}
+                    className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {t("edit_exported_seed")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onExportSeed}
+                    disabled={exporting}
+                    className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {exporting ? t("saving") : t("export_seed_update")}
+                  </button>
+                </div>
               </>
             ) : (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
-                  onClick={onEnrich}
-                  disabled={enriching}
-                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  onClick={onExportSeed}
+                  disabled={exporting}
+                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
-                  {enriching ? t("enriching") : t("enrich")}
+                  {exporting ? t("saving") : t("export_to_seed_library")}
                 </button>
-                {enrichError && (
-                  <span className="text-micro text-danger tracking-wider">{t("enrich_failed")}</span>
-                )}
+                <span className="min-w-0 flex-1 text-micro text-t-dim tracking-wider break-words">{t("world_item_not_exported")}</span>
               </div>
-            )}
-          </div>
-          {/* Generate / status */}
-          <div className="px-4 py-2 flex items-center gap-3">
-            {cachedDetail ? (
-              <span className="text-micro text-primary tracking-wider">{t("saved_ok")}</span>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={onGenerate}
-                  disabled={generating}
-                  className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 transition-colors"
-                >
-                  {generating ? t("generating") : error ? t("retry") : t("generate_details")}
-                </button>
-                {error && (
-                  <span className="text-micro text-danger tracking-wider">{t("gen_item_gen_failed")}</span>
-                )}
-              </>
             )}
           </div>
         </div>
@@ -710,17 +1138,17 @@ function LocationRow({
                 )}
               </>
             ) : (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={onEnrich}
                   disabled={enriching}
-                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {enriching ? t("enriching") : t("enrich")}
                 </button>
                 {enrichError && (
-                  <span className="text-micro text-danger tracking-wider">{t("enrich_failed")}</span>
+                  <span className="min-w-0 flex-1 text-micro text-danger tracking-wider break-words">{t("enrich_failed")}</span>
                 )}
               </div>
             )}
@@ -736,24 +1164,31 @@ export default function AssetPanel({
   state,
   activeAgentId,
   sessionId,
+  seedFile,
   onChat,
   onExtractAgent,
   onExtractWorld,
   controlledAgents,
+  waitingAgents,
   onTakeControl,
   onReleaseControl,
+  onSubmitHumanAction,
 }: {
   state: WorldState | null;
   activeAgentId: string | null;
   sessionId: string;
+  seedFile?: string;
   onChat: (agentId: string, agentName: string) => void;
   onExtractAgent: (agentId: string) => void;
   onExtractWorld: () => void;
   controlledAgents?: Set<string>;
+  waitingAgents?: Record<string, HumanWaitingContext>;
   onTakeControl?: (agentId: string) => void;
   onReleaseControl?: (agentId: string) => void;
+  onSubmitHumanAction?: (agentId: string, actionType: string, target: string, content: string) => Promise<void> | void;
 }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const worldName = state?.name || "";
   const [tab, setTab] = useState<Tab>("agents");
   const prevTabRef = useRef<Tab>("agents");
   const tabIndicatorRef = useRef<HTMLSpanElement>(null);
@@ -761,13 +1196,42 @@ export default function AssetPanel({
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [expandedLocation, setExpandedLocation] = useState<string | null>(null);
   const [itemCache, setItemCache] = useState<Map<string, SavedSeedData>>(new Map());
-  const [generatingItem, setGeneratingItem] = useState<string | null>(null);
-  const [genError, setGenError] = useState<string | null>(null);
+  const [exportingItem, setExportingItem] = useState<string | null>(null);
+  const [itemActionError, setItemActionError] = useState<{ itemName: string; messageKey: string } | null>(null);
+  const [editingItemDetail, setEditingItemDetail] = useState<{ itemName: string; holders: { agentId: string; agentName: string }[]; details: Record<string, unknown> | null } | null>(null);
+  const [savingItemDetail, setSavingItemDetail] = useState(false);
+  const [itemDetailErrorKey, setItemDetailErrorKey] = useState<string | null>(null);
+  const [editingItemSeed, setEditingItemSeed] = useState<{ itemName: string; seed: SavedSeedData } | null>(null);
 
   // Enrichment state
   const [enrichCache, setEnrichCache] = useState<Map<string, Record<string, unknown>>>(new Map());
   const [enrichingEntity, setEnrichingEntity] = useState<string | null>(null);
   const [enrichError, setEnrichError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const waitingIds = Object.keys(waitingAgents || {});
+    if (waitingIds.length === 0) return;
+    setTab("agents");
+    setExpandedAgent((prev) => (prev && waitingIds.includes(prev) ? prev : waitingIds[0]));
+  }, [waitingAgents]);
+
+  const getItemSeedKey = useCallback((asset: SavedSeedData): string => {
+    const seedName = typeof asset.data?.name === "string" ? asset.data.name.trim() : "";
+    return seedName || asset.name;
+  }, []);
+
+  const getItemSeedKeys = useCallback((asset: SavedSeedData): string[] => {
+    const previousNames = Array.isArray(asset.data?.previous_names)
+      ? asset.data.previous_names.map((value) => String(value).trim()).filter(Boolean)
+      : [];
+    return Array.from(new Set([getItemSeedKey(asset), asset.name.trim(), ...previousNames].filter(Boolean)));
+  }, [getItemSeedKey]);
+
+  const getSeedScopeRank = useCallback((asset: SavedSeedData): number => {
+    if (asset.source_world === sessionId) return 2;
+    if (worldName && asset.source_world === worldName) return 1;
+    return 0;
+  }, [sessionId, worldName]);
 
   // Load cached item assets on mount
   useEffect(() => {
@@ -775,20 +1239,42 @@ export default function AssetPanel({
     fetchAssets("item").then((assets) => {
       if (!mounted || !Array.isArray(assets)) return;
       const map = new Map<string, SavedSeedData>();
-      assets.forEach((a) => map.set(a.name, a));
+      assets
+        .filter((asset) => assetMatchesContext(asset, { sessionId, worldName }))
+        .forEach((asset) => {
+          getItemSeedKeys(asset).forEach((key) => {
+            const existing = map.get(key);
+            if (!existing || getSeedScopeRank(asset) >= getSeedScopeRank(existing)) {
+              map.set(key, asset);
+            }
+          });
+        });
       setItemCache(map);
     }).catch(() => { /* item cache is optional — proceed without */ });
     return () => { mounted = false; };
-  }, []);
+  }, [sessionId, worldName, getItemSeedKeys, getSeedScopeRank]);
 
   // Hydrate enrichCache from state.entity_details when state changes
   useEffect(() => {
     if (!state?.entity_details) return;
     setEnrichCache((prev) => {
       const next = new Map(prev);
-      for (const [entityId, details] of Object.entries(state.entity_details!)) {
-        if (!next.has(entityId)) {
-          next.set(entityId, details);
+      const rawDetails = state.entity_details as unknown;
+      if (Array.isArray(rawDetails)) {
+        rawDetails.forEach((row) => {
+          if (!row || typeof row !== "object") return;
+          const entry = row as { entity_type?: unknown; entity_id?: unknown; details?: unknown };
+          if (typeof entry.entity_type !== "string" || typeof entry.entity_id !== "string") return;
+          const cacheKey = entityCacheKey(entry.entity_type as "agent" | "item" | "location", entry.entity_id);
+          if (!next.has(cacheKey) && entry.details && typeof entry.details === "object") {
+            next.set(cacheKey, entry.details as Record<string, unknown>);
+          }
+        });
+        return next;
+      }
+      for (const [cacheKey, details] of Object.entries(state.entity_details!)) {
+        if (!next.has(cacheKey) && details && typeof details === "object") {
+          next.set(cacheKey, details);
         }
       }
       return next;
@@ -797,38 +1283,110 @@ export default function AssetPanel({
 
   async function handleEnrich(entityType: "agent" | "item" | "location", entityId: string) {
     if (enrichingEntity) return;
-    setEnrichingEntity(entityId);
+    const cacheKey = entityCacheKey(entityType, entityId);
+    setEnrichingEntity(cacheKey);
     setEnrichError(null);
+    if (entityType === "item") {
+      setItemActionError(null);
+    }
     try {
-      const details = await enrichEntity(sessionId, entityType, entityId);
+      const details = await enrichEntity(sessionId, entityType, entityId, { language: locale });
       setEnrichCache((prev) => {
         const next = new Map(prev);
-        next.set(entityId, details);
+        next.set(cacheKey, details);
         return next;
       });
     } catch {
-      setEnrichError(entityId);
+      if (entityType === "item") {
+        setItemActionError({ itemName: entityId, messageKey: "gen_item_failed" });
+      } else {
+        setEnrichError(cacheKey);
+      }
     } finally {
       setEnrichingEntity(null);
     }
   }
 
-  async function handleGenerateItemDetail(itemName: string) {
-    if (generatingItem) return;
-    setGeneratingItem(itemName);
-    setGenError(null);
+  async function handleExportItemSeed(item: ItemInfo) {
+    if (exportingItem) return;
+    setExportingItem(item.name);
+    setItemActionError(null);
+    const details = normalizeItemDetails(enrichCache.get(entityCacheKey("item", item.name)) || null);
+    const payload = {
+      type: "item" as const,
+      name: item.name,
+      description: details.description,
+      tags: [],
+      data: {
+        name: item.name,
+        description: details.description,
+        origin: details.origin,
+        properties: details.properties,
+        significance: details.significance,
+        holders: item.holders.map((holder) => holder.agentName),
+      },
+      source_world: worldName || sessionId,
+    };
+
     try {
-      const seed = await generateSeed("item", sessionId, itemName);
+      const existingSeed = itemCache.get(item.name) || null;
+      let nextSeed: SavedSeedData;
+      if (existingSeed) {
+        nextSeed = await updateAsset(existingSeed.id, payload);
+      } else {
+        const saved = await saveAsset(payload);
+        nextSeed = {
+          id: saved.id,
+          type: "item",
+          name: item.name,
+          description: details.description,
+          tags: [],
+          data: payload.data,
+          source_world: worldName || sessionId,
+          created_at: "",
+        };
+      }
       setItemCache((prev) => {
         const next = new Map(prev);
-        next.set(itemName, seed);
+        getItemSeedKeys(nextSeed).forEach((key) => next.set(key, nextSeed));
         return next;
       });
     } catch {
-      setGenError(itemName);
+      setItemActionError({ itemName: item.name, messageKey: "export_item_seed_failed" });
     } finally {
-      setGeneratingItem(null);
+      setExportingItem(null);
     }
+  }
+
+  async function handleSaveItemDetail(itemName: string, details: Record<string, unknown>) {
+    if (savingItemDetail) return;
+    setSavingItemDetail(true);
+    setItemDetailErrorKey(null);
+    setItemActionError(null);
+    try {
+      const savedDetails = await saveEntityDetails(sessionId, "item", itemName, details);
+      setEnrichCache((prev) => {
+        const next = new Map(prev);
+        next.set(entityCacheKey("item", itemName), savedDetails);
+        return next;
+      });
+      setEditingItemDetail(null);
+    } catch {
+      setItemDetailErrorKey("save_world_item_details_failed");
+    } finally {
+      setSavingItemDetail(false);
+    }
+  }
+
+  function handleItemSeedUpdated(itemName: string, updatedSeed: SavedSeedData) {
+    setItemCache((prev) => {
+      const next = new Map(prev);
+      next.delete(itemName);
+      getItemSeedKeys(updatedSeed).forEach((key) => next.set(key, updatedSeed));
+      next.set(itemName, updatedSeed);
+      return next;
+    });
+    setEditingItemSeed((prev) => (prev?.itemName === itemName ? { itemName, seed: updatedSeed } : prev));
   }
 
   const agents = useMemo(() => state?.agents ?? {}, [state?.agents]);
@@ -843,6 +1401,26 @@ export default function AssetPanel({
     }
     return map;
   }, [state?.agents]);
+
+  const manualContextByAgent = useMemo<Record<string, HumanWaitingContext>>(() => {
+    const contexts: Record<string, HumanWaitingContext> = {};
+    Object.entries(agents).forEach(([agentId, agent]) => {
+      contexts[agentId] = waitingAgents?.[agentId] || {
+        agent_name: agent.name,
+        location: agent.location,
+        inventory: agent.inventory || [],
+        visible_agents: Object.entries(agents)
+          .filter(([otherId, otherAgent]) => otherId !== agentId && otherAgent.location === agent.location)
+          .map(([otherId, otherAgent]) => ({
+            id: otherId,
+            name: otherAgent.name,
+            location: otherAgent.location,
+          })),
+        reachable_locations: locations.map((location) => location.name),
+      };
+    });
+    return contexts;
+  }, [agents, locations, waitingAgents]);
 
   // Aggregate items from all agents (memoized — only recomputes when state changes)
   const items = useMemo<ItemInfo[]>(() => {
@@ -936,15 +1514,18 @@ export default function AssetPanel({
                   onChat={() => onChat(id, agent.name)}
                   onExtract={() => onExtractAgent(id)}
                   onItemClick={(itemName) => { setTab("items"); setExpandedItem(itemName); }}
-                  enrichedDetails={enrichCache.get(id) || null}
-                  enriching={enrichingEntity === id}
-                  enrichError={enrichError === id}
+                  enrichedDetails={enrichCache.get(entityCacheKey("agent", id)) || null}
+                  enriching={enrichingEntity === entityCacheKey("agent", id)}
+                  enrichError={enrichError === entityCacheKey("agent", id)}
                   onEnrich={() => handleEnrich("agent", id)}
                   relations={allRelations.filter(r => r.source === id || r.target === id)}
                   agentNames={agentNames}
                   isHumanControlled={controlledAgents?.has(id)}
+                  manualContext={manualContextByAgent[id] || null}
+                  waitingForHuman={Boolean(waitingAgents?.[id])}
                   onTakeControl={() => onTakeControl?.(id)}
                   onReleaseControl={() => onReleaseControl?.(id)}
+                  onSubmitHumanAction={onSubmitHumanAction}
                 />
               ))
             )}
@@ -965,14 +1546,29 @@ export default function AssetPanel({
                   item={item}
                   expanded={expandedItem === item.name}
                   onToggle={() => setExpandedItem(expandedItem === item.name ? null : item.name)}
-                  cachedDetail={itemCache.get(item.name) || null}
-                  onGenerate={() => handleGenerateItemDetail(item.name)}
-                  generating={generatingItem === item.name}
-                  error={genError === item.name}
-                  enrichedDetails={enrichCache.get(item.name) || null}
-                  enriching={enrichingEntity === item.name}
-                  enrichError={enrichError === item.name}
-                  onEnrich={() => handleEnrich("item", item.name)}
+                  exportedSeed={itemCache.get(item.name) || null}
+                  localDetails={enrichCache.get(entityCacheKey("item", item.name)) || null}
+                  onGenerateDetails={() => handleEnrich("item", item.name)}
+                  onEditDetails={() => {
+                    setItemDetailErrorKey(null);
+                    setEditingItemDetail({
+                      itemName: item.name,
+                      holders: item.holders,
+                      details: enrichCache.get(entityCacheKey("item", item.name)) || null,
+                    });
+                  }}
+                  onExportSeed={() => handleExportItemSeed(item)}
+                  onEditExportedSeed={() => {
+                    const seed = itemCache.get(item.name);
+                    if (seed) setEditingItemSeed({ itemName: item.name, seed });
+                  }}
+                  exporting={exportingItem === item.name}
+                  generating={enrichingEntity === entityCacheKey("item", item.name)}
+                  errorMessage={
+                    itemActionError?.itemName === item.name
+                      ? t(itemActionError.messageKey as Parameters<typeof t>[0])
+                      : null
+                  }
                 />
               ))
             )}
@@ -998,9 +1594,9 @@ export default function AssetPanel({
                     agentsHere={agentsHere}
                     expanded={expandedLocation === loc.name}
                     onToggle={() => setExpandedLocation(expandedLocation === loc.name ? null : loc.name)}
-                    enrichedDetails={enrichCache.get(loc.name) || null}
-                    enriching={enrichingEntity === loc.name}
-                    enrichError={enrichError === loc.name}
+                    enrichedDetails={enrichCache.get(entityCacheKey("location", loc.name)) || null}
+                    enriching={enrichingEntity === entityCacheKey("location", loc.name)}
+                    enrichError={enrichError === entityCacheKey("location", loc.name)}
                     onEnrich={() => handleEnrich("location", loc.name)}
                   />
                 );
@@ -1079,11 +1675,36 @@ export default function AssetPanel({
 
       {/* Footer — link to full assets page */}
       <a
-        href="/assets"
+        href={buildAssetsHref({
+          sessionId,
+          worldName,
+          seedFile,
+          backHref: buildSimHref({ sessionId, seedFile }),
+        })}
         className="px-4 py-3 border-t border-b-DEFAULT bg-surface-1 text-micro text-t-muted tracking-wider hover:text-primary transition-colors text-center shrink-0"
       >
         {t("view_all_assets")}
       </a>
+
+      {editingItemSeed && (
+        <SeedDetail
+          seed={editingItemSeed.seed}
+          onClose={() => setEditingItemSeed(null)}
+          onChange={(updatedSeed) => handleItemSeedUpdated(editingItemSeed.itemName, updatedSeed)}
+        />
+      )}
+
+      {editingItemDetail && (
+        <WorldItemDetailModal
+          itemName={editingItemDetail.itemName}
+          holders={editingItemDetail.holders}
+          initialDetails={editingItemDetail.details}
+          saving={savingItemDetail}
+          errorMessage={itemDetailErrorKey ? t(itemDetailErrorKey as Parameters<typeof t>[0]) : null}
+          onClose={() => setEditingItemDetail(null)}
+          onSave={(details) => handleSaveItemDetail(editingItemDetail.itemName, details)}
+        />
+      )}
     </aside>
   );
 }

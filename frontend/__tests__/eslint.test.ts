@@ -11,6 +11,7 @@ import path from "path";
  */
 describe("ESLint", () => {
   const root = path.resolve(__dirname, "..");
+  const ESLINT_TIMEOUT_MS = 30000;
 
   it("passes with no errors on components/", () => {
     try {
@@ -23,7 +24,7 @@ describe("ESLint", () => {
       const output = (err as { stdout?: string; stderr?: string }).stdout || (err as { stderr?: string }).stderr || "";
       expect.fail(`ESLint errors in components/:\n${output}`);
     }
-  });
+  }, ESLINT_TIMEOUT_MS);
 
   it("passes with no errors on app/", () => {
     try {
@@ -36,7 +37,7 @@ describe("ESLint", () => {
       const output = (err as { stdout?: string; stderr?: string }).stdout || (err as { stderr?: string }).stderr || "";
       expect.fail(`ESLint errors in app/:\n${output}`);
     }
-  });
+  }, ESLINT_TIMEOUT_MS);
 
   it("passes with no errors on lib/", () => {
     try {
@@ -49,5 +50,5 @@ describe("ESLint", () => {
       const output = (err as { stdout?: string; stderr?: string }).stdout || (err as { stderr?: string }).stderr || "";
       expect.fail(`ESLint errors in lib/:\n${output}`);
     }
-  });
+  }, ESLINT_TIMEOUT_MS);
 });

@@ -20,11 +20,31 @@ vi.mock("@/lib/spring", () => ({
 }));
 
 // Mock api for Settings
-vi.mock("@/lib/api", () => ({
-  loadSettings: () => ({ apiKey: "sk-test", apiBase: "https://api.openai.com/v1", model: "gpt-4o-mini", tickDelay: 3 }),
-  saveSettings: vi.fn(),
-  fetchModels: vi.fn().mockResolvedValue([]),
-}));
+vi.mock("@/lib/api", () => {
+  const profile = {
+    id: "profile_default",
+    name: "Default",
+    apiKey: "sk-test",
+    apiBase: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+    tickDelay: 3,
+  };
+  return {
+    loadSettings: () => ({ apiKey: "sk-test", apiBase: "https://api.openai.com/v1", model: "gpt-4o-mini", tickDelay: 3 }),
+    saveSettings: vi.fn(),
+    loadSettingsProfiles: () => ({ version: 2, activeProfileId: profile.id, profiles: [profile] }),
+    saveSettingsProfiles: vi.fn(),
+    fetchOpenClawProfiles: vi.fn().mockResolvedValue([]),
+    mergeImportedSettingsProfiles: vi.fn((store: unknown) => store),
+    createSettingsProfile: (seed: Record<string, unknown> = {}) => ({
+      ...profile,
+      id: "profile_new",
+      name: "New Profile",
+      ...seed,
+    }),
+    fetchModels: vi.fn().mockResolvedValue([]),
+  };
+});
 
 import Nav from "@/components/Nav";
 import ControlBar from "@/components/ControlBar";
@@ -150,7 +170,7 @@ describe("Settings", () => {
 
   it("save button has active:scale", () => {
     render(<Settings onClose={vi.fn()} onSave={vi.fn()} />);
-    const saveBtn = screen.getByText("save");
+    const saveBtn = screen.getByText("save_and_activate");
     expect(saveBtn.className).toContain("active:scale-[0.97]");
   });
 
@@ -168,6 +188,21 @@ describe("Settings", () => {
     vi.doMock("@/lib/api", () => ({
       loadSettings: () => ({ apiKey: "", apiBase: "", model: "gpt-4o-mini", tickDelay: 3 }),
       saveSettings: vi.fn(),
+      loadSettingsProfiles: () => ({
+        version: 2,
+        activeProfileId: "profile_empty",
+        profiles: [{ id: "profile_empty", name: "Default", apiKey: "", apiBase: "", model: "gpt-4o-mini", tickDelay: 3 }],
+      }),
+      saveSettingsProfiles: vi.fn(),
+      createSettingsProfile: (seed: Record<string, unknown> = {}) => ({
+        id: "profile_new",
+        name: "New Profile",
+        apiKey: "",
+        apiBase: "",
+        model: "gpt-4o-mini",
+        tickDelay: 3,
+        ...seed,
+      }),
       fetchModels: vi.fn(),
     }));
   });

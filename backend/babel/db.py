@@ -235,6 +235,22 @@ async def _migrate_v8(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+# ── V9: Hidden World Seeds ──
+
+SCHEMA_V9 = """
+CREATE TABLE IF NOT EXISTS hidden_seed_refs (
+    seed_ref TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+
+async def _migrate_v9(db: aiosqlite.Connection) -> None:
+    """Create hidden_seed_refs table if it doesn't exist."""
+    await db.executescript(SCHEMA_V9)
+    await db.commit()
+
+
 async def init_db(db_path: str | Path | None = None) -> None:
     path = str(db_path or DB_PATH)
     async with aiosqlite.connect(path) as db:
@@ -247,6 +263,7 @@ async def init_db(db_path: str | Path | None = None) -> None:
         await _migrate_v6(db)
         await _migrate_v7(db)
         await _migrate_v8(db)
+        await _migrate_v9(db)
         await db.commit()
 
 
@@ -428,7 +445,17 @@ async def list_sessions() -> list[dict]:
             "SELECT * FROM sessions ORDER BY created_at DESC"
         )
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        visible_sessions: list[dict] = []
+        for row in rows:
+            session = dict(row)
+            try:
+                world_seed = json.loads(session.get("world_seed") or "{}")
+                if world_seed.get("name") == "__ORACLE_DRAFT__":
+                    continue
+            except Exception:
+                pass
+            visible_sessions.append(session)
+        return visible_sessions
 
 
 async def delete_session(session_id: str) -> bool:
@@ -582,6 +609,53 @@ async def delete_seed(seed_id: str) -> bool:
         )
         await db.commit()
         return cursor.rowcount > 0
+
+
+async def delete_seeds_by_source_worlds(source_worlds: list[str]) -> int:
+    """Delete all saved seeds whose source_world belongs to the provided values."""
+    unique_sources = [value.strip() for value in source_worlds if isinstance(value, str) and value.strip()]
+    unique_sources = list(dict.fromkeys(unique_sources))
+    if not unique_sources:
+        return 0
+
+    placeholders = ",".join("?" for _ in unique_sources)
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        cursor = await db.execute(
+            f"DELETE FROM saved_seeds WHERE source_world IN ({placeholders})",
+            tuple(unique_sources),
+        )
+        await db.commit()
+        return cursor.rowcount
+
+
+async def hide_seed_ref(seed_ref: str) -> None:
+    """Hide a world seed reference from the library list."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO hidden_seed_refs (seed_ref) VALUES (?)",
+            (seed_ref,),
+        )
+        await db.commit()
+
+
+async def is_seed_ref_hidden(seed_ref: str) -> bool:
+    """Return True if a world seed reference was hidden by the user."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        cursor = await db.execute(
+            "SELECT 1 FROM hidden_seed_refs WHERE seed_ref = ?",
+            (seed_ref,),
+        )
+        return await cursor.fetchone() is not None
+
+
+async def list_hidden_seed_refs() -> list[str]:
+    """List hidden world seed references."""
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        cursor = await db.execute(
+            "SELECT seed_ref FROM hidden_seed_refs ORDER BY created_at DESC"
+        )
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
 
 
 # ── Agent Memories (Structured) ──

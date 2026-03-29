@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import dynamic from "next/dynamic";
 import { JetBrains_Mono, Inter } from "next/font/google";
+import SettingsBootstrap from "@/components/SettingsBootstrap";
 import { LocaleProvider } from "@/lib/locale-context";
 import "./globals.css";
 
@@ -37,6 +38,7 @@ export default function RootLayout({
           Skip to content
         </a>
         <AmbientVoid />
+        <SettingsBootstrap />
         <LocaleProvider>{children}</LocaleProvider>
         <script
           dangerouslySetInnerHTML={{

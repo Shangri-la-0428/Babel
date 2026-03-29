@@ -32,6 +32,16 @@ from .prompts import (
 # Suppress litellm debug noise
 litellm.suppress_debug_info = True
 
+_TIME_PERIOD_PRESETS: dict[str, dict[str, int | str]] = {
+    "dawn": {"name": "dawn", "start": 5, "end": 8},
+    "morning": {"name": "morning", "start": 8, "end": 12},
+    "day": {"name": "day", "start": 8, "end": 18},
+    "afternoon": {"name": "afternoon", "start": 12, "end": 17},
+    "dusk": {"name": "dusk", "start": 18, "end": 21},
+    "evening": {"name": "evening", "start": 18, "end": 22},
+    "night": {"name": "night", "start": 21, "end": 5},
+}
+
 
 def _ensure_provider_prefix(model: str, api_base: str | None) -> str:
     """Add 'openai/' prefix when using a custom api_base with a model name
@@ -62,6 +72,86 @@ def _parse_json(text: str) -> dict:
         lines = text.split("\n")
         text = "\n".join(l for l in lines if not l.strip().startswith("```"))
     return json.loads(text.strip())
+
+
+def _normalize_string_list(value: object) -> list[str]:
+    """Coerce common LLM list drift into a clean string list."""
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        parts = value.split("\n") if "\n" in value else value.split(",")
+        return [part.strip() for part in parts if part.strip()]
+    return []
+
+
+def _normalize_time_periods(periods: object) -> list[dict]:
+    """Accept common shorthand like ['Dawn', 'Night'] and expand to dict entries."""
+    if not isinstance(periods, list):
+        return []
+
+    normalized: list[dict] = []
+    for idx, period in enumerate(periods):
+        if isinstance(period, dict):
+            normalized.append(period)
+            continue
+        if not isinstance(period, str):
+            continue
+
+        key = period.strip().lower()
+        if not key:
+            continue
+
+        preset = _TIME_PERIOD_PRESETS.get(key)
+        if preset:
+            normalized.append(dict(preset))
+            continue
+
+        normalized.append({
+            "name": period.strip(),
+            "start": idx,
+            "end": idx + 1,
+        })
+    return normalized
+
+
+def _normalize_seed_draft(raw: dict) -> dict:
+    """Repair common model drift before strict WorldSeed validation."""
+    if not isinstance(raw, dict):
+        return raw
+
+    normalized = dict(raw)
+    normalized["rules"] = _normalize_string_list(normalized.get("rules", []))
+    normalized["initial_events"] = _normalize_string_list(normalized.get("initial_events", []))
+
+    locations = []
+    for loc in normalized.get("locations", []):
+        if not isinstance(loc, dict):
+            continue
+        next_loc = dict(loc)
+        next_loc["tags"] = _normalize_string_list(next_loc.get("tags", []))
+        next_loc["connections"] = _normalize_string_list(next_loc.get("connections", []))
+        locations.append(next_loc)
+    if locations:
+        normalized["locations"] = locations
+
+    agents = []
+    for agent in normalized.get("agents", []):
+        if not isinstance(agent, dict):
+            continue
+        next_agent = dict(agent)
+        next_agent["goals"] = _normalize_string_list(next_agent.get("goals", []))
+        next_agent["inventory"] = _normalize_string_list(next_agent.get("inventory", []))
+        agents.append(next_agent)
+    if agents:
+        normalized["agents"] = agents
+
+    time = normalized.get("time")
+    if isinstance(time, dict):
+        next_time = dict(time)
+        next_time["periods"] = _normalize_time_periods(next_time.get("periods", []))
+        normalized["time"] = next_time
+
+    return normalized
 
 
 async def _complete(
@@ -186,6 +276,7 @@ async def chat_with_agent(
     agent_memory: list[str],
     agent_description: str,
     user_message: str,
+    preferred_language: str = "",
     model: str | None = None,
     api_key: str | None = None,
     api_base: str | None = None,
@@ -200,6 +291,7 @@ async def chat_with_agent(
         agent_memory=agent_memory,
         agent_description=agent_description,
         user_message=user_message,
+        preferred_language=preferred_language,
     )
     return await _complete(
         CHAT_SYSTEM_PROMPT, user_prompt,
@@ -283,6 +375,7 @@ async def chat_with_oracle(
     user_message: str,
     narrator_persona: str = "",
     world_time_display: str = "",
+    preferred_language: str = "",
     model: str | None = None,
     api_key: str | None = None,
     api_base: str | None = None,
@@ -299,6 +392,7 @@ async def chat_with_oracle(
         user_message=user_message,
         narrator_persona=narrator_persona,
         world_time_display=world_time_display,
+        preferred_language=preferred_language,
     )
     return await _complete(
         ORACLE_SYSTEM_PROMPT, user_prompt,
@@ -409,6 +503,7 @@ async def enrich_entity(
     current_details: dict,
     relevant_events: list[str],
     world_desc: str,
+    preferred_language: str = "",
     model: str | None = None,
     api_key: str | None = None,
     api_base: str | None = None,
@@ -425,6 +520,7 @@ async def enrich_entity(
             current_details=current_details,
             relevant_events=relevant_events,
             world_desc=world_desc,
+            preferred_language=preferred_language,
         )
         return await _complete_json(
             ENRICHMENT_SYSTEM, user_prompt,
@@ -439,6 +535,7 @@ async def enrich_entity(
 async def generate_seed_draft(
     user_message: str,
     conversation_history: list[dict] | None = None,
+    preferred_language: str = "",
     model: str | None = None,
     api_key: str | None = None,
     api_base: str | None = None,
@@ -453,6 +550,7 @@ async def generate_seed_draft(
     user_prompt = build_creative_prompt(
         user_message=user_message,
         conversation_history=conversation_history,
+        preferred_language=preferred_language,
     )
 
     raw = await _complete_json(
@@ -460,6 +558,7 @@ async def generate_seed_draft(
         model=model, api_key=api_key, api_base=api_base,
         temperature=0.85, max_tokens=2048,
     )
+    raw = _normalize_seed_draft(raw)
 
     # Validate: must parse into a valid WorldSeed
     try:

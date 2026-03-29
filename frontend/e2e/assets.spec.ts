@@ -80,6 +80,64 @@ test.describe("M6: Navigation", () => {
   });
 });
 
+test.describe("M6: Scoped World Assets", () => {
+  test("should hide ordinary timeline events unless they were explicitly saved", async ({ page }) => {
+    await page.route(/localhost:8000/, (route) => {
+      const url = route.request().url();
+      if (url.includes("/api/worlds/session-1/state")) {
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            session_id: "session-1",
+            name: "Cyber Bar",
+            description: "Scoped test world",
+            tick: 3,
+            status: "paused",
+            rules: ["No fighting"],
+            locations: [{ name: "Bar", description: "Main floor" }],
+            agents: {
+              a1: {
+                name: "Drifter",
+                description: "A regular",
+                personality: "Calm",
+                goals: ["Keep watch"],
+                location: "Bar",
+                inventory: ["Knife"],
+                status: "idle",
+              },
+            },
+            recent_events: [
+              {
+                id: "evt-1",
+                tick: 3,
+                agent_id: null,
+                agent_name: null,
+                action_type: "world_event",
+                action: {},
+                result: "[WORLD] A neon sign flickers for a second.",
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (url.includes("/api/assets")) {
+        route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+        return;
+      }
+
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+
+    await page.goto("/assets?session=session-1&world=Cyber%20Bar");
+
+    await expect(page.getByText("Drifter").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("A neon sign flickers for a second.")).toHaveCount(0);
+  });
+});
+
 test.describe("M6: Seed Card Structure", () => {
   test.beforeEach(async ({ page }) => {
     // Mock backend to return assets with full SeedCard data

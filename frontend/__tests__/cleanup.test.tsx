@@ -46,11 +46,31 @@ vi.mock("@/lib/spring", () => ({
 }));
 
 // Mock api
-vi.mock("@/lib/api", () => ({
-  loadSettings: () => ({ apiKey: "", apiBase: "https://api.openai.com/v1", model: "gpt-4o-mini", tickDelay: 3 }),
-  saveSettings: vi.fn(),
-  fetchModels: vi.fn().mockResolvedValue([]),
-}));
+vi.mock("@/lib/api", () => {
+  const profile = {
+    id: "profile_default",
+    name: "Default",
+    apiKey: "",
+    apiBase: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+    tickDelay: 3,
+  };
+  return {
+    loadSettings: () => ({ apiKey: "", apiBase: "https://api.openai.com/v1", model: "gpt-4o-mini", tickDelay: 3 }),
+    saveSettings: vi.fn(),
+    loadSettingsProfiles: () => ({ version: 2, activeProfileId: profile.id, profiles: [profile] }),
+    saveSettingsProfiles: vi.fn(),
+    fetchOpenClawProfiles: vi.fn().mockResolvedValue([]),
+    mergeImportedSettingsProfiles: vi.fn((store: unknown) => store),
+    createSettingsProfile: (seed: Record<string, unknown> = {}) => ({
+      ...profile,
+      id: "profile_new",
+      name: "New Profile",
+      ...seed,
+    }),
+    fetchModels: vi.fn().mockResolvedValue([]),
+  };
+});
 
 beforeEach(() => {
   activeTimers = new Set();
