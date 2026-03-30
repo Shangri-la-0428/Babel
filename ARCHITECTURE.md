@@ -4,11 +4,27 @@
 
 BABEL is a **modality-agnostic world model**. Text is the first interface, not the only one.
 
+Product-wise, BABEL should be treated as a **live-world operating system**, not a pile of simulator features.
+
+That means the architecture should optimize for:
+
+- persistent world continuity over one-off outputs
+- reusable protocols over page-specific cases
+- clear instance/template boundaries
+- multiple projection layers over duplicated product logic
+
 The architecture follows three principles:
 
 1. **World logic has no I/O assumptions** — State machine + rules engine operate on pure data
 2. **Every policy is pluggable** — Decision-making, memory consolidation, and social dynamics can be swapped without touching the kernel
 3. **Structured data alongside human text** — Every event has both `result` (text) and `structured` (machine-readable), enabling any renderer
+
+And four long-term engineering constraints:
+
+4. **World continuity is a first-class invariant** — Characters, relations, intent, memory, and timeline state should survive across ticks and branches
+5. **Projection layers consume one canonical world** — Home, sim, create, assets, and future publish surfaces should be different views of the same domain model
+6. **Instances and templates remain distinct** — Runtime world entities are not the same thing as exported reusable assets
+7. **Do not solve strategy with feature accretion** — Prefer new protocols, policies, or domain capabilities over isolated UI controls
 
 ## Layer Diagram
 

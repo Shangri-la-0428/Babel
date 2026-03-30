@@ -3,9 +3,9 @@
 [![Backend Tests](https://github.com/Shangri-la-0428/Babel/actions/workflows/backend.yml/badge.svg)](https://github.com/Shangri-la-0428/Babel/actions/workflows/backend.yml)
 [![Frontend Build](https://github.com/Shangri-la-0428/Babel/actions/workflows/frontend.yml/badge.svg)](https://github.com/Shangri-la-0428/Babel/actions/workflows/frontend.yml)
 
-AI 驱动的世界状态机。定义世界种子（规则、地点、角色），AI 自动推演涌现叙事。
+AI 原生世界工作室。定义世界种子（规则、地点、角色），运行可持续演化、可干预、可分叉的活世界。
 
-*AI-driven World State Machine. Define a world seed with rules, locations, and agents — AI autonomously drives emergent narratives.*
+*AI-native world studio. Define a world seed with rules, locations, and agents — then run living worlds that can evolve, be directed, and branch over time.*
 
 ## 安全说明 / Security
 
@@ -33,9 +33,9 @@ frontend/    Next.js 14 + Tailwind CSS
 design/      设计系统（tokens, 组件, Tailwind preset）
 ```
 
-详细架构文档见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。变更记录见 [`CHANGELOG.md`](CHANGELOG.md)。
+详细架构文档见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。战略方向见 [`docs/STRATEGY.md`](docs/STRATEGY.md)。变更记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
-*See [`ARCHITECTURE.md`](ARCHITECTURE.md) for detailed architecture. See [`CHANGELOG.md`](CHANGELOG.md) for changes.*
+*See [`ARCHITECTURE.md`](ARCHITECTURE.md) for detailed architecture, [`docs/STRATEGY.md`](docs/STRATEGY.md) for product direction, and [`CHANGELOG.md`](CHANGELOG.md) for changes.*
 
 ## 快速开始 / Quick Start
 
