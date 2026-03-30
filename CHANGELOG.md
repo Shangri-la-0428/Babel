@@ -4,6 +4,10 @@ All notable changes to BABEL.
 
 ## [Unreleased]
 
+### CI Maintenance
+- Upgraded GitHub Actions to Node 24 compatible versions: `actions/checkout@v5`, `actions/setup-python@v6`, `actions/setup-node@v5`
+- Workflow file changes now trigger their own backend/frontend CI runs, so pipeline edits are immediately verifiable
+
 ### Phase 14: Portal Transformation + Overdrive + Performance
 
 **Portal Transformation** — 47 UI items across 5 batches, making the sim page feel like a portal into another reality:

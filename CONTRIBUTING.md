@@ -7,7 +7,7 @@ Thanks for your interest in BABEL! Here's how to contribute.
 ## Quick Start
 
 ```bash
-git clone https://github.com/Shangri-la-0428/babel.git
+git clone https://github.com/Shangri-la-0428/Babel.git
 cd babel
 ./install.sh
 
