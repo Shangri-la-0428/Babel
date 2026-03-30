@@ -160,8 +160,11 @@ test.describe("M3: Simulation Page — Layout & Controls", () => {
   test("should show error when API key not set", async ({ page }) => {
     await createWorld(page);
 
-    // Clear settings after navigation (avoids SecurityError)
-    await page.evaluate(() => localStorage.removeItem("babel_settings"));
+    await page.getByRole("button", { name: /设置|Settings/i }).click();
+    await page.locator("#settings-api-key").fill("");
+    await page.getByRole("button", { name: /保存并启用|Save & Activate/i }).click();
+    await page.waitForTimeout(600);
+    await page.evaluate(() => localStorage.removeItem("babel_model_setup_reminder_seen"));
 
     // Click Step without API key — aria-label is "Advance one tick" / "推演一步"
     const stepBtn = page.getByRole("toolbar").getByRole("button", { name: /Advance one tick|推演一步/ }).first();

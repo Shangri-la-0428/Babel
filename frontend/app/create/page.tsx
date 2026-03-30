@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   BabelSettings,
@@ -8,7 +8,10 @@ import {
   createWorld,
   fetchAssets,
   fetchSeedDetail,
+  hasConfiguredModel,
+  hasSeenModelSetupReminder,
   loadSettings,
+  markModelSetupReminderSeen,
   SavedSeedData,
   SeedDetail,
   WorldItemData,
@@ -399,6 +402,17 @@ function CreateContent() {
     }
   }
 
+  const remindModelSetup = useCallback((): boolean => {
+    if (hasConfiguredModel(settings)) return true;
+    if (!hasSeenModelSetupReminder()) {
+      markModelSetupReminderSeen();
+      setError(t("model_setup_required_first"));
+      setShowSettings(true);
+      return false;
+    }
+    return true;
+  }, [settings, t]);
+
   async function handleSubmit() {
     if (!world.name.trim()) return;
 
@@ -417,6 +431,10 @@ function CreateContent() {
 
     if (parsedLocations.length === 0) {
       setError(t("validation_need_location"));
+      return;
+    }
+
+    if (!remindModelSetup()) {
       return;
     }
 

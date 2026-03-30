@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   createSettingsProfile,
+  hasConfiguredModel,
+  hasSeenModelSetupReminder,
   loadSettings,
   loadSettingsProfiles,
+  markModelSetupReminderSeen,
+  resetModelSetupReminder,
   saveSettings,
   saveSettingsProfiles,
 } from "@/lib/api";
@@ -10,6 +14,7 @@ import {
 describe("settings profile storage", () => {
   beforeEach(() => {
     localStorage.clear();
+    resetModelSetupReminder();
   });
 
   it("migrates legacy single-profile settings into the new store", () => {
@@ -134,5 +139,32 @@ describe("settings profile storage", () => {
       "grok-4-1-fast-reasoning",
       "grok-4-1-fast-non-reasoning",
     ]);
+  });
+
+  it("tracks whether the first model-setup reminder has been shown", () => {
+    expect(hasSeenModelSetupReminder()).toBe(false);
+
+    markModelSetupReminderSeen();
+
+    expect(hasSeenModelSetupReminder()).toBe(true);
+
+    resetModelSetupReminder();
+    expect(hasSeenModelSetupReminder()).toBe(false);
+  });
+
+  it("treats empty API credentials as not ready for simulation", () => {
+    expect(hasConfiguredModel({
+      apiKey: "",
+      apiBase: "https://api.openai.com/v1",
+      model: "gpt-4o-mini",
+      tickDelay: 3,
+    })).toBe(false);
+
+    expect(hasConfiguredModel({
+      apiKey: "sk-live",
+      apiBase: "https://api.openai.com/v1",
+      model: "gpt-4o-mini",
+      tickDelay: 3,
+    })).toBe(true);
   });
 });

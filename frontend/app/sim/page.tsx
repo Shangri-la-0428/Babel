@@ -13,6 +13,8 @@ import {
   BabelSettings,
   SavedSeedData,
   HumanWaitingContext,
+  hasConfiguredModel,
+  hasSeenModelSetupReminder,
   getState,
   getHumanStatus,
   runWorld,
@@ -20,6 +22,7 @@ import {
   stepWorld,
   createWebSocket,
   loadSettings,
+  markModelSetupReminderSeen,
   generateSeed,
   takeControl,
   releaseControl,
@@ -285,13 +288,18 @@ function SimContent() {
   }
 
   const checkSettings = useCallback((): boolean => {
-    if (!settings.apiKey) {
-      setError(t("api_key_required"));
+    if (!hasConfiguredModel(settings)) {
+      if (!hasSeenModelSetupReminder()) {
+        markModelSetupReminderSeen();
+        setError(t("model_setup_required_first"));
+      } else {
+        setError(t("api_key_required"));
+      }
       setShowSettings(true);
       return false;
     }
     return true;
-  }, [settings.apiKey, t]);
+  }, [settings, t]);
 
   const handleRun = useCallback(async () => {
     if (!sessionId || !checkSettings() || operationRef.current) return;

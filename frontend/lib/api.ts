@@ -62,6 +62,7 @@ export interface BabelSettingsStore {
 const SETTINGS_KEY = "babel_settings";
 const SETTINGS_PROFILES_KEY = "babel_settings_profiles";
 const SETTINGS_BOOTSTRAP_KEY = "babel_settings_bootstrap_profiles";
+const MODEL_SETUP_REMINDER_KEY = "babel_model_setup_reminder_seen";
 const SETTINGS_VERSION = 2;
 
 const DEFAULT_SETTINGS: BabelSettings = {
@@ -336,6 +337,44 @@ export function getActiveSettingsProfile(store: BabelSettingsStore): BabelSettin
 
 export function loadSettings(): BabelSettings {
   return toSettings(getActiveSettingsProfile(loadSettingsProfiles()));
+}
+
+export function hasConfiguredModel(
+  settings: Partial<BabelSettings> | null | undefined,
+): boolean {
+  const normalized = normalizeSettings(settings);
+  return Boolean(
+    normalized.apiKey.trim() &&
+    normalized.apiBase.trim() &&
+    normalized.model.trim(),
+  );
+}
+
+export function hasSeenModelSetupReminder(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(MODEL_SETUP_REMINDER_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markModelSetupReminderSeen(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(MODEL_SETUP_REMINDER_KEY, "1");
+  } catch {
+    // Ignore storage write failures and keep the reminder ephemeral.
+  }
+}
+
+export function resetModelSetupReminder(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(MODEL_SETUP_REMINDER_KEY);
+  } catch {
+    // Ignore storage write failures during cleanup.
+  }
 }
 
 export function saveSettingsProfiles(store: BabelSettingsStore): void {

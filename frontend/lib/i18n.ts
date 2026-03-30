@@ -128,7 +128,8 @@ const translations = {
   ph_item_significance: { cn: "它为什么重要？", en: "Why does it matter?" },
 
   // Settings error
-  api_key_required: { cn: "// AUTH — 需要 API Key，在设置中配置", en: "// AUTH — API Key required. Configure in Settings." },
+  model_setup_required_first: { cn: "// SETUP — 先在设置里配置模型 API，再创建世界或启动模拟", en: "// SETUP — Configure your model API in Settings before creating a world or starting a simulation." },
+  api_key_required: { cn: "// AUTH — 当前配置还不能运行模拟，先在设置里填写 API Key 并保存启用", en: "// AUTH — This config cannot run the simulation yet. Add an API key in Settings, then save and activate it." },
   run_failed: { cn: "// RUN_ERR — 启动失败，检查后端连接和 LLM 配置", en: "// RUN_ERR — Start failed. Check backend and LLM config." },
   pause_failed: { cn: "// PAUSE_ERR — 暂停指令失败，重试或刷新页面", en: "// PAUSE_ERR — Pause command failed. Retry or refresh." },
   step_failed: { cn: "// STEP_ERR — 单步失败，检查 LLM 配置", en: "// STEP_ERR — Step failed. Check LLM config." },

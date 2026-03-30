@@ -124,6 +124,26 @@ test.describe("M2: Create World", () => {
     await expect(submitBtn).toBeEnabled();
   });
 
+  test("should prompt for model setup before first valid world creation", async ({ page }) => {
+    await page.getByRole("button", { name: /设置|Settings/i }).click();
+    await page.locator("#settings-api-key").fill("");
+    await page.getByRole("button", { name: /保存并启用|Save & Activate/i }).click();
+    await page.waitForTimeout(600);
+
+    await page.evaluate(() => localStorage.removeItem("babel_model_setup_reminder_seen"));
+
+    await page.locator("#world-name").fill("Test World");
+    await page.locator('input[id^="location-name-"]').first().fill("Tavern");
+    await page.locator('input[id^="agent-name-"]').first().fill("Kai");
+
+    await page.getByRole("button", { name: /点燃世界|IGNITE WORLD/i }).click();
+
+    await expect(page.locator("#settings-api-key")).toBeVisible({ timeout: 5_000 });
+    await expect(
+      page.getByText(/配置模型 API|Configure your model API/i).first()
+    ).toBeVisible();
+  });
+
   // TC-M2-01b (P1) — Agent section has all required fields
   test("should render agent section with all required fields", async ({ page }) => {
     // Each agent section should have: name, personality, description, goals, inventory, location
