@@ -55,9 +55,9 @@ And one simplifying abstraction:
 │     1.5 pressure_policy.before_agent_turn()                      │
 │     2. decision_source.decide(ctx) → ActionOutput               │
 │     3. validate_action() → errors or pass                       │
-│     4. apply_action() → state mutation + Event                  │
-│     5. create_memory_from_event()                               │
-│     6. social_policy.apply() + goal_policy.update()             │
+│     4. apply_action() → state mutation + provisional Event      │
+│     5. goal/social mutation finalize Event.significance         │
+│     6. create_memory_from_event()                               │
 │                                                                 │
 │   post_tick() → timeline node, snapshot, memory consolidation   │
 └──────┬──────────┬───────────┬───────────┬────────────┬────────────┘
@@ -88,7 +88,7 @@ Architecturally, `WorldSeed` should be read as the canonical pattern, not a spec
 | `AgentState` | Agent runtime (location, inventory, goals, memory) |
 | `GoalState` | Trackable goal with progress and stall detection |
 | `Relation` | Directional agent-to-agent relationship |
-| `Event` | Action record with `result` (text) + `structured` (data) |
+| `Event` | Action record with `result` (text), `structured` (data), and canonical `significance` |
 | `MemoryEntry` | Persistent memory with `content` (text) + `semantic` (data) |
 | `ActionOutput` | Agent decision (type, target, content) |
 | `LLMResponse` | Full LLM response wrapping ActionOutput |
@@ -178,7 +178,7 @@ Validation rules:
 ### memory.py — Memory Pipeline
 Three layers of memory:
 
-1. **Episodic** — Raw event memories with importance scoring
+1. **Episodic** — Raw event memories scored from canonical event significance
 2. **Semantic** — Consolidated summaries (LLM or rule-based compression)
 3. **Belief** — High-level conclusions from experience (rule-driven extraction)
 

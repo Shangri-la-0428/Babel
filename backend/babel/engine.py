@@ -19,7 +19,6 @@ from .db import (
 )
 from .llm import enrich_entity, replan_goal
 from .memory import (
-    IMPORTANCE_MAP,
     consolidate_memories,
     create_memory_from_event,
     detect_repetition,
@@ -69,6 +68,7 @@ from .policies import (
     resolve_goal_policies,
     resolve_social_policies,
 )
+from .significance import finalize_event_significance
 from .validator import DefaultWorldAuthority, WorldAuthority
 
 # Max events kept in session.events in-memory
@@ -344,6 +344,13 @@ class Engine:
                     )
 
                 # Valid — apply and record
+                goal_before = agent.active_goal.model_copy(deep=True) if agent.active_goal else None
+                target_id = response.action.target if response.action.target in self.session.agents else None
+                relation_before = None
+                if target_id:
+                    rel = self.session.get_relation(agent.agent_id, target_id)
+                    relation_before = rel.model_copy(deep=True) if rel else None
+
                 summary = self.world_authority.apply(response, agent, self.session)
                 at = response.action.type.value
 
@@ -366,15 +373,10 @@ class Engine:
                     structured=structured,
                     location=agent.location,
                     involved_agents=[agent.agent_id],
-                    importance=IMPORTANCE_MAP.get(at, 0.5),
                 )
                 # Add target agent to involved list
-                if response.action.target and response.action.target in self.session.agents:
-                    event.involved_agents.append(response.action.target)
-
-                self._append_event(event)
-                await self._remember_event(agent, event, summary)
-                await self._emit(event)
+                if target_id:
+                    event.involved_agents.append(target_id)
 
                 # Persist short-horizon continuity so the agent does not "forget" every tick.
                 self.goal_mutation_policy.sync_plan_from_intent(agent, response.intent)
@@ -391,6 +393,23 @@ class Engine:
 
                 # ── Update goal progress ──
                 await self.goal_mutation_policy.update(self, agent, event)
+
+                relation_after = None
+                if target_id:
+                    rel = self.session.get_relation(agent.agent_id, target_id)
+                    relation_after = rel.model_copy(deep=True) if rel else None
+                goal_after = agent.active_goal.model_copy(deep=True) if agent.active_goal else None
+                finalize_event_significance(
+                    event,
+                    goal_before=goal_before,
+                    goal_after=goal_after,
+                    relation_before=relation_before,
+                    relation_after=relation_after,
+                )
+
+                self._append_event(event)
+                await self._remember_event(agent, event, summary)
+                await self._emit(event)
 
                 return event
 
@@ -422,8 +441,8 @@ class Engine:
             result=summary,
             location=agent.location,
             involved_agents=[agent.agent_id],
-            importance=IMPORTANCE_MAP.get("wait", 0.1),
         )
+        finalize_event_significance(event)
         self._append_event(event)
         await self._remember_event(agent, event, summary)
         asyncio.create_task(self._emit_safe(event))

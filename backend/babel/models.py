@@ -270,6 +270,17 @@ class LLMResponse(BaseModel):
 
 # ── Runtime State ──────────────────────────────────────
 
+
+class EventSignificance(BaseModel):
+    """Canonical meaning layer carried by every event."""
+    primary: str = "ambient"
+    score: float = 0.5
+    durable: bool = False
+    axes: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+    delta: dict[str, Any] = Field(default_factory=dict)
+
+
 class GoalState(BaseModel):
     """Trackable goal with progress and stall detection."""
     text: str
@@ -330,6 +341,7 @@ class Event(BaseModel):
     structured: dict[str, Any] = Field(default_factory=dict)
     location: str = ""
     involved_agents: list[str] = Field(default_factory=list)
+    significance: EventSignificance = Field(default_factory=EventSignificance)
     importance: float = 0.5
     node_id: str = ""
     created_at: str = Field(

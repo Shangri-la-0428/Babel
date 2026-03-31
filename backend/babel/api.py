@@ -30,6 +30,7 @@ from .engine import Engine
 from .llm import chat_with_agent, chat_with_oracle, detect_new_character, enrich_entity, generate_seed_draft
 from .memory import create_memory_from_event, update_agent_memory
 from .models import AgentRole, AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedEnvelope, SeedLineage, SeedType, Session, SessionStatus, WorldSeed
+from .significance import event_score, finalize_event_significance
 from .validator import validate_seed
 
 
@@ -289,7 +290,7 @@ def _normalize_world_event_text(text: str) -> str:
 
 def _is_major_world_event(event: Event) -> bool:
     action_type = event.action_type.value if hasattr(event.action_type, "value") else str(event.action_type)
-    if action_type != "world_event" or event.importance < 0.85:
+    if action_type != "world_event" or event_score(event) < 0.85:
         return False
 
     text = _normalize_world_event_text(str(event.action.get("content") or event.result or ""))
@@ -457,8 +458,8 @@ async def _record_initial_events(session: Session) -> None:
             action_type="world_event",
             action={"content": text},
             result=f"[WORLD] {text}",
-            importance=0.9,
         )
+        finalize_event_significance(event)
         session.events.append(event)
         await save_event(event)
         await _auto_save_major_event_seed(session, event)
@@ -494,7 +495,14 @@ def _event_dict(e: Event) -> dict:
         "result": e.result,
         "structured": e.structured if hasattr(e, "structured") else {},
         "location": e.location if hasattr(e, "location") else "",
+        "involved_agents": e.involved_agents if hasattr(e, "involved_agents") else [],
+        "significance": (
+            e.significance.model_dump()
+            if hasattr(e, "significance") and hasattr(e.significance, "model_dump")
+            else {}
+        ),
         "importance": e.importance if hasattr(e, "importance") else 0.5,
+        "node_id": e.node_id if hasattr(e, "node_id") else "",
     }
 
 
@@ -566,6 +574,12 @@ async def _get_engine(session_id: str) -> Engine | None:
             action_type=e["action_type"],
             action=e["action"],
             result=e["result"],
+            structured=e.get("structured") or {},
+            location=e.get("location") or "",
+            involved_agents=e.get("involved_agents") or [],
+            significance=e.get("significance") or {},
+            importance=float(e.get("importance") or 0.5),
+            node_id=e.get("node_id") or "",
         ))
 
     engine = Engine(
@@ -939,8 +953,8 @@ async def _inject_event_inner(engine: Engine, session_id: str, req: InjectEventR
         action_type="world_event",
         action={"content": req.content},
         result=f"[WORLD] {req.content}",
-        importance=0.9,
     )
+    finalize_event_significance(event)
     engine._append_event(event)
     await save_event(event)
     await _auto_save_major_event_seed(engine.session, event)
@@ -1722,6 +1736,12 @@ async def extract_event_seed(req: ExtractSeedRequest) -> dict:
             action_type=str(event_data.get("action_type") or ""),
             action=event_data.get("action") or {},
             result=str(event_data.get("result") or ""),
+            structured=event_data.get("structured") or {},
+            location=str(event_data.get("location") or ""),
+            involved_agents=event_data.get("involved_agents") or [],
+            significance=event_data.get("significance") or {},
+            importance=float(event_data.get("importance") or 0.5),
+            node_id=str(event_data.get("node_id") or ""),
         ),
         source_world=req.session_id,
         lineage=_runtime_lineage(

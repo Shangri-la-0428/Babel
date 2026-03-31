@@ -19,6 +19,29 @@ def _dump_json(value) -> str:
         value = value.model_dump()
     return json.dumps(value, ensure_ascii=False)
 
+
+def _load_json(value, default):
+    if value in (None, ""):
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return default
+
+
+def _deserialize_event_row(row: aiosqlite.Row | dict) -> dict:
+    event = dict(row)
+    event["action"] = _load_json(event.get("action"), {})
+    event["structured"] = _load_json(event.get("structured"), {})
+    event["involved_agents"] = _load_json(event.get("involved_agents"), [])
+    event["significance"] = _load_json(event.get("significance"), {})
+    event["location"] = event.get("location") or ""
+    event["importance"] = float(event.get("importance") or 0.5)
+    event["node_id"] = event.get("node_id") or ""
+    return event
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -274,6 +297,17 @@ async def _migrate_v10(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+async def _migrate_v11(db: aiosqlite.Connection) -> None:
+    """Add significance field to events if missing."""
+    cursor = await db.execute("PRAGMA table_info(events)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "significance" not in columns:
+        await db.execute(
+            "ALTER TABLE events ADD COLUMN significance TEXT DEFAULT '{}'"
+        )
+    await db.commit()
+
+
 async def init_db(db_path: str | Path | None = None) -> None:
     path = str(db_path or DB_PATH)
     async with aiosqlite.connect(path) as db:
@@ -288,6 +322,7 @@ async def init_db(db_path: str | Path | None = None) -> None:
         await _migrate_v8(db)
         await _migrate_v9(db)
         await _migrate_v10(db)
+        await _migrate_v11(db)
         await db.commit()
 
 
@@ -362,18 +397,26 @@ async def save_session(session) -> None:
 
 
 async def save_event(event) -> None:
-    """Save a single event (with V2 fields + structured)."""
+    """Save a single event (with structured metadata + significance)."""
     async with aiosqlite.connect(str(DB_PATH)) as db:
         at = event.action_type if isinstance(event.action_type, str) else event.action_type.value
         structured_json = json.dumps(
             event.structured if hasattr(event, "structured") else {},
             ensure_ascii=False,
         )
+        significance_json = json.dumps(
+            (
+                event.significance.model_dump()
+                if hasattr(event, "significance") and hasattr(event.significance, "model_dump")
+                else getattr(event, "significance", {})
+            ) or {},
+            ensure_ascii=False,
+        )
         await db.execute(
             """INSERT OR IGNORE INTO events
                (id, session_id, tick, agent_id, agent_name, action_type,
-                action, result, structured, location, involved_agents, importance, node_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                action, result, structured, location, involved_agents, significance, importance, node_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event.id,
                 event.session_id,
@@ -386,6 +429,7 @@ async def save_event(event) -> None:
                 structured_json,
                 event.location,
                 json.dumps(event.involved_agents, ensure_ascii=False),
+                significance_json,
                 event.importance,
                 event.node_id,
             ),
@@ -403,7 +447,7 @@ async def load_events(session_id: str, limit: int = 200, offset: int = 0) -> lis
             (session_id, limit, offset),
         )
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [_deserialize_event_row(row) for row in rows]
 
 
 async def load_events_filtered(
@@ -435,14 +479,7 @@ async def load_events_filtered(
             (*params, limit),
         )
         rows = await cursor.fetchall()
-        result = []
-        for r in rows:
-            e = dict(r)
-            if "action" in e and isinstance(e["action"], str):
-                e["action"] = json.loads(e["action"])
-            if "involved_agents" in e and isinstance(e["involved_agents"], str):
-                e["involved_agents"] = json.loads(e["involved_agents"])
-            result.append(e)
+        result = [_deserialize_event_row(r) for r in rows]
         result.reverse()
         return result
 
@@ -458,10 +495,7 @@ async def load_event_by_id(session_id: str, event_id: str) -> dict | None:
         row = await cursor.fetchone()
         if not row:
             return None
-        e = dict(row)
-        if isinstance(e.get("action"), str):
-            e["action"] = json.loads(e["action"])
-        return e
+        return _deserialize_event_row(row)
 
 
 async def list_sessions() -> list[dict]:
@@ -553,9 +587,7 @@ async def load_session(session_id: str) -> dict | None:
         )
         events = []
         for r in await cursor.fetchall():
-            e = dict(r)
-            e["action"] = json.loads(e["action"])
-            events.append(e)
+            events.append(_deserialize_event_row(r))
         events.reverse()
         session["events"] = events
 

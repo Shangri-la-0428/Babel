@@ -449,6 +449,19 @@ export interface EventData {
   action_type: string;
   action: Record<string, unknown>;
   result: string;
+  structured?: Record<string, unknown>;
+  location?: string;
+  involved_agents?: string[];
+  importance?: number;
+  significance?: {
+    primary: string;
+    score: number;
+    durable: boolean;
+    axes: string[];
+    reasons: string[];
+    delta: Record<string, unknown>;
+  };
+  node_id?: string;
   agent_role?: string;
 }
 

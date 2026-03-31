@@ -814,6 +814,71 @@ class TestPolicyResolvers(unittest.TestCase):
         assert agent.active_goal.next_step == "watch how Bob reacts to the mention of the dock"
         assert agent.immediate_intent == "win Bob's trust"
 
+    @patch("babel.engine.create_memory_from_event", new_callable=AsyncMock)
+    def test_engine_finalizes_event_significance_after_goal_mutation(self, mock_create_memory):
+        from babel.engine import Engine
+
+        class IntentSource:
+            async def decide(self, context):
+                del context
+                return ActionOutput(
+                    type=ActionType.OBSERVE,
+                    content="spots a meaningful clue",
+                    intent={
+                        "objective": "investigate the smuggling route",
+                        "approach": "trace the suspicious movement first",
+                        "next_step": "inspect the dock manifests",
+                    },
+                )
+
+        class GoalMutationOnly:
+            def ensure_active_goal(self, engine, agent):
+                del engine
+                if not agent.active_goal:
+                    agent.active_goal = GoalState(text="investigate the smuggling route")
+
+            def sync_plan_from_intent(self, agent, intent):
+                del agent, intent
+                return None
+
+            def record_blocker(self, agent, blocker):
+                del agent, blocker
+                return None
+
+            async def update(self, engine, agent, event):
+                del engine
+                assert event.result
+                if not agent.active_goal:
+                    agent.active_goal = GoalState(text="investigate the smuggling route")
+                agent.active_goal.progress = 0.3
+                agent.active_goal.last_progress_reason = event.result
+
+            def event_advances(self, event, goal):
+                del event, goal
+                return True
+
+            def select_next_goal(self, engine, agent, drive_state=None):
+                del engine, agent, drive_state
+                return None
+
+            def check_drive_shift(self, engine, agent):
+                del engine, agent
+                return None
+
+        session = _make_session()
+        engine = Engine(
+            session,
+            decision_source=IntentSource(),
+            goal_mutation_policy=GoalMutationOnly(),
+        )
+        agent = session.agents["a1"]
+        engine._running = True
+
+        event = asyncio.get_event_loop().run_until_complete(engine._resolve_agent_action(agent))
+        assert event.significance.primary == "goal"
+        assert event.significance.delta["goal_progress"] == pytest.approx(0.3, abs=0.001)
+        assert event.importance == pytest.approx(event.significance.score, abs=0.001)
+
 
 # ── Integration: ScriptedDecisionSource runs 10 ticks ──
 

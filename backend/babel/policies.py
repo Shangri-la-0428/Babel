@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 from .clock import world_time
-from .memory import IMPORTANCE_MAP, get_visible_agents
+from .memory import get_visible_agents
 from .decision import AgentContext
 from .models import (
     ActionOutput,
@@ -31,6 +31,7 @@ from .models import (
     TimelineNode,
     WorldSnapshot,
 )
+from .significance import event_is_significant, event_score, finalize_event_significance
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -129,8 +130,8 @@ class DefaultPressurePolicy:
             action={"content": perturbation},
             result=f"[WORLD] {perturbation}",
             location=agent.location,
-            importance=IMPORTANCE_MAP.get("world_event", 0.9),
         )
+        finalize_event_significance(world_event)
         engine._append_event(world_event)
         await engine._emit(world_event)
         await engine._remember_event(agent, world_event, f"[WORLD] {perturbation}")
@@ -237,7 +238,7 @@ class DefaultProposalPolicy:
 class DefaultTimelinePolicy:
     async def after_tick(self, engine: Engine, tick_events: list[Event]) -> None:
         parent_id = await engine._get_last_node_id()
-        has_significant = any(event.importance >= 0.8 for event in tick_events)
+        has_significant = any(event_is_significant(event) for event in tick_events)
         node = TimelineNode(
             session_id=engine.session.id,
             tick=engine.session.tick,
@@ -284,12 +285,16 @@ class DefaultTimelinePolicy:
 
     @staticmethod
     def summarize_tick(events: list[Event]) -> str:
-        parts = []
-        for event in events:
-            name = event.agent_name or "System"
-            action_type = event.action_type if isinstance(event.action_type, str) else event.action_type.value
-            parts.append(f"{name}: {action_type}")
-        return ". ".join(parts)
+        if not events:
+            return ""
+        ranked = sorted(
+            events,
+            key=lambda event: (event_score(event), bool(event.significance.durable), event.tick),
+            reverse=True,
+        )
+        picked = ranked[:3]
+        parts = [event.result.strip() for event in picked if event.result.strip()]
+        return " | ".join(parts) if parts else "No meaningful change."
 
 
 class DefaultMemoryPolicy:
@@ -310,7 +315,7 @@ class DefaultEnrichmentPolicy:
         session = engine.session
 
         for event in tick_events:
-            if event.importance < 0.7:
+            if event_score(event) < 0.7:
                 continue
             if event.agent_id and event.agent_id in session.agents:
                 pair = ("agent", event.agent_id)

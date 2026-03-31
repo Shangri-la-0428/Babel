@@ -14,6 +14,7 @@ from .db import (
     update_memory_access,
 )
 from .models import ActionType, AgentState, Event, MemoryEntry, Session
+from .significance import BASE_EVENT_IMPORTANCE
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +22,7 @@ logger = logging.getLogger(__name__)
 
 MAX_MEMORY_LEGACY = 10  # backwards-compat sliding window size
 
-IMPORTANCE_MAP = {
-    "speak": 0.6,
-    "trade": 0.8,
-    "use_item": 0.7,
-    "move": 0.3,
-    "observe": 0.5,
-    "wait": 0.1,
-    "world_event": 0.9,
-}
+IMPORTANCE_MAP = BASE_EVENT_IMPORTANCE
 
 # ── Legacy (kept for backwards compatibility) ──
 
@@ -49,7 +42,17 @@ def _compute_importance(
 ) -> float:
     """Compute importance score for a memory based on event type and context."""
     at = event.action_type if isinstance(event.action_type, str) else event.action_type.value
-    base = IMPORTANCE_MAP.get(at, 0.5)
+    base = max(float(getattr(event, "importance", 0.0) or 0.0), IMPORTANCE_MAP.get(at, 0.5))
+
+    significance = getattr(event, "significance", None)
+    if significance and (
+        significance.primary != "ambient"
+        or significance.durable
+        or significance.axes
+        or significance.reasons
+        or abs(significance.score - 0.5) > 1e-6
+    ):
+        base = max(base, float(significance.score))
 
     # Boost if event involves an agent mentioned in this agent's goals
     goals_text = " ".join(agent.goals).lower()

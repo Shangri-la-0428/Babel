@@ -22,6 +22,7 @@ from babel.models import (
     AgentState,
     AgentStatus,
     Event,
+    EventSignificance,
     GoalState,
     LocationSeed,
     MemoryEntry,
@@ -411,6 +412,32 @@ async def test_load_event_by_id(db_path):
     assert loaded["agent_id"] == "a1"
     assert isinstance(loaded["action"], dict)
     assert loaded["action"]["content"] == "event at tick 7"
+
+
+@pytest.mark.asyncio
+async def test_event_significance_roundtrip(db_path):
+    """9b. Event significance is preserved through save/load."""
+    sid = "evt-significance"
+    s = _make_session(session_id=sid)
+    await db_module.save_session(s)
+
+    evt = _make_event(sid, tick=4, event_id="sigevt01")
+    evt.significance = EventSignificance(
+        primary="goal",
+        score=0.83,
+        durable=True,
+        axes=["goal", "information"],
+        reasons=["Reveals useful information and advances the plan."],
+        delta={"goal_progress": 0.22},
+    )
+    evt.importance = evt.significance.score
+    await db_module.save_event(evt)
+
+    loaded = await db_module.load_event_by_id(sid, "sigevt01")
+    assert loaded is not None
+    assert loaded["significance"]["primary"] == "goal"
+    assert loaded["significance"]["durable"] is True
+    assert loaded["significance"]["delta"]["goal_progress"] == pytest.approx(0.22, abs=0.001)
 
 
 @pytest.mark.asyncio
