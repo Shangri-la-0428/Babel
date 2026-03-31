@@ -403,11 +403,9 @@ class TestEventStructured(unittest.TestCase):
         summary = apply_action(resp, agent, session)
         structured = getattr(resp, "_structured", {})
 
-        # result mentions speaking, structured has spoke_to verb
-        assert "said to" in summary
+        # result references target and content, structured has spoke_to verb
+        assert "Bob" in summary and "hello Bob" in summary
         assert structured["verb"] == "spoke_to"
-        # Both reference a2/Bob
-        assert "Bob" in summary
         assert structured["object"] == "a2"
 
 

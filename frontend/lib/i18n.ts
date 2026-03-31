@@ -289,6 +289,8 @@ const translations = {
   chat_with: { cn: "与{0}对话", en: "Chat with {0}" },
   send: { cn: "发送", en: "Send" },
   you: { cn: "你", en: "You" },
+  creator: { cn: "创造者", en: "Creator" },
+  chat_loading: { cn: "加载历史...", en: "Loading history..." },
   thinking: { cn: "思考中...", en: "Thinking..." },
   chat_empty: { cn: "发送消息，与{0}角色对话", en: "Send a message to talk with {0} in character" },
   chat_placeholder: { cn: "对{0}说...", en: "Say something to {0}..." },

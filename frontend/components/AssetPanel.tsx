@@ -1483,9 +1483,10 @@ export default function AssetPanel({
     return contexts;
   }, [agents, locations, waitingAgents]);
 
-  // Aggregate items from all agents (memoized — only recomputes when state changes)
+  // Aggregate items from agent inventories + world seed items
   const items = useMemo<ItemInfo[]>(() => {
     const map = new Map<string, ItemInfo>();
+    // Items held by agents
     Object.entries(agents).forEach(([agentId, agent]) => {
       (agent.inventory || []).forEach((itemName) => {
         if (!map.has(itemName)) {
@@ -1494,8 +1495,14 @@ export default function AssetPanel({
         map.get(itemName)!.holders.push({ agentId, agentName: agent.name });
       });
     });
+    // World-level items (from seed) not yet held by anyone
+    (state?.items || []).forEach((item) => {
+      if (!map.has(item.name)) {
+        map.set(item.name, { name: item.name, holders: [] });
+      }
+    });
     return Array.from(map.values());
-  }, [agents]);
+  }, [agents, state?.items]);
 
   const TABS: { key: Tab; labelKey: "agents" | "item" | "locations" | "world_state"; count: number }[] = [
     { key: "agents", labelKey: "agents", count: Object.keys(agents).length },

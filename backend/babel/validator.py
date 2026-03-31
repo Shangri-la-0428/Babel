@@ -303,26 +303,25 @@ def _apply_action(
     # Stash structured data on the response for the engine to pick up
     response._structured = structured  # type: ignore[attr-defined]
 
-    # Build event summary
+    # Build event summary — use LLM content directly for novel-like readability
+    content = (action.content or "").strip()
     match action.type:
         case ActionType.SPEAK:
             target_name = _resolve_name(action.target, session)
-            summary = f'{agent.name} said to {target_name}: "{action.content}"'
+            summary = f'{agent.name} → {target_name}: "{content}"'
         case ActionType.MOVE:
-            summary = f"{agent.name} moved to {agent.location}"
-            if action.content:
-                summary += f" — {action.content}"
+            summary = f"{agent.name}: {content}" if content else f"{agent.name} → {agent.location}"
         case ActionType.USE_ITEM:
-            summary = f"{agent.name} used {action.target}: {action.content}"
+            summary = f"{agent.name}: {content}" if content else f"{agent.name} [{action.target}]"
         case ActionType.TRADE:
             target_name = _resolve_name(action.target, session)
-            summary = f"{agent.name} traded with {target_name}: {action.content}"
+            summary = f"{agent.name} ↔ {target_name}: {content}"
         case ActionType.OBSERVE:
-            summary = f"{agent.name} observed: {action.content}"
+            summary = f"{agent.name}: {content}"
         case ActionType.WAIT:
-            summary = f"{agent.name} waited — {action.content}" if action.content else f"{agent.name} waited"
+            summary = f"{agent.name}: {content}" if content else f"{agent.name} ..."
         case _:
-            summary = f"{agent.name}: {action.content}"
+            summary = f"{agent.name}: {content}"
 
     return summary + location_note
 

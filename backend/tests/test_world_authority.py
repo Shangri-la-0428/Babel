@@ -382,7 +382,7 @@ class TestApplyAction:
         resp = _make_response(ActionType.MOVE, target="VIP包间", location="VIP包间")
         summary = apply_action(resp, agent, session)
         assert agent.location == "VIP包间"
-        assert "moved to" in summary
+        assert "moved from" in summary or "VIP包间" in summary
 
     def test_apply_trade(self):
         session = _make_session()
@@ -400,7 +400,7 @@ class TestApplyAction:
         agent = session.agents["a1"]
         resp = _make_response(ActionType.SPEAK, target="a2", content="hey there")
         summary = apply_action(resp, agent, session)
-        assert "said to Bob" in summary
+        assert "Bob" in summary and "hey there" in summary
 
 
 class TestRelationAutoUpdate:

@@ -754,6 +754,18 @@ export async function chatWithAgent(
   return res.json();
 }
 
+export async function getChatHistory(
+  sessionId: string,
+  agentId: string,
+  limit = 50
+): Promise<{ role: string; text: string; tick: number; id: string }[]> {
+  const res = await fetchWithTimeout(
+    `${API_BASE}/api/worlds/${sessionId}/chat-history/${agentId}?limit=${limit}`
+  );
+  assertOk(res);
+  return res.json();
+}
+
 export async function enrichEntity(
   sessionId: string,
   entityType: "agent" | "item" | "location",

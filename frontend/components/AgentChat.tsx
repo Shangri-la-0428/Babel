@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { chatWithAgent, BabelSettings } from "@/lib/api";
+import { chatWithAgent, getChatHistory, BabelSettings } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import Modal from "./Modal";
 import { ExpandableInput } from "./ui";
 
 interface ChatMessage {
   id: number;
-  role: "user" | "agent";
+  role: "creator" | "agent";
   text: string;
 }
 
@@ -31,8 +31,27 @@ export default function AgentChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const msgCounter = useRef(0);
+
+  // Load persisted chat history on mount
+  useEffect(() => {
+    let cancelled = false;
+    getChatHistory(sessionId, agentId).then((history) => {
+      if (cancelled) return;
+      const restored: ChatMessage[] = history.map((m) => ({
+        id: ++msgCounter.current,
+        role: m.role === "creator" ? "creator" : "agent",
+        text: m.text,
+      }));
+      setMessages(restored);
+      setHistoryLoaded(true);
+    }).catch(() => {
+      if (!cancelled) setHistoryLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [sessionId, agentId]);
 
   useEffect(() => {
     // Defer scroll to after browser paint so scrollHeight includes new content
@@ -48,7 +67,7 @@ export default function AgentChat({
 
     const userMsg = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { id: ++msgCounter.current, role: "user", text: userMsg }]);
+    setMessages((prev) => [...prev, { id: ++msgCounter.current, role: "creator", text: userMsg }]);
     setLoading(true);
 
     try {
@@ -88,7 +107,12 @@ export default function AgentChat({
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-3" aria-live="polite" aria-relevant="additions">
-        {messages.length === 0 && (
+        {!historyLoaded && (
+          <div className="text-detail text-t-dim text-center py-8 normal-case tracking-normal">
+            {t("chat_loading")}
+          </div>
+        )}
+        {historyLoaded && messages.length === 0 && (
           <div className="text-detail text-t-dim text-center py-8 normal-case tracking-normal">
             {t("chat_empty", agentName)}
           </div>
@@ -97,13 +121,13 @@ export default function AgentChat({
           <div
             key={msg.id}
             className={`text-detail normal-case tracking-normal leading-relaxed animate-[fade-in_200ms_ease] ${
-              msg.role === "user"
+              msg.role === "creator"
                 ? "text-t-secondary ml-8 text-right"
                 : "text-t-DEFAULT mr-8"
             }`}
           >
             <span className="text-micro tracking-wider text-t-dim block mb-1 truncate">
-              {msg.role === "user" ? t("you") : agentName}
+              {msg.role === "creator" ? t("creator") : agentName}
             </span>
             <span className="break-words">{msg.text}</span>
           </div>

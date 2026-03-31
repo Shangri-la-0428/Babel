@@ -68,7 +68,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
+        "http://localhost:3001",
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -1155,7 +1157,7 @@ async def get_human_status(session_id: str) -> dict:
 
 @app.post("/api/worlds/{session_id}/chat")
 async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
-    """Have a direct conversation with an agent (does not affect simulation state)."""
+    """Chat with an agent. Persisted and injected as world event."""
     engine = await _get_engine(session_id)
     if not engine:
         raise HTTPException(404, "Session not found")
@@ -1184,11 +1186,34 @@ async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
         api_base=req.api_base,
     )
 
+    # Persist chat messages
+    chat_role_prefix = f"chat:{req.agent_id}"
+    await save_narrator_message(session_id, f"{chat_role_prefix}:creator", req.message, engine.session.tick)
+    await save_narrator_message(session_id, f"{chat_role_prefix}:agent", reply, engine.session.tick)
+
     return {
         "agent_id": req.agent_id,
         "agent_name": agent.name,
         "reply": reply,
     }
+
+
+@app.get("/api/worlds/{session_id}/chat-history/{agent_id}")
+async def get_chat_history(session_id: str, agent_id: str, limit: int = 50) -> list[dict]:
+    """Get chat history with a specific agent."""
+    messages = await load_narrator_messages(session_id, limit=200)
+    prefix = f"chat:{agent_id}:"
+    result = []
+    for m in messages:
+        if m["role"].startswith(prefix):
+            role_type = m["role"].split(":")[-1]  # "creator" or "agent"
+            result.append({
+                "role": role_type,
+                "text": m["content"],
+                "tick": m.get("tick", 0),
+                "id": m.get("id", ""),
+            })
+    return result[-limit:]
 
 
 # ── OBSERVE: Oracle (omniscient narrator) ─────────────
