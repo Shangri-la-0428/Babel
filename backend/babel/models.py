@@ -305,7 +305,6 @@ class AgentState(BaseModel):
     location: str = ""
     inventory: list[str] = Field(default_factory=list)
     status: AgentStatus = AgentStatus.IDLE
-    memory: list[str] = Field(default_factory=list)
     role: AgentRole = AgentRole.MAIN
     active_goal: GoalState | None = None
     immediate_intent: str = ""

@@ -229,6 +229,8 @@ async def get_agent_action(
     ongoing_intent: dict | None = None,
     last_outcome: str = "",
     emotional_context: str = "",
+    item_context: dict[str, str] | None = None,
+    location_context: dict[str, str] | None = None,
 ) -> LLMResponse:
     """Get a validated agent action from the LLM."""
     user_prompt = build_user_prompt(
@@ -253,6 +255,8 @@ async def get_agent_action(
         ongoing_intent=ongoing_intent,
         last_outcome=last_outcome,
         emotional_context=emotional_context,
+        item_context=item_context,
+        location_context=location_context,
     )
 
     raw = await _complete_json(

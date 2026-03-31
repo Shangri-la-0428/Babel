@@ -409,6 +409,12 @@ export interface ActiveGoal {
   progress: number;     // 0.0-1.0
   stall_count: number;
   started_tick: number;
+  strategy?: string;
+  next_step?: string;
+  success_criteria?: string;
+  blockers?: string[];
+  last_progress_reason?: string;
+  drive_affinities?: Record<string, number>;
 }
 
 export interface RelationData {
@@ -417,6 +423,12 @@ export interface RelationData {
   type: string;         // ally | hostile | neutral | rival | trust
   strength: number;     // 0.0-1.0
   last_tick: number;
+  trust?: number;       // 0.0-1.0
+  tension?: number;     // 0.0-1.0
+  familiarity?: number; // 0.0-1.0
+  debt_balance?: number;
+  leverage?: number;
+  last_interaction?: string;
 }
 
 export interface PsycheState {
@@ -1044,6 +1056,76 @@ export async function generateSeed(
   return res.json();
 }
 
+// ── World Report ──
+
+export interface ReportEventSummary {
+  tick: number;
+  agent_name: string | null;
+  action_type: string;
+  result: string;
+  score: number;
+  primary_axis: string;
+  durable: boolean;
+  reasons: string[];
+}
+
+export interface AgentArc {
+  agent_id: string;
+  name: string;
+  personality: string;
+  alive: boolean;
+  location: string;
+  goal_text: string | null;
+  goal_status: string | null;
+  goal_progress: number;
+  goal_stall_count: number;
+  goals_total: number;
+  key_events: ReportEventSummary[];
+  event_count: number;
+}
+
+export interface RelationArc {
+  source: string;
+  target: string;
+  source_name: string;
+  target_name: string;
+  type: string;
+  strength: number;
+  trust: number;
+  tension: number;
+  familiarity: number;
+  last_interaction: string;
+}
+
+export interface WorldReport {
+  session_id: string;
+  name: string;
+  description: string;
+  tick: number;
+  agents_total: number;
+  agents_alive: number;
+  agents_dead: number;
+  total_events: number;
+  significant_events: number;
+  durable_events: number;
+  significance_ratio: number;
+  action_distribution: Record<string, number>;
+  axis_distribution: Record<string, number>;
+  agent_arcs: AgentArc[];
+  relation_arcs: RelationArc[];
+  milestones: ReportEventSummary[];
+  social_highlights: {
+    alliances: { pair: string; trust: number }[];
+    rivalries: { pair: string; tension: number }[];
+  };
+}
+
+export async function getWorldReport(sessionId: string): Promise<WorldReport> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/report`);
+  assertOk(res);
+  return res.json();
+}
+
 // ── Timeline & Replay ──
 
 export interface TimelineNode {
@@ -1093,6 +1175,32 @@ export async function reconstructAtTick(
     body: JSON.stringify({ tick }),
     timeout: LONG_TIMEOUT,
     signal,
+  });
+  assertOk(res);
+  return res.json();
+}
+
+// ── Fork ──
+
+export interface ForkResult {
+  session_id: string;
+  parent_session_id: string;
+  fork_tick: number;
+  branch_id: string;
+  name: string;
+  agents: string[];
+  tick: number;
+  status: string;
+}
+
+export async function forkWorld(
+  sessionId: string,
+  tick: number,
+): Promise<ForkResult> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/fork`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tick }),
   });
   assertOk(res);
   return res.json();

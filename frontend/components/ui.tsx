@@ -461,7 +461,7 @@ export function StringListEditor({
               value={value}
               disabled={disabled}
               maxLength={maxLength}
-              className={`w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${inputClassName}`.trim()}
+              className={`w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${inputClassName}`.trim()}
               placeholder={itemPlaceholder}
               onValueChange={(nextValue) => updateItem(index, nextValue)}
               onBlur={() => commitItem(index)}
@@ -471,7 +471,7 @@ export function StringListEditor({
             type="button"
             onClick={() => removeItem(index)}
             disabled={disabled}
-            className="h-9 shrink-0 px-3 text-micro tracking-wider border border-danger text-danger hover:bg-danger/10 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+            className="h-9 shrink-0 px-3 text-micro tracking-wider border border-danger text-danger hover:bg-danger/10 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
           >
             {t("remove")}
           </button>
@@ -486,7 +486,7 @@ export function StringListEditor({
             value={draft}
             disabled={disabled}
             maxLength={maxLength}
-            className={`w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${inputClassName}`.trim()}
+            className={`w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${inputClassName}`.trim()}
             placeholder={addPlaceholder || itemPlaceholder}
             onValueChange={setDraft}
             onKeyDown={(e) => {
@@ -501,12 +501,63 @@ export function StringListEditor({
           type="button"
           onClick={addItem}
           disabled={disabled || !draft.trim()}
-          className="inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+          className="inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
         >
           {addLabel}
         </button>
       </div>
     </div>
+  );
+}
+
+// ── SectionLabel ──
+// Uppercase micro label used for panel headers, section titles, and group labels.
+
+export function SectionLabel({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`text-micro text-t-muted tracking-widest ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+// ── SecondaryButton ──
+// Consistent secondary action button matching CLAUDE.md specification.
+
+export function SecondaryButton({
+  children,
+  onClick,
+  disabled,
+  className = "",
+  type = "button",
+  title,
+  "aria-label": ariaLabel,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  className?: string;
+  type?: "button" | "submit";
+  title?: string;
+  "aria-label"?: string;
+}) {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={ariaLabel}
+      className={`inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider font-medium border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform] ${className}`}
+    >
+      {children}
+    </button>
   );
 }
 

@@ -16,6 +16,10 @@ interface ControlBarProps {
   onOracle?: () => void;
   oracleOpen?: boolean;
   isReplay?: boolean;
+  onFork?: () => void;
+  hasControlledAgents?: boolean;
+  onReport?: () => void;
+  reportOpen?: boolean;
 }
 
 function PlayIcon() {
@@ -73,6 +77,10 @@ export default function ControlBar({
   onOracle,
   oracleOpen,
   isReplay,
+  onFork,
+  hasControlledAgents,
+  onReport,
+  reportOpen,
 }: ControlBarProps) {
   const { t } = useLocale();
   const isRunning = status === "running";
@@ -153,7 +161,7 @@ export default function ControlBar({
           aria-label={t("aria_run")}
           aria-hidden={isRunning}
           tabIndex={isRunning ? -1 : 0}
-          className={`group absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,box-shadow,transform,opacity] duration-150 ${
+          className={`group absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,box-shadow,transform,opacity] duration-150 ${
             isRunning ? "opacity-0 pointer-events-none" : "opacity-100"
           }`}
           style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}
@@ -167,7 +175,7 @@ export default function ControlBar({
           aria-label={t("aria_pause")}
           aria-hidden={!isRunning}
           tabIndex={isRunning ? 0 : -1}
-          className={`absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform,opacity] duration-150 ${
+          className={`absolute inset-0 inline-flex items-center justify-center gap-2 h-9 min-w-[100px] px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform,opacity] duration-150 ${
             isRunning ? "opacity-100" : "opacity-0 pointer-events-none"
           }`}
           style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}
@@ -188,24 +196,79 @@ export default function ControlBar({
         disabled={disabled || isRunning || isReplay}
         title={isReplay ? t("replay_disabled") : isRunning ? t("pause_first") : undefined}
         aria-label={t("aria_step")}
-        className="inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+        className="inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT bg-transparent text-t-DEFAULT hover:border-b-hover active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
       >
         <StepIcon /> {t("step")}
       </button>
 
-      {/* Oracle toggle */}
-      {onOracle && (
+      {/* ── Intervention Verbs ── */}
+      <div className="flex items-center gap-px bg-b-DEFAULT border border-b-DEFAULT">
+        {/* OBSERVE — oracle drawer */}
+        {onOracle && (
+          <button
+            type="button"
+            onClick={onOracle}
+            aria-expanded={!!oracleOpen}
+            className={`inline-flex items-center justify-center h-9 px-3 text-micro font-medium tracking-wider bg-void active:scale-[0.97] transition-[colors,box-shadow,transform] ${
+              oracleOpen
+                ? "text-info shadow-[0_0_8px_rgba(14,165,233,0.3)]"
+                : "text-t-muted hover:text-t-DEFAULT"
+            }`}
+          >
+            {t("verb_observe")}
+          </button>
+        )}
+        {/* NUDGE — inject event (focus handled by sim page) */}
         <button
           type="button"
-          onClick={onOracle}
-          aria-expanded={!!oracleOpen}
-          className={`inline-flex items-center justify-center gap-2 h-9 px-4 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] hover:[text-shadow:_-1px_0_rgba(14,165,233,0.4),_1px_0_rgba(192,254,4,0.2)] ${
-            oracleOpen
-              ? "border-info text-info shadow-[0_0_12px_rgba(14,165,233,0.3)]"
-              : "border-b-DEFAULT text-t-muted hover:border-b-hover hover:text-t-DEFAULT"
+          onClick={() => {
+            const el = document.getElementById("nudge-input");
+            el?.focus();
+          }}
+          className="inline-flex items-center justify-center h-9 px-3 text-micro font-medium tracking-wider bg-void text-t-muted hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+        >
+          {t("verb_nudge")}
+        </button>
+        {/* DIRECT — human control indicator */}
+        <button
+          type="button"
+          onClick={() => {
+            const el = document.querySelector("[data-panel='agents']");
+            el?.scrollIntoView({ behavior: "smooth" });
+          }}
+          className={`inline-flex items-center justify-center h-9 px-3 text-micro font-medium tracking-wider bg-void active:scale-[0.97] transition-[colors,transform] ${
+            hasControlledAgents
+              ? "text-warning shadow-[0_0_8px_rgba(255,184,0,0.2)]"
+              : "text-t-muted hover:text-t-DEFAULT"
           }`}
         >
-          {t("oracle")}
+          {t("verb_direct")}
+        </button>
+        {/* FORK — timeline branching */}
+        {onFork && (
+          <button
+            type="button"
+            onClick={onFork}
+            className="inline-flex items-center justify-center h-9 px-3 text-micro font-medium tracking-wider bg-void text-t-muted hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+          >
+            {t("verb_fork")}
+          </button>
+        )}
+      </div>
+
+      {/* Report */}
+      {onReport && (
+        <button
+          type="button"
+          onClick={onReport}
+          aria-pressed={!!reportOpen}
+          className={`inline-flex items-center justify-center h-9 px-3 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] ${
+            reportOpen
+              ? "border-primary text-primary shadow-[0_0_8px_var(--color-primary-glow)]"
+              : "border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary"
+          }`}
+        >
+          {t("report")}
         </button>
       )}
 
@@ -252,7 +315,7 @@ export default function ControlBar({
             className="w-2 h-2"
           />
           {isRunning && (
-            <span className="absolute inset-0 rounded-full border border-primary animate-ping opacity-20" aria-hidden="true" />
+            <span className="absolute inset-0 border border-primary animate-ping opacity-20" aria-hidden="true" />
           )}
         </span>
         <span

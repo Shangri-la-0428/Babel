@@ -76,10 +76,6 @@ class SocialMutationPolicy(Protocol):
     def apply(self, engine: Engine, agent: AgentState, response: LLMResponse, errors: list[str]) -> None: ...
 
 
-class SocialPolicy(SocialProjectionPolicy, SocialMutationPolicy, Protocol):
-    """Backward-compatible combined social policy interface."""
-
-
 class GoalProjectionPolicy(Protocol):
     def build_goal_context(self, agent: AgentState) -> dict[str, Any]: ...
 
@@ -97,10 +93,6 @@ class GoalMutationPolicy(Protocol):
         drive_state: dict[str, float] | None = None,
     ) -> GoalState | None: ...
     def check_drive_shift(self, engine: Engine, agent: AgentState) -> None: ...
-
-
-class GoalPolicy(GoalProjectionPolicy, GoalMutationPolicy, Protocol):
-    """Backward-compatible combined goal policy interface."""
 
 
 class TimelinePolicy(Protocol):
@@ -145,6 +137,20 @@ def _build_agent_context(engine: Engine, agent: AgentState, **overrides) -> Agen
     wt = world_time(engine.session.tick, engine.session.world_seed.time)
     goal_context = engine.goal_projection_policy.build_goal_context(agent)
 
+    # Extract item/location descriptions from seed for richer LLM context
+    seed = engine.session.world_seed
+    item_context: dict[str, str] = {}
+    for item in seed.items:
+        if item.description:
+            item_context[item.name] = item.description
+    for res in seed.resources:
+        if res.description:
+            item_context[res.name] = res.description
+    location_context: dict[str, str] = {}
+    for loc in seed.locations:
+        if loc.description:
+            location_context[loc.name] = loc.description
+
     context = AgentContext(
         agent_id=agent.agent_id,
         agent_name=agent.name,
@@ -164,6 +170,8 @@ def _build_agent_context(engine: Engine, agent: AgentState, **overrides) -> Agen
         last_outcome=goal_context.get("last_outcome", agent.last_outcome),
         urgent_events=engine.session.urgent_events or None,
         tick=engine.session.tick,
+        item_context=item_context,
+        location_context=location_context,
     )
 
     for key, value in overrides.items():
@@ -446,50 +454,6 @@ class DefaultSocialMutationPolicy:
         )
 
 
-class CombinedSocialPolicy:
-    """Compatibility wrapper exposing the legacy read/write social interface."""
-
-    def __init__(
-        self,
-        projection: SocialProjectionPolicy,
-        mutation: SocialMutationPolicy,
-    ):
-        self._projection = projection
-        self._mutation = mutation
-
-    def build_relation_context(self, session: Session, agent: AgentState) -> list[dict[str, Any]]:
-        return self._projection.build_relation_context(session, agent)
-
-    def apply(self, engine: Engine, agent: AgentState, response: LLMResponse, errors: list[str]) -> None:
-        self._mutation.apply(engine, agent, response, errors)
-
-
-class DefaultSocialPolicy(CombinedSocialPolicy):
-    def __init__(self):
-        super().__init__(
-            projection=DefaultSocialProjectionPolicy(),
-            mutation=DefaultSocialMutationPolicy(),
-        )
-
-
-def resolve_social_policies(
-    *,
-    social_policy: SocialPolicy | None = None,
-    social_projection_policy: SocialProjectionPolicy | None = None,
-    social_mutation_policy: SocialMutationPolicy | None = None,
-) -> tuple[SocialProjectionPolicy, SocialMutationPolicy, SocialPolicy]:
-    """Normalize legacy combined social policy input into explicit read/write layers."""
-    if social_policy is not None and social_projection_policy is None:
-        social_projection_policy = social_policy
-    if social_policy is not None and social_mutation_policy is None:
-        social_mutation_policy = social_policy
-
-    projection = social_projection_policy or DefaultSocialProjectionPolicy()
-    mutation = social_mutation_policy or DefaultSocialMutationPolicy()
-    combined = social_policy or CombinedSocialPolicy(projection, mutation)
-    return projection, mutation, combined
-
-
 class DefaultGoalProjectionPolicy:
     def build_goal_context(self, agent: AgentState) -> dict[str, Any]:
         active_goal = agent.active_goal.model_dump() if agent.active_goal else None
@@ -589,10 +553,12 @@ class DefaultGoalMutationPolicy:
 
         core_goal_text = goal.text.strip()
         goal_text = self._relevant_goal_text(goal)
-        result_lower = event.result.lower()
+        # Check both result and action content for goal alignment
+        action_content = str(event.action.get("content", "") or "").lower()
+        search_text = f"{event.result.lower()} {action_content}"
         core_terms = self._extract_goal_terms(core_goal_text)
-        matches = sum(1 for term in core_terms if term in result_lower)
-        threshold = min(2, max(1, len(core_terms) // 3)) if core_terms else 0
+        matches = sum(1 for term in core_terms if term in search_text)
+        threshold = max(1, len(core_terms) // 4) if core_terms else 0
 
         action_type = event.action_type if isinstance(event.action_type, str) else event.action_type.value
         action_target = str(event.action.get("target", "") or "").lower()
@@ -655,14 +621,18 @@ class DefaultGoalMutationPolicy:
             agent.immediate_next_step = ""
             return
 
-        if goal.stall_count >= 5:
+        if goal.stall_count >= 8:
             goal.status = "stalled"
             drive_state = engine._get_agent_drive_state(agent.agent_id)
             try:
                 goal_plan = await engine._replan_goal(agent, goal)
+                new_text = goal_plan.get("text", goal.text)
+                # Preserve progress if the core goal hasn't changed
+                preserved_progress = goal.progress if new_text == goal.text else max(goal.progress * 0.5, 0.0)
                 agent.active_goal = GoalState(
-                    text=goal_plan.get("text", goal.text),
+                    text=new_text,
                     started_tick=engine.session.tick,
+                    progress=preserved_progress,
                     strategy=goal_plan.get("strategy", ""),
                     next_step=goal_plan.get("next_step", ""),
                     success_criteria=goal_plan.get("success_criteria", ""),
@@ -731,68 +701,3 @@ class DefaultGoalMutationPolicy:
             agent.active_goal = new_goal
 
 
-class CombinedGoalPolicy:
-    """Compatibility wrapper exposing the legacy read/write goal interface."""
-
-    def __init__(
-        self,
-        projection: GoalProjectionPolicy,
-        mutation: GoalMutationPolicy,
-    ):
-        self._projection = projection
-        self._mutation = mutation
-
-    def build_goal_context(self, agent: AgentState) -> dict[str, Any]:
-        return self._projection.build_goal_context(agent)
-
-    def ensure_active_goal(self, engine: Engine, agent: AgentState) -> None:
-        self._mutation.ensure_active_goal(engine, agent)
-
-    def sync_plan_from_intent(self, agent: AgentState, intent: IntentState) -> None:
-        self._mutation.sync_plan_from_intent(agent, intent)
-
-    def record_blocker(self, agent: AgentState, blocker: str) -> None:
-        self._mutation.record_blocker(agent, blocker)
-
-    async def update(self, engine: Engine, agent: AgentState, event: Event) -> None:
-        await self._mutation.update(engine, agent, event)
-
-    def event_advances(self, event: Event, goal: GoalState | None) -> bool:
-        return self._mutation.event_advances(event, goal)
-
-    def select_next_goal(
-        self,
-        engine: Engine,
-        agent: AgentState,
-        drive_state: dict[str, float] | None = None,
-    ) -> GoalState | None:
-        return self._mutation.select_next_goal(engine, agent, drive_state=drive_state)
-
-    def check_drive_shift(self, engine: Engine, agent: AgentState) -> None:
-        self._mutation.check_drive_shift(engine, agent)
-
-
-class DefaultGoalPolicy(CombinedGoalPolicy):
-    def __init__(self):
-        super().__init__(
-            projection=DefaultGoalProjectionPolicy(),
-            mutation=DefaultGoalMutationPolicy(),
-        )
-
-
-def resolve_goal_policies(
-    *,
-    goal_policy: GoalPolicy | None = None,
-    goal_projection_policy: GoalProjectionPolicy | None = None,
-    goal_mutation_policy: GoalMutationPolicy | None = None,
-) -> tuple[GoalProjectionPolicy, GoalMutationPolicy, GoalPolicy]:
-    """Normalize legacy combined goal policy input into explicit read/write layers."""
-    if goal_policy is not None and goal_projection_policy is None:
-        goal_projection_policy = goal_policy
-    if goal_policy is not None and goal_mutation_policy is None:
-        goal_mutation_policy = goal_policy
-
-    projection = goal_projection_policy or DefaultGoalProjectionPolicy()
-    mutation = goal_mutation_policy or DefaultGoalMutationPolicy()
-    combined = goal_policy or CombinedGoalPolicy(projection, mutation)
-    return projection, mutation, combined

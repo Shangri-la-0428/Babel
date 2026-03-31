@@ -80,7 +80,7 @@ def assess_event_significance(
     relation_after: Relation | None = None,
 ) -> EventSignificance:
     action_type = event.action_type.value if hasattr(event.action_type, "value") else str(event.action_type)
-    base_score = max(float(getattr(event, "importance", 0.0) or 0.0), BASE_EVENT_IMPORTANCE.get(action_type, 0.5))
+    base_score = BASE_EVENT_IMPORTANCE.get(action_type, 0.5)
 
     primary = "ambient"
     score = base_score

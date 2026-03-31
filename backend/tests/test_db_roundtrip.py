@@ -246,7 +246,7 @@ async def test_save_and_load_session(db_path):
     assert alice["location"] == "Tavern"
     assert alice["inventory"] == ["torch"]
     assert alice["goals"] == ["find the key"]
-    assert alice["memory"] == []
+    assert "memory" not in alice  # legacy field removed
     # active_goal roundtrip
     assert alice["active_goal"] is not None
     assert alice["active_goal"]["text"] == "find the key"

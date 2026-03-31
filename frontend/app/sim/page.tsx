@@ -10,6 +10,7 @@ import { useSearchParams } from "next/navigation";
 import {
   WorldState,
   EventData,
+  RelationData,
   BabelSettings,
   SavedSeedData,
   HumanWaitingContext,
@@ -27,6 +28,7 @@ import {
   takeControl,
   releaseControl,
   submitHumanAction,
+  forkWorld,
 } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import EventFeed from "@/components/EventFeed";
@@ -44,6 +46,7 @@ const WorldShader = dynamic(() => import("@/components/WorldShader"), { ssr: fal
 const SeedPreview = lazy(() => import("@/components/SeedPreview"));
 const AgentChat = lazy(() => import("@/components/AgentChat"));
 const OracleDrawer = lazy(() => import("@/components/OracleDrawer"));
+const WorldReport = lazy(() => import("@/components/WorldReport"));
 
 const MAX_EVENTS = 500;
 
@@ -70,6 +73,11 @@ function SimContent() {
   const [oracleEverOpened, setOracleEverOpened] = useState(false);
   const [controlledAgents, setControlledAgents] = useState<Set<string>>(new Set());
   const [radarCollapsed, setRadarCollapsed] = useState(false);
+  const [highlightsOnly, setHighlightsOnly] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  // Track relation strength deltas between ticks
+  const prevRelationsRef = useRef<Map<string, number>>(new Map());
+  const [relationDeltas, setRelationDeltas] = useState<Map<string, number>>(new Map());
   const [waitingAgents, setWaitingAgents] = useState<Record<string, HumanWaitingContext>>({});
   const { locale, toggle, t } = useLocale();
   const tRef = useRef(t);
@@ -189,6 +197,24 @@ function SimContent() {
 
           case "state_update":
             if (!gated) {
+              // Compute relation strength deltas
+              const rels = data.data.relations as RelationData[] | undefined;
+              if (rels) {
+                const deltas = new Map<string, number>();
+                for (const r of rels) {
+                  const key = `${r.source}→${r.target}`;
+                  const prev = prevRelationsRef.current.get(key);
+                  if (prev != null) {
+                    const d = r.strength - prev;
+                    if (Math.abs(d) > 0.01) deltas.set(key, d);
+                  }
+                }
+                // Update prev snapshot
+                const next = new Map<string, number>();
+                for (const r of rels) next.set(`${r.source}→${r.target}`, r.strength);
+                prevRelationsRef.current = next;
+                if (deltas.size > 0) setRelationDeltas(deltas);
+              }
               setState(data.data);
               setTick(data.data.tick ?? 0);
               setStatus(data.data.status || "paused");
@@ -397,6 +423,16 @@ function SimContent() {
       return !prev;
     });
   }, []);
+
+  const handleFork = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const result = await forkWorld(sessionId, tick);
+      window.location.href = buildSimHref({ sessionId: result.session_id });
+    } catch {
+      setError(t("fork_failed"));
+    }
+  }, [sessionId, tick, t]);
   const handleCloseOracle = useCallback(() => setOracleOpen(false), []);
 
   const handleTakeControl = useCallback(async (agentId: string) => {
@@ -530,7 +566,7 @@ function SimContent() {
           aria-hidden="true"
         >
           <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full animate-[shockwave-ring_800ms_cubic-bezier(0.16,1,0.3,1)_both]"
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-[shockwave-ring_800ms_cubic-bezier(0.16,1,0.3,1)_both]"
             style={{
               width: "200vmax",
               height: "200vmax",
@@ -661,8 +697,22 @@ function SimContent() {
             <span className="text-micro text-t-muted tracking-widest">
               {t("event_feed")}
             </span>
-            <span className="text-micro text-t-muted tracking-wider">
-              {events.length} {t("events_count")}
+            <span className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setHighlightsOnly((p) => !p)}
+                aria-pressed={highlightsOnly}
+                className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium transition-[colors,box-shadow] active:scale-[0.97] ${
+                  highlightsOnly
+                    ? "border-primary text-primary shadow-[0_0_8px_var(--color-primary-glow)]"
+                    : "border-b-DEFAULT text-t-dim hover:text-t-muted hover:border-b-hover"
+                }`}
+              >
+                {t("highlights")}
+              </button>
+              <span className="text-micro text-t-muted tracking-wider">
+                {events.length} {t("events_count")}
+              </span>
             </span>
           </div>
           <div className="flex-1 overflow-y-auto">
@@ -682,6 +732,7 @@ function SimContent() {
                 newEventIds={newEventIds}
                 onSeed={handleGenerateEventSeed}
                 worldTimeDisplay={displayState?.world_time?.display}
+                highlightsOnly={highlightsOnly}
               />
             )}
           </div>
@@ -707,6 +758,7 @@ function SimContent() {
           onTakeControl={handleTakeControl}
           onReleaseControl={handleReleaseControl}
           onSubmitHumanAction={handleSubmitHumanAction}
+          relationDeltas={relationDeltas}
         />
       </main>
 
@@ -770,7 +822,22 @@ function SimContent() {
         onOracle={handleToggleOracle}
         oracleOpen={oracleOpen}
         isReplay={replay.isReplay}
+        onFork={handleFork}
+        hasControlledAgents={controlledAgents.size > 0}
+        onReport={() => setReportOpen((v) => !v)}
+        reportOpen={reportOpen}
       />
+
+      {/* World Report overlay */}
+      {reportOpen && sessionId && (
+        <Suspense fallback={null}>
+          <WorldReport
+            sessionId={sessionId}
+            open={reportOpen}
+            onClose={() => setReportOpen(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

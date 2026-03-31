@@ -1,9 +1,27 @@
 "use client";
 
 import { EventData } from "@/lib/api";
+import type { TransKey } from "@/lib/i18n";
 import { memo, useEffect, useMemo, useRef, useCallback } from "react";
 import { useLocale } from "@/lib/locale-context";
 import { DecodeText } from "./ui";
+
+/** An event is "significant" if the kernel flagged it as durable or score >= 0.7 */
+function isSignificantEvent(event: EventData): boolean {
+  const sig = event.significance;
+  if (!sig) return false;
+  return sig.durable || sig.score >= 0.7;
+}
+
+const AXIS_KEY: Record<string, TransKey> = {
+  goal: "sig_axis_goal",
+  social: "sig_axis_social",
+  state: "sig_axis_state",
+  resource: "sig_axis_resource",
+  world: "sig_axis_world",
+  information: "sig_axis_information",
+  ambient: "sig_axis_ambient",
+};
 
 const TYPE_STYLES: Record<string, string> = {
   speak:       "text-info border-info",
@@ -51,8 +69,11 @@ const EventItem = memo(function EventItem({
   const { t } = useLocale();
   const isWorld = event.action_type === "world_event";
   const isSupporting = event.agent_role === "supporting";
+  const isDurable = event.significance?.durable ?? false;
   const style = TYPE_STYLES[event.action_type] || "text-t-muted border-surface-3";
-  const accent = ACCENT_BORDER[event.action_type] || "border-l-transparent";
+  const accent = isDurable
+    ? "border-l-primary/60"
+    : (ACCENT_BORDER[event.action_type] || "border-l-transparent");
   const signals = getEventSignals(event);
 
   return (
@@ -82,7 +103,7 @@ const EventItem = memo(function EventItem({
       <span className="text-detail text-t-secondary normal-case tracking-normal leading-normal break-words min-w-0">
         {isNew ? <DecodeText text={event.result} /> : event.result}
       </span>
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5 flex-wrap">
         {signals.relationChange && (
           <span
             className={`text-micro tracking-wider ${signals.relationChange === "up" ? "text-primary" : "text-danger"}`}
@@ -98,6 +119,22 @@ const EventItem = memo(function EventItem({
         >
           {event.action_type}
         </span>
+        {event.significance?.axes?.map((axis) => (
+          <span
+            key={axis}
+            className="text-micro tracking-wider px-1.5 py-0.5 border border-surface-3 text-t-dim leading-none whitespace-nowrap"
+          >
+            {AXIS_KEY[axis] ? t(AXIS_KEY[axis]) : axis}
+          </span>
+        ))}
+        {event.significance?.durable && (
+          <span
+            className="text-micro tracking-wider px-1.5 py-0.5 border border-primary/30 text-primary/70 leading-none whitespace-nowrap"
+            title={t("durable")}
+          >
+            {t("durable")}
+          </span>
+        )}
       </span>
       {onSeed && (
         <button
@@ -141,16 +178,21 @@ export default function EventFeed({
   newEventIds,
   onSeed,
   worldTimeDisplay,
+  highlightsOnly,
 }: {
   events: EventData[];
   newEventIds?: Set<string>;
   onSeed?: (eventId: string) => void;
   worldTimeDisplay?: string;
+  highlightsOnly?: boolean;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const { t } = useLocale();
 
-  const safeEvents = useMemo(() => events || [], [events]);
+  const safeEvents = useMemo(() => {
+    const base = events || [];
+    return highlightsOnly ? base.filter(isSignificantEvent) : base;
+  }, [events, highlightsOnly]);
 
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {

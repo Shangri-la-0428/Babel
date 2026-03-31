@@ -34,9 +34,23 @@ locations:
 
 resources:
   - name: "eddies"
-    description: "加密货币，通用支付手段"
+    description: "加密货币，通用支付手段。可用于交易物品、购买信息、支付服务"
   - name: "信息"
-    description: "在这里，信息比子弹更值钱"
+    description: "在这里，信息比子弹更值钱。可以出售换取 eddies 或用于交换其他信息"
+
+items:
+  - name: "酒吧钥匙"
+    description: "酒吧后门和储藏室的钥匙。可用于进入隐藏区域或锁住门"
+  - name: "旧照片"
+    description: "陈妈女儿小雪三年前的照片。可展示给别人以寻找线索"
+  - name: "加密通讯器"
+    description: "军用级加密通讯设备。可安全联络线人、发送加密消息、窃听未加密频道"
+  - name: "全息面具"
+    description: "可改变面部外观的高科技面具。用于隐藏身份、伪装成其他人"
+  - name: "旧手枪（非致命弹药）"
+    description: "装有橡皮弹的旧手枪。可威胁或制服目标，但不会致命"
+  - name: "委托文件"
+    description: "寻找'小雪'的委托详情。包含最后出现地点和报酬金额，可展示以证明任务合法性"
 
 agents:
   - id: "mama_chen"

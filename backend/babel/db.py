@@ -380,14 +380,14 @@ async def save_session(session) -> None:
                     agent.location,
                     json.dumps(agent.inventory, ensure_ascii=False),
                     agent.status.value,
-                    json.dumps(agent.memory, ensure_ascii=False),
+                    "[]",  # legacy column, always empty
                     role_val,
                     active_goal_json,
                     # ON CONFLICT updates:
                     agent.location,
                     json.dumps(agent.inventory, ensure_ascii=False),
                     agent.status.value,
-                    json.dumps(agent.memory, ensure_ascii=False),
+                    "[]",
                     role_val,
                     active_goal_json,
                 ),
@@ -572,7 +572,7 @@ async def load_session(session_id: str) -> dict | None:
             a = dict(r)
             a["goals"] = json.loads(a["goals"])
             a["inventory"] = json.loads(a["inventory"])
-            a["memory"] = json.loads(a["memory"])
+            a.pop("memory", None)  # legacy column, no longer used
             if a.get("active_goal"):
                 a["active_goal"] = json.loads(a["active_goal"])
             else:

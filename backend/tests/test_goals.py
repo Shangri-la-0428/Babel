@@ -302,7 +302,7 @@ class TestUpdateGoals(unittest.TestCase):
         }
         agent = self.session.agents["a1"]
         agent.active_goal = GoalState(
-            text="find the artifact", stall_count=4,
+            text="find the artifact", stall_count=7,
         )
         event = _make_event(result="Alice waited")
         asyncio.get_event_loop().run_until_complete(
@@ -319,7 +319,7 @@ class TestUpdateGoals(unittest.TestCase):
         mock_replan.side_effect = Exception("LLM error")
         agent = self.session.agents["a1"]
         agent.active_goal = GoalState(
-            text="find the artifact", stall_count=4,
+            text="find the artifact", stall_count=7,
         )
         event = _make_event(result="Alice waited")
         asyncio.get_event_loop().run_until_complete(

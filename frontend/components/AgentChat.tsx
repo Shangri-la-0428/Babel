@@ -126,7 +126,7 @@ export default function AgentChat({
           disabled={loading}
           autoFocus
           aria-label={t("chat_placeholder", agentName)}
-          className="flex-1 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex-1 h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -137,7 +137,7 @@ export default function AgentChat({
         <button
           type="submit"
           disabled={loading || !input.trim()}
-          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform] shrink-0"
+          className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform] shrink-0"
         >
           {t("send")}
         </button>

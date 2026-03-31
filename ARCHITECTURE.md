@@ -85,7 +85,7 @@ Architecturally, `WorldSeed` should be read as the canonical pattern, not a spec
 |-------|---------|
 | `WorldSeed` | World definition (rules, locations, agents, time) |
 | `Session` | Runtime state (agents, events, relations, tick) |
-| `AgentState` | Agent runtime (location, inventory, goals, memory) |
+| `AgentState` | Agent runtime (location, inventory, goals) |
 | `GoalState` | Trackable goal with progress and stall detection |
 | `Relation` | Directional agent-to-agent relationship |
 | `Event` | Action record with `result` (text), `structured` (data), and canonical `significance` |
@@ -178,12 +178,14 @@ Validation rules:
 ### memory.py — Memory Pipeline
 Three layers of memory:
 
-1. **Episodic** — Raw event memories scored from canonical event significance
+1. **Episodic** — Raw event memories scored from canonical `Event.significance` + agent-subjective boosts (self-relevance, goal alignment, relationship strength)
 2. **Semantic** — Consolidated summaries (LLM or rule-based compression)
 3. **Belief** — High-level conclusions from experience (rule-driven extraction)
 
+Importance scoring is single-sourced: `significance.py` owns the world-objective score; `memory.py` adds agent-subjective boosts on top. No parallel scoring systems.
+
 Key functions:
-- `create_memory_from_event()` — Event → MemoryEntry with importance, tags, semantic metadata
+- `create_memory_from_event()` — Event → MemoryEntry with importance derived from significance score + agent boosts
 - `retrieve_relevant_memories()` — Scored retrieval by recency, importance, and tag relevance
 - `consolidate_memories()` — Compress old episodic memories into semantic summaries
 - `extract_beliefs()` — Derive beliefs from relations and event patterns
@@ -247,8 +249,6 @@ Session state
                                         │
                                         ├──► create_memory_from_event()
                                         │
-                                        ├──► _update_relations()
-                                        │
                                         └──► _update_goals()
 ```
 
@@ -286,12 +286,9 @@ AgentSeed.goals[0] → GoalState(status="active", progress=0.0)
   │     status = "completed"
   │     → _select_next_goal() (drive-weighted or round-robin)
   │
-  ├── stall_count >= 5
-  │     status = "stalled"
-  │     → replan_goal() (LLM, drive-aware) or _select_next_goal() (fallback)
-  │
-  └── drive_shift > 30%
-        → _check_drive_shift() reconsiders active goal via drive-weighted selection
+  └── stall_count >= 5
+        status = "stalled"
+        → replan_goal() (LLM, drive-aware) or _select_next_goal() (fallback)
 ```
 
 ## Extension Points
@@ -318,14 +315,17 @@ AgentSeed.goals[0] → GoalState(status="active", progress=0.0)
 app/
   page.tsx        → Home (seed browser, session list)
   sim/page.tsx    → Simulation dashboard (state machine)
+  report/page.tsx → Shareable world report (?session=<id>)
   create/page.tsx → World creator
   assets/page.tsx → Asset library
 
 components/
-  EventFeed      — Real-time event log with content-visibility optimization
+  EventFeed      — Real-time event log with significance axes, durable markers, and Highlights filter
   AssetPanel     — Agent/item/location panels with goals, relations, beliefs
   OracleDrawer   — Narrator interface (narrate + create modes)
-  ControlBar     — Run/Pause/Step controls
+  ControlBar     — Run/Pause/Step + 4 intervention verbs (OBSERVE/NUDGE/DIRECT/FORK)
+  InjectEvent    — NUDGE input bar (event injection)
+  WorldReport    — Full-viewport report overlay (significance aggregation, agent arcs, social dynamics)
   WorldRadar     — Canvas radar visualization (layout-cached, idle-throttled)
   WorldShader    — WebGL2 procedural terrain (FBM noise, parallax depth, day/night)
   ParticleField  — Canvas particle system (status-reactive, event bursts)
@@ -345,6 +345,19 @@ design/
   base.css           — Reset + typography
   animations.css     — Keyframe definitions
 ```
+
+### Intervention Model — 4 Verbs
+
+All user intervention into a live world maps to exactly 4 verbs:
+
+| Verb | UI Entry | Backend API | Description |
+|------|----------|-------------|-------------|
+| **OBSERVE** | Oracle drawer, Agent chat | `POST /oracle`, `POST /chat`, `GET /memories` | Read-only observation — does not alter world state |
+| **NUDGE** | InjectEvent bar | `POST /inject` + auto `POST /step` | Insert a world event; agents react on next tick |
+| **DIRECT** | Agent panel CONTROL button | `POST /take-control`, `POST /human-action`, `POST /release-control` | Assume an agent's decision-making |
+| **FORK** | ControlBar FORK button | `POST /fork` | Branch timeline from snapshot — backend + frontend wired |
+
+ControlBar groups these 4 verbs in a unified button strip. FORK renders conditionally (only when `onFork` handler is provided).
 
 ### Canvas Rendering Architecture
 
@@ -367,7 +380,7 @@ State flows through WebSocket: `connected → event → tick → state_update �
 
 ## Testing
 
-360 backend tests across 12 files:
+442 backend tests across 14 files:
 
 | File | Coverage |
 |------|----------|
@@ -383,5 +396,8 @@ State flows through WebSocket: `connected → event → tick → state_update �
 | `test_engine_lifecycle.py` | Start/stop/pause, tick mechanics, agent filtering, error recovery, decision source switching |
 | `test_psyche_bridge.py` | Psyche HTTP bridge, stimulus synthesis, PsycheDecisionSource, PsycheAugmentedDecisionSource, autonomic gating |
 | `test_drive_mapping.py` | Drive-goal affinity inference, drive-weighted scoring, goal selection |
+| `test_report.py` | World report generator: structure, counts, axes, milestones, agent arcs, social highlights |
+| `test_fork.py` | Fork endpoint: snapshot reconstruction, seed lineage, relation copy, error cases |
+| `benchmark_scorecard.py` | 100-tick x 3 seeds benchmark (goal/relation/significance/entropy metrics) |
 
-Run: `cd backend && .venv/bin/python -m pytest tests/ -v`
+Run: `cd backend && python -m pytest tests/ -v` (442 tests)

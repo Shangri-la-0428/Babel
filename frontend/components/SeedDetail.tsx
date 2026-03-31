@@ -618,7 +618,7 @@ export default function SeedDetail({
                     type="button"
                     onClick={handleEnrich}
                     disabled={enriching || !canEnrich || resolvingEnrichSession}
-                    className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                    className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                   >
                     {enriching
                       ? t("enriching")
@@ -640,7 +640,7 @@ export default function SeedDetail({
                   type="button"
                   onClick={handleEnrich}
                   disabled={enriching || enrichNoSession || !canEnrich || resolvingEnrichSession}
-                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {resolvingEnrichSession ? t("loading") : enriching ? t("enriching") : t("enrich")}
                 </button>
@@ -665,7 +665,7 @@ export default function SeedDetail({
           {(seed.tags || []).length > 0 && (
             <div className="flex flex-wrap gap-1">
               {(seed.tags || []).map((tag, i) => (
-                <span key={i} className="text-micro text-t-dim tracking-wider px-2 py-0.5 border border-surface-3">
+                <span key={i} className="text-micro text-t-dim tracking-wider px-2.5 py-0.5 border border-surface-3 leading-none font-medium">
                   {tag}
                 </span>
               ))}
@@ -683,7 +683,7 @@ export default function SeedDetail({
                   type="button"
                   onClick={handleSave}
                   disabled={saving}
-                  className="h-7 px-3 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="h-7 px-3 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {saving ? t("loading") : t("save")}
                 </button>
@@ -700,7 +700,7 @@ export default function SeedDetail({
                     });
                   }}
                   disabled={saving}
-                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="h-7 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   {t("cancel")}
                 </button>

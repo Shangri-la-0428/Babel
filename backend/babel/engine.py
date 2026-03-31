@@ -27,7 +27,6 @@ from .memory import (
     get_agent_beliefs,
     get_relevant_events,
     retrieve_relevant_memories,
-    update_agent_memory,
 )
 from .models import (
     ActionType,
@@ -53,7 +52,11 @@ from .policies import (
     DefaultTimelinePolicy,
     EnrichmentPolicy,
     GoalMutationPolicy,
-    GoalPolicy,
+    DefaultGoalMutationPolicy,
+    DefaultGoalProjectionPolicy,
+    DefaultSocialMutationPolicy,
+    DefaultSocialProjectionPolicy,
+    GoalMutationPolicy,
     GoalProjectionPolicy,
     MemoryPolicy,
     PerceptionPolicy,
@@ -61,12 +64,9 @@ from .policies import (
     ProposalPolicy,
     ResolutionPolicy,
     SocialMutationPolicy,
-    SocialPolicy,
     SocialProjectionPolicy,
     TimelinePolicy,
     _build_agent_context,
-    resolve_goal_policies,
-    resolve_social_policies,
 )
 from .significance import finalize_event_significance
 from .validator import DefaultWorldAuthority, WorldAuthority
@@ -103,10 +103,8 @@ class Engine:
         perception_policy: PerceptionPolicy | None = None,
         resolution_policy: ResolutionPolicy | None = None,
         proposal_policy: ProposalPolicy | None = None,
-        social_policy: SocialPolicy | None = None,
         social_projection_policy: SocialProjectionPolicy | None = None,
         social_mutation_policy: SocialMutationPolicy | None = None,
-        goal_policy: GoalPolicy | None = None,
         goal_projection_policy: GoalProjectionPolicy | None = None,
         goal_mutation_policy: GoalMutationPolicy | None = None,
         timeline_policy: TimelinePolicy | None = None,
@@ -131,24 +129,10 @@ class Engine:
         self.perception_policy: PerceptionPolicy = perception_policy or DefaultPerceptionPolicy()
         self.resolution_policy: ResolutionPolicy = resolution_policy or DefaultResolutionPolicy()
         self.proposal_policy: ProposalPolicy = proposal_policy or DefaultProposalPolicy()
-        (
-            self.social_projection_policy,
-            self.social_mutation_policy,
-            self.social_policy,
-        ) = resolve_social_policies(
-            social_policy=social_policy,
-            social_projection_policy=social_projection_policy,
-            social_mutation_policy=social_mutation_policy,
-        )
-        (
-            self.goal_projection_policy,
-            self.goal_mutation_policy,
-            self.goal_policy,
-        ) = resolve_goal_policies(
-            goal_policy=goal_policy,
-            goal_projection_policy=goal_projection_policy,
-            goal_mutation_policy=goal_mutation_policy,
-        )
+        self.social_projection_policy = social_projection_policy or DefaultSocialProjectionPolicy()
+        self.social_mutation_policy = social_mutation_policy or DefaultSocialMutationPolicy()
+        self.goal_projection_policy = goal_projection_policy or DefaultGoalProjectionPolicy()
+        self.goal_mutation_policy = goal_mutation_policy or DefaultGoalMutationPolicy()
         self.timeline_policy: TimelinePolicy = timeline_policy or DefaultTimelinePolicy()
         self.memory_policy: MemoryPolicy = memory_policy or DefaultMemoryPolicy()
         self.enrichment_policy: EnrichmentPolicy = enrichment_policy or DefaultEnrichmentPolicy()
@@ -261,7 +245,6 @@ class Engine:
             self.session.events = self.session.events[-EVENT_WINDOW:]
 
     async def _remember_event(self, agent: AgentState, event: Event, memory_text: str | None = None) -> None:
-        update_agent_memory(agent, memory_text or event.result)
         await create_memory_from_event(agent, event, self.session)
 
     async def _detect_repetition(self, agent: AgentState) -> bool:
@@ -276,12 +259,15 @@ class Engine:
         )
 
     async def _replan_goal(self, agent: AgentState, goal: GoalState) -> dict:
+        # Use structured memory instead of legacy sliding window
+        memories = await retrieve_relevant_memories(agent, self.session, limit=5)
+        memory_strings = [m["content"] for m in memories]
         return await replan_goal(
             agent_name=agent.name,
             agent_personality=agent.personality,
             current_goals=agent.goals,
             stalled_goal=goal.text,
-            agent_memory=agent.memory[-5:],
+            agent_memory=memory_strings,
             model=self.model,
             api_key=self.api_key,
             api_base=self.api_base,
@@ -454,24 +440,18 @@ class Engine:
         await self.memory_policy.after_tick(self, tick_events)
         await self.enrichment_policy.after_tick(self, tick_events)
 
-    def _update_relations(
-        self, agent: AgentState, response: LLMResponse, errors: list[str]
-    ) -> None:
-        """Backward-compatible shim: relation mutation now lives in social_mutation_policy."""
-        self.social_mutation_policy.apply(self, agent, response, errors)
-
     async def _update_goals(self, agent: AgentState, event: Event) -> None:
-        """Backward-compatible shim: goal mutation now lives in goal_mutation_policy."""
+        """Facade for goal_mutation_policy (used by tests)."""
         await self.goal_mutation_policy.update(self, agent, event)
 
     def _event_advances_goal(self, event: Event, goal: GoalState) -> bool:
-        """Backward-compatible shim: goal evaluation now lives in goal_mutation_policy."""
+        """Facade for goal_mutation_policy (used by tests)."""
         return self.goal_mutation_policy.event_advances(event, goal)
 
     def _select_next_goal(
         self, agent: AgentState, drive_state: dict[str, float] | None = None,
     ) -> GoalState | None:
-        """Backward-compatible shim: goal selection now lives in goal_mutation_policy."""
+        """Facade for goal_mutation_policy (used by tests)."""
         return self.goal_mutation_policy.select_next_goal(self, agent, drive_state=drive_state)
 
     def _get_agent_drive_state(self, agent_id: str) -> dict[str, float] | None:
@@ -479,26 +459,10 @@ class Engine:
         snapshot = self._psyche_snapshots.get(agent_id)
         return snapshot.drives if snapshot and snapshot.drives else None
 
-    def _check_drive_shift(self, agent: AgentState) -> None:
-        """Backward-compatible shim: drive-based goal shifts now live in goal_mutation_policy."""
-        self.goal_mutation_policy.check_drive_shift(self, agent)
-
     def update_psyche_snapshot(self, agent_id: str, snapshot: Any) -> None:
         """Update Psyche snapshot for an agent (called by decision source)."""
         self._prev_psyche_snapshots[agent_id] = self._psyche_snapshots.get(agent_id)
         self._psyche_snapshots[agent_id] = snapshot
-
-    @staticmethod
-    def _summarize_tick(events: list[Event]) -> str:
-        """Backward-compatible shim: timeline summaries now live in timeline_policy."""
-        return DefaultTimelinePolicy.summarize_tick(events)
-
-    async def _passive_enrichment(self, tick_events: list[Event]) -> None:
-        """Backward-compatible shim: enrichment now lives in enrichment_policy."""
-        try:
-            await self.enrichment_policy.after_tick(self, tick_events)
-        except Exception as e:
-            logger.debug("Passive enrichment failed: %s", e)
 
     async def _get_last_node_id(self) -> str | None:
         return await get_last_node_id(self.session.id)

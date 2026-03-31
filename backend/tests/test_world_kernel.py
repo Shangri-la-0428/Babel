@@ -22,9 +22,6 @@ import babel.db as db_module
 from babel.decision import (
     ActionCritic,
     AgentContext,
-    DecisionContextPolicy,
-    DecisionModel,
-    DecisionRequest,
     DecisionSource,
     LLMDecisionSource,
     ScriptedDecisionSource,
@@ -46,7 +43,6 @@ from babel.models import (
     StateChanges,
     WorldSeed,
 )
-from babel.policies import resolve_goal_policies, resolve_social_policies
 from babel.validator import apply_action, _build_structured
 
 
@@ -208,24 +204,12 @@ class TestDecisionSourceProtocol(unittest.TestCase):
         assert action.intent.objective == "earn Bob's trust"
 
     def test_llm_source_supports_pluggable_pipeline(self):
-        class StubContextPolicy:
+        class StubDecisionModel:
             def __init__(self):
                 self.seen: AgentContext | None = None
 
-            def build(self, context: AgentContext) -> DecisionRequest:
+            async def decide(self, context: AgentContext) -> ActionOutput:
                 self.seen = context
-                return DecisionRequest(
-                    agent_name=context.agent_name,
-                    tick=context.tick,
-                    recent_events=["pressure spike"],
-                )
-
-        class StubDecisionModel:
-            def __init__(self):
-                self.seen: DecisionRequest | None = None
-
-            async def decide(self, request: DecisionRequest) -> ActionOutput:
-                self.seen = request
                 return ActionOutput(type=ActionType.OBSERVE, content="baseline read")
 
         class StubActionCritic:
@@ -238,11 +222,9 @@ class TestDecisionSourceProtocol(unittest.TestCase):
                 self.seen_action = action
                 return action.model_copy(update={"content": f"{action.content} -> approved"})
 
-        context_policy = StubContextPolicy()
         decision_model = StubDecisionModel()
         action_critic = StubActionCritic()
         src = LLMDecisionSource(
-            context_policy=context_policy,
             decision_model=decision_model,
             action_critic=action_critic,
         )
@@ -250,10 +232,8 @@ class TestDecisionSourceProtocol(unittest.TestCase):
 
         action = asyncio.get_event_loop().run_until_complete(src.decide(ctx))
 
-        assert context_policy.seen == ctx
         assert decision_model.seen is not None
         assert decision_model.seen.agent_name == "Alice"
-        assert decision_model.seen.recent_events == ["pressure spike"]
         assert action_critic.seen_context == ctx
         assert action_critic.seen_action is not None
         assert action.content == "baseline read -> approved"
@@ -261,8 +241,6 @@ class TestDecisionSourceProtocol(unittest.TestCase):
     def test_pipeline_components_follow_runtime_protocols(self):
         assert isinstance(ScriptedDecisionSource(), DecisionSource)
         assert isinstance(LLMDecisionSource(), DecisionSource)
-        assert isinstance(type("Ctx", (), {"build": lambda self, ctx: DecisionRequest()})(), DecisionContextPolicy)
-        assert isinstance(type("Model", (), {"decide": AsyncMock(return_value=ActionOutput(type=ActionType.WAIT, content="ok"))})(), DecisionModel)
         assert isinstance(type("Critic", (), {"critique": AsyncMock(side_effect=lambda ctx, action: action)})(), ActionCritic)
 
 
@@ -582,15 +560,19 @@ class TestEngineDecisionSource(unittest.TestCase):
         engine = Engine(
             session,
             pressure_policy=NoopPressure(),
-            social_policy=NoopSocial(),
-            goal_policy=NoopGoal(),
+            social_projection_policy=NoopSocial(),
+            social_mutation_policy=NoopSocial(),
+            goal_projection_policy=NoopGoal(),
+            goal_mutation_policy=NoopGoal(),
             timeline_policy=NoopTimeline(),
             memory_policy=NoopMemory(),
             enrichment_policy=NoopEnrichment(),
         )
         assert engine.pressure_policy.__class__.__name__ == "NoopPressure"
-        assert engine.social_policy.__class__.__name__ == "NoopSocial"
-        assert engine.goal_policy.__class__.__name__ == "NoopGoal"
+        assert engine.social_projection_policy.__class__.__name__ == "NoopSocial"
+        assert engine.social_mutation_policy.__class__.__name__ == "NoopSocial"
+        assert engine.goal_projection_policy.__class__.__name__ == "NoopGoal"
+        assert engine.goal_mutation_policy.__class__.__name__ == "NoopGoal"
         assert engine.timeline_policy.__class__.__name__ == "NoopTimeline"
         assert engine.memory_policy.__class__.__name__ == "NoopMemory"
         assert engine.enrichment_policy.__class__.__name__ == "NoopEnrichment"
@@ -670,57 +652,6 @@ class TestEngineDecisionSource(unittest.TestCase):
 
 
 class TestPolicyResolvers(unittest.TestCase):
-    def test_resolve_social_policies_maps_legacy_combined_policy(self):
-        class LegacySocial:
-            def build_relation_context(self, session, agent):
-                del session, agent
-                return [{"name": "Bob", "type": "ally"}]
-
-            def apply(self, engine, agent, response, errors):
-                del engine, agent, response, errors
-                return None
-
-        legacy = LegacySocial()
-        projection, mutation, combined = resolve_social_policies(social_policy=legacy)
-
-        assert projection is legacy
-        assert mutation is legacy
-        assert combined is legacy
-
-    def test_resolve_goal_policies_maps_legacy_combined_policy(self):
-        class LegacyGoal:
-            def build_goal_context(self, agent):
-                del agent
-                return {"active_goal": {"text": "legacy"}, "ongoing_intent": None, "last_outcome": ""}
-
-            def ensure_active_goal(self, engine, agent):
-                return None
-
-            def sync_plan_from_intent(self, agent, intent):
-                return None
-
-            def record_blocker(self, agent, blocker):
-                return None
-
-            async def update(self, engine, agent, event):
-                return None
-
-            def event_advances(self, event, goal):
-                return False
-
-            def select_next_goal(self, engine, agent, drive_state=None):
-                return None
-
-            def check_drive_shift(self, engine, agent):
-                return None
-
-        legacy = LegacyGoal()
-        projection, mutation, combined = resolve_goal_policies(goal_policy=legacy)
-
-        assert projection is legacy
-        assert mutation is legacy
-        assert combined is legacy
-
     def test_engine_build_context(self):
         from babel.engine import Engine
         session = _make_session()
@@ -777,7 +708,8 @@ class TestPolicyResolvers(unittest.TestCase):
                 return None
 
         session = _make_session()
-        engine = Engine(session, goal_policy=CustomGoalProjection())
+        custom = CustomGoalProjection()
+        engine = Engine(session, goal_projection_policy=custom, goal_mutation_policy=custom)
         agent = session.agents["a1"]
         ctx = engine._build_context(agent)
 

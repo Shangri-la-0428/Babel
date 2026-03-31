@@ -125,8 +125,8 @@ class TestImportanceScoring:
         agent = session.agents["a1"]
         event = _make_event(action_type="trade")
         score = _compute_importance(event, agent, session)
-        # trade base=0.8 + self=0.15 + trade_boost=0.1 = capped at 1.0
-        assert score == 1.0
+        # trade base=0.8 + self=0.15 = 0.95
+        assert score == pytest.approx(0.95, abs=0.01)
 
     def test_relation_strength_boost(self):
         session = _make_session(relations=[
@@ -163,12 +163,14 @@ class TestImportanceScoring:
         ])
         agent = session.agents["a1"]
         agent.goals = ["trade with Bob"]
+        # a2 acts, a1 is involved, relation boost + goal text match → total > 1.0
         event = _make_event(
-            agent_id="a1", agent_name="Alice",
+            agent_id="a2", agent_name="Bob",
             action_type="trade",
             involved=["a1", "a2"],
         )
         score = _compute_importance(event, agent, session)
+        # trade=0.8 + involved=0.1 + goal("Bob")=0.2 + relation=0.15 = 1.25 → capped
         assert score == 1.0
 
     def test_no_session_backwards_compat(self):

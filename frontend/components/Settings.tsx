@@ -273,7 +273,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
               onClick={handleDeleteProfile}
               disabled={store.profiles.length <= 1}
               title={store.profiles.length <= 1 ? t("delete_profile_disabled_hint") : undefined}
-              className="h-9 w-full px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1 hover:border-danger hover:text-danger active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform] whitespace-nowrap"
+              className="h-9 w-full px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1 hover:border-danger hover:text-danger active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform] whitespace-nowrap"
             >
               {t("delete_profile")}
             </button>
@@ -361,7 +361,7 @@ export default function Settings({ onClose, onSave }: SettingsProps) {
               onClick={() => void handleFetchModels()}
               disabled={loadingModels || !selectedProfile.apiKey || !selectedProfile.apiBase}
               title={!selectedProfile.apiKey || !selectedProfile.apiBase ? t("fetch_models_disabled_hint") : undefined}
-              className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform] whitespace-nowrap"
+              className="h-9 px-5 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform] whitespace-nowrap"
             >
               {loadingModels ? t("loading") : t("fetch_models")}
             </button>

@@ -76,7 +76,7 @@ export default function OracleSeedCard({
         <div className="px-3 py-2 border-b border-info/10">
           <div className="flex flex-wrap gap-1">
             {agents.map((a, i) => (
-              <span key={i} className="text-micro tracking-wider px-2 py-0.5 border border-info/20 text-info/70 max-w-full whitespace-normal break-words leading-relaxed">
+              <span key={i} className="text-micro tracking-wider px-2.5 py-0.5 border border-info/20 text-info/70 max-w-full whitespace-normal break-words leading-relaxed">
                 {a.name}
               </span>
             ))}
@@ -89,7 +89,7 @@ export default function OracleSeedCard({
         <div className="px-3 py-2 border-b border-info/10">
           <div className="flex flex-wrap gap-1">
             {locations.map((loc, i) => (
-              <span key={i} className="text-micro tracking-wider px-2 py-0.5 border border-surface-3 text-t-muted max-w-full whitespace-normal break-words leading-relaxed">
+              <span key={i} className="text-micro tracking-wider px-2.5 py-0.5 border border-surface-3 text-t-muted max-w-full whitespace-normal break-words leading-relaxed">
                 {loc.name}
               </span>
             ))}
@@ -103,7 +103,7 @@ export default function OracleSeedCard({
           type="button"
           onClick={onPrimaryAction}
           disabled={actionPending}
-          className="w-full h-9 text-micro font-medium tracking-wider bg-info text-void border border-info hover:bg-transparent hover:text-info hover:shadow-[0_0_16px_rgba(14,165,233,0.3)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform]"
+          className="w-full h-9 text-micro font-medium tracking-wider bg-info text-void border border-info hover:bg-transparent hover:text-info hover:shadow-[0_0_16px_rgba(14,165,233,0.3)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform]"
         >
           {actionPending ? t("oracle_creating") : primaryActionLabel}
         </button>

@@ -544,7 +544,7 @@ function CreateContent() {
             onClick={handleOpenOracle}
             disabled={oracleBooting}
             aria-expanded={oracleOpen}
-            className="shrink-0 h-9 px-4 text-micro font-medium tracking-wider border border-info bg-info text-void hover:bg-transparent hover:text-info hover:shadow-[0_0_16px_rgba(14,165,233,0.3)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,box-shadow,transform]"
+            className="shrink-0 h-9 px-4 text-micro font-medium tracking-wider border border-info bg-info text-void hover:bg-transparent hover:text-info hover:shadow-[0_0_16px_rgba(14,165,233,0.3)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,box-shadow,transform]"
           >
             {oracleBooting ? t("oracle_loading") : t("oracle_open_create")}
           </button>
@@ -966,7 +966,7 @@ function CreateContent() {
             type="button"
             onClick={handleSubmit}
             disabled={loading || !world.name.trim()}
-            className={`h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform] ${loading ? "relative overflow-hidden" : ""}`}
+            className={`h-9 px-6 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none transition-[colors,box-shadow,transform] ${loading ? "relative overflow-hidden" : ""}`}
           >
             {loading ? t("creating") : t("ignite_world")}
             {loading && (

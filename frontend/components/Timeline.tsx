@@ -353,7 +353,7 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
                 type="button"
                 onClick={() => handleDelete(confirmDelete)}
                 disabled={deleting}
-                className="h-9 px-5 text-micro font-medium tracking-wider bg-danger text-void border border-danger hover:bg-transparent hover:text-danger active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                className="h-9 px-5 text-micro font-medium tracking-wider bg-danger text-void border border-danger hover:bg-transparent hover:text-danger active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
               >
                 {deleting ? t("loading") : deleteError ? t("retry") : t("delete")}
               </button>

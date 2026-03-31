@@ -250,7 +250,7 @@ function InlineHumanControl({
           type="button"
           onClick={() => void handleSubmit()}
           disabled={!canSubmit || submitting}
-          className="h-8 px-3 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_12px_var(--color-primary-glow)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary disabled:hover:text-void disabled:hover:shadow-none transition-[colors,box-shadow,transform]"
+          className="h-8 px-3 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary hover:shadow-[0_0_12px_var(--color-primary-glow)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-primary disabled:hover:text-void disabled:hover:shadow-none transition-[colors,box-shadow,transform]"
         >
           {submitting ? t("submitting_action") : t("action_submit")}
         </button>
@@ -283,6 +283,7 @@ function AgentRow({
   onTakeControl,
   onReleaseControl,
   onSubmitHumanAction,
+  relationDeltas,
 }: {
   agent: AgentData;
   agentId: string;
@@ -304,6 +305,7 @@ function AgentRow({
   onTakeControl?: () => void;
   onReleaseControl?: () => void;
   onSubmitHumanAction?: (agentId: string, actionType: string, target: string, content: string) => Promise<void> | void;
+  relationDeltas?: Map<string, number>;
 }) {
   const { t } = useLocale();
   const isDead = agent.status === "dead";
@@ -397,7 +399,7 @@ function AgentRow({
                 <span className="text-detail text-t-DEFAULT normal-case tracking-normal capitalize">
                   {agent.psyche.emotion || "\u2014"}
                 </span>
-                <span className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium ${
+                <span className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium ${
                   agent.psyche.autonomic === "ventral_vagal"
                     ? "text-primary border-primary"
                     : agent.psyche.autonomic === "sympathetic"
@@ -440,7 +442,7 @@ function AgentRow({
                     {Object.entries(agent.psyche.drives).map(([drive, val]) => (
                       <span
                         key={drive}
-                        className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium normal-case ${
+                        className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium normal-case ${
                           val > 70 ? "text-primary border-primary" : val < 30 ? "text-danger border-danger" : "text-t-muted border-surface-3"
                         }`}
                       >
@@ -458,7 +460,7 @@ function AgentRow({
             <div className="px-4 py-2 border-b border-b-DEFAULT">
               <div className="flex items-center gap-2 mb-1.5">
                 <span className="text-micro text-t-muted tracking-widest">{t("active_goal")}</span>
-                <span className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium ${GOAL_STATUS_COLORS[agent.active_goal.status] || GOAL_STATUS_COLORS.active}`}>
+                <span className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium ${GOAL_STATUS_COLORS[agent.active_goal.status] || GOAL_STATUS_COLORS.active}`}>
                   {t(`goal_status_${agent.active_goal.status}` as Parameters<typeof t>[0])}
                 </span>
               </div>
@@ -482,6 +484,29 @@ function AgentRow({
               {agent.active_goal.stall_count > 0 && (
                 <div className="text-micro text-warning tracking-wider mt-1">
                   {t("goal_stalled_ticks", String(agent.active_goal.stall_count))}
+                </div>
+              )}
+              {/* Strategy & next step */}
+              {agent.active_goal.strategy && (
+                <div className="mt-2 text-micro text-t-dim tracking-wider">
+                  <span className="text-t-muted">{t("goal_strategy")}</span>{" "}
+                  <span className="normal-case tracking-normal text-detail text-t-secondary">{agent.active_goal.strategy}</span>
+                </div>
+              )}
+              {agent.active_goal.next_step && (
+                <div className="mt-1 text-micro text-t-dim tracking-wider">
+                  <span className="text-t-muted">{t("goal_next_step")}</span>{" "}
+                  <span className="normal-case tracking-normal text-detail text-t-secondary">{agent.active_goal.next_step}</span>
+                </div>
+              )}
+              {/* Blockers */}
+              {(agent.active_goal.blockers?.length ?? 0) > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {agent.active_goal.blockers!.map((b, i) => (
+                    <span key={i} className="text-micro tracking-wider px-2.5 py-0.5 border border-warning text-warning leading-none font-medium normal-case">
+                      {b}
+                    </span>
+                  ))}
                 </div>
               )}
             </div>
@@ -514,18 +539,52 @@ function AgentRow({
                   const otherName = agentNames[otherId] || otherId;
                   const colors = RELATION_COLORS[rel.type] || RELATION_COLORS.neutral;
                   return (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-detail text-t-DEFAULT normal-case tracking-normal">{otherName}</span>
-                      <span className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium ${colors}`}>
-                        {t(`relation_${rel.type}` as Parameters<typeof t>[0])}
-                      </span>
-                      <div className="flex-1 h-0.5 bg-surface-3 overflow-hidden min-w-[40px]">
-                        <div
-                          className={`h-full ${rel.type === "hostile" ? "bg-danger" : rel.type === "rival" ? "bg-warning" : "bg-primary"}`}
-                          style={{ width: `${Math.round(rel.strength * 100)}%` }}
-                        />
+                    <div key={i} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-detail text-t-DEFAULT normal-case tracking-normal">{otherName}</span>
+                        <span className={`text-micro tracking-wider px-2.5 py-0.5 border leading-none font-medium ${colors}`}>
+                          {t(`relation_${rel.type}` as Parameters<typeof t>[0])}
+                        </span>
+                        <div className="flex-1 h-0.5 bg-surface-3 overflow-hidden min-w-[40px]">
+                          <div
+                            className={`h-full ${rel.type === "hostile" ? "bg-danger" : rel.type === "rival" ? "bg-warning" : "bg-primary"}`}
+                            style={{ width: `${Math.round(rel.strength * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-micro text-t-dim tabular-nums shrink-0">{Math.round(rel.strength * 100)}%</span>
+                        {(() => {
+                          const d = relationDeltas?.get(`${rel.source}→${rel.target}`);
+                          if (!d) return null;
+                          return (
+                            <span className={`text-micro tabular-nums shrink-0 ${d > 0 ? "text-primary" : "text-danger"}`}>
+                              {d > 0 ? "+" : ""}{Math.round(d * 100)}
+                            </span>
+                          );
+                        })()}
                       </div>
-                      <span className="text-micro text-t-dim tabular-nums shrink-0">{Math.round(rel.strength * 100)}%</span>
+                      {/* Trust / Tension sub-metrics */}
+                      {(rel.trust != null || rel.tension != null) && (
+                        <div className="flex items-center gap-3 ml-0 pl-0">
+                          {rel.trust != null && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-micro text-t-dim tracking-wider">{t("rel_trust")}</span>
+                              <div className="w-12 h-0.5 bg-surface-3 overflow-hidden">
+                                <div className="h-full bg-info" style={{ width: `${Math.round(rel.trust * 100)}%` }} />
+                              </div>
+                              <span className="text-micro text-t-dim tabular-nums">{Math.round(rel.trust * 100)}</span>
+                            </div>
+                          )}
+                          {rel.tension != null && rel.tension > 0 && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-micro text-t-dim tracking-wider">{t("rel_tension")}</span>
+                              <div className="w-12 h-0.5 bg-surface-3 overflow-hidden">
+                                <div className="h-full bg-danger" style={{ width: `${Math.round(rel.tension * 100)}%` }} />
+                              </div>
+                              <span className="text-micro text-t-dim tabular-nums">{Math.round(rel.tension * 100)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -611,7 +670,7 @@ function AgentRow({
                   type="button"
                   onClick={onEnrich}
                   disabled={enriching}
-                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider font-medium border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {enriching ? t("enriching") : t("enrich")}
                 </button>
@@ -725,7 +784,7 @@ function WorldItemDetailModal({
             {holders.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {holders.map((holder) => (
-                  <span key={holder.agentId} className="text-micro text-info tracking-wider px-2 py-0.5 border border-info/40">
+                  <span key={holder.agentId} className="text-micro text-info tracking-wider px-2.5 py-0.5 border border-info leading-none font-medium">
                     {holder.agentName}
                   </span>
                 ))}
@@ -782,7 +841,7 @@ function WorldItemDetailModal({
             type="button"
             onClick={() => void onSave(draft)}
             disabled={saving}
-            className="h-8 px-4 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+            className="h-8 px-4 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
           >
             {saving ? t("saving") : t("save_world_item_details")}
           </button>
@@ -790,7 +849,7 @@ function WorldItemDetailModal({
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="h-8 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="h-8 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             {t("cancel")}
           </button>
@@ -920,7 +979,7 @@ function ItemRow({
               <button
                 type="button"
                 onClick={onEditDetails}
-                className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary transition-colors"
+                className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider font-medium border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
               >
                 {t("edit_item_details")}
               </button>
@@ -928,7 +987,7 @@ function ItemRow({
                 type="button"
                 onClick={onGenerateDetails}
                 disabled={generating}
-                className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider font-medium border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
               >
                 {generating ? t("generating") : hasLocalNarrative ? t("optimize_item") : t("generate_details")}
               </button>
@@ -986,7 +1045,7 @@ function ItemRow({
                   <button
                     type="button"
                     onClick={onEditExportedSeed}
-                    className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider font-medium border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                   >
                     {t("edit_exported_seed")}
                   </button>
@@ -994,7 +1053,7 @@ function ItemRow({
                     type="button"
                     onClick={onExportSeed}
                     disabled={exporting}
-                    className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider font-medium border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                   >
                     {exporting ? t("saving") : t("export_seed_update")}
                   </button>
@@ -1006,7 +1065,7 @@ function ItemRow({
                   type="button"
                   onClick={onExportSeed}
                   disabled={exporting}
-                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider font-medium border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {exporting ? t("saving") : t("export_to_seed_library")}
                 </button>
@@ -1143,7 +1202,7 @@ function LocationRow({
                   type="button"
                   onClick={onEnrich}
                   disabled={enriching}
-                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="inline-flex h-7 shrink-0 items-center justify-center whitespace-nowrap px-3 text-micro tracking-wider font-medium border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {enriching ? t("enriching") : t("enrich")}
                 </button>
@@ -1173,6 +1232,7 @@ export default function AssetPanel({
   onTakeControl,
   onReleaseControl,
   onSubmitHumanAction,
+  relationDeltas,
 }: {
   state: WorldState | null;
   activeAgentId: string | null;
@@ -1186,6 +1246,7 @@ export default function AssetPanel({
   onTakeControl?: (agentId: string) => void;
   onReleaseControl?: (agentId: string) => void;
   onSubmitHumanAction?: (agentId: string, actionType: string, target: string, content: string) => Promise<void> | void;
+  relationDeltas?: Map<string, number>;
 }) {
   const { t, locale } = useLocale();
   const worldName = state?.name || "";
@@ -1526,6 +1587,7 @@ export default function AssetPanel({
                   onTakeControl={() => onTakeControl?.(id)}
                   onReleaseControl={() => onReleaseControl?.(id)}
                   onSubmitHumanAction={onSubmitHumanAction}
+                  relationDeltas={relationDeltas}
                 />
               ))
             )}

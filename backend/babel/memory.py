@@ -14,25 +14,10 @@ from .db import (
     update_memory_access,
 )
 from .models import ActionType, AgentState, Event, MemoryEntry, Session
-from .significance import BASE_EVENT_IMPORTANCE
 
 logger = logging.getLogger(__name__)
 
 # ── Constants ──
-
-MAX_MEMORY_LEGACY = 10  # backwards-compat sliding window size
-
-IMPORTANCE_MAP = BASE_EVENT_IMPORTANCE
-
-# ── Legacy (kept for backwards compatibility) ──
-
-
-def update_agent_memory(agent: AgentState, event_summary: str) -> None:
-    """Add an event summary to the agent's legacy memory (sliding window)."""
-    agent.memory.append(event_summary)
-    if len(agent.memory) > MAX_MEMORY_LEGACY:
-        agent.memory = agent.memory[-MAX_MEMORY_LEGACY:]
-
 
 # ── Structured Memory: Create ──
 
@@ -40,26 +25,26 @@ def update_agent_memory(agent: AgentState, event_summary: str) -> None:
 def _compute_importance(
     event: Event, agent: AgentState, session: Session | None = None
 ) -> float:
-    """Compute importance score for a memory based on event type and context."""
-    at = event.action_type if isinstance(event.action_type, str) else event.action_type.value
-    base = max(float(getattr(event, "importance", 0.0) or 0.0), IMPORTANCE_MAP.get(at, 0.5))
+    """Compute agent-subjective importance for a memory.
 
-    significance = getattr(event, "significance", None)
-    if significance and (
-        significance.primary != "ambient"
-        or significance.durable
-        or significance.axes
-        or significance.reasons
-        or abs(significance.score - 0.5) > 1e-6
-    ):
-        base = max(base, float(significance.score))
+    Starts from the event's canonical significance score (world-objective),
+    then adds agent-specific boosts: self-involvement, goal relevance,
+    relation proximity. This separation lets the system distinguish
+    "objectively important" from "important to this specific agent".
+    """
+    # Start from the canonical significance score (if explicitly computed)
+    sig = getattr(event, "significance", None)
+    if sig and hasattr(sig, "axes") and sig.axes:
+        base = float(sig.score)
+    else:
+        # Fallback for events before significance finalization
+        from .significance import BASE_EVENT_IMPORTANCE
+        at = event.action_type if isinstance(event.action_type, str) else event.action_type.value
+        base = BASE_EVENT_IMPORTANCE.get(at, 0.5)
 
-    # Boost if event involves an agent mentioned in this agent's goals
-    goals_text = " ".join(agent.goals).lower()
-    if event.agent_name and event.agent_name.lower() in goals_text:
-        base += 0.2
+    # ── Agent-subjective boosts ──
 
-    # Self-involvement: own actions are more important
+    # Self-involvement: own actions matter more to the actor
     if event.agent_id == agent.agent_id:
         base += 0.15
 
@@ -67,11 +52,12 @@ def _compute_importance(
     if agent.agent_id in event.involved_agents and event.agent_id != agent.agent_id:
         base += 0.1
 
-    # Resource changes are significant
-    if at == "trade":
-        base += 0.1
+    # Goal relevance: events mentioning agents from our goals
+    goals_text = " ".join(agent.goals).lower()
+    if event.agent_name and event.agent_name.lower() in goals_text:
+        base += 0.2
 
-    # Relation-aware: events involving close relations matter more
+    # Relation proximity: events from close relations matter more
     if session and event.agent_id and event.agent_id != agent.agent_id:
         rel = session.get_relation(agent.agent_id, event.agent_id)
         if rel and rel.strength > 0.7:
@@ -563,7 +549,7 @@ def _filter_event_for_observer(event: dict, observer: AgentState) -> str:
 
 
 async def get_relevant_events(
-    agent: AgentState, session: Session, limit: int = 8
+    agent: AgentState, session: Session, limit: int = 15
 ) -> list[str]:
     """Get recent events relevant to this agent (by location + involvement).
 
@@ -586,7 +572,8 @@ async def get_relevant_events(
     for e in events:
         filtered = _filter_event_for_observer(e, agent)
         if filtered:
-            results.append(f"[Tick {e['tick']}] {filtered}")
+            at = e.get("action_type", "")
+            results.append(f"[Tick {e['tick']}] ({at}) {filtered}")
     return results
 
 
@@ -607,6 +594,7 @@ def get_visible_agents(agent: AgentState, session: Session) -> list[dict]:
                 "name": a.name,
                 "location": a.location,
                 "description": a.description,
+                "inventory": list(a.inventory),
             })
         else:
             visible.append({

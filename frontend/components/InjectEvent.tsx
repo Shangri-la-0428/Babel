@@ -80,10 +80,11 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
         className="inline-flex h-9 items-center text-micro text-t-dim tracking-widest select-none shrink-0"
         aria-hidden="true"
       >
-        {"// INJECT"}
+        {"// NUDGE"}
       </span>
       <div className="flex-1 relative">
         <ExpandableInput
+          id="nudge-input"
           inputRef={inputRef}
           value={content}
           onValueChange={setContent}
@@ -91,7 +92,7 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
           aria-label={t("inject_placeholder")}
           maxLength={2000}
           disabled={disabled}
-          className={`w-full h-9 px-3 bg-void border text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-[colors,box-shadow] disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`w-full h-9 px-3 bg-void border text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-[colors,box-shadow] disabled:opacity-30 disabled:cursor-not-allowed ${
             flash === "ok" ? "border-primary shadow-[0_0_12px_var(--color-primary-glow-strong)]" : flash === "err" ? "border-danger shadow-[0_0_12px_var(--color-danger-glow)]" : "border-b-DEFAULT"
           }`}
           style={flash === "err" ? { animation: "crt-glitch 300ms ease both" } : undefined}
@@ -107,7 +108,7 @@ export default function InjectEvent({ sessionId, settings, disabled }: InjectEve
         type="submit"
         disabled={disabled || !content.trim()}
         title={disabled ? t("sim_running_hint") : !content.trim() ? t("inject_empty_hint") : undefined}
-        className={`h-9 px-4 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none shrink-0 ${
+        className={`h-9 px-4 text-micro font-medium tracking-wider border active:scale-[0.97] transition-[colors,box-shadow,transform] disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none shrink-0 ${
           content.trim()
             ? "bg-primary text-void border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)]"
             : "border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary hover:shadow-[0_0_12px_var(--color-primary-glow)]"

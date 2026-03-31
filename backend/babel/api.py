@@ -10,6 +10,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -28,7 +31,7 @@ from .db import (
 from .clock import world_time
 from .engine import Engine
 from .llm import chat_with_agent, chat_with_oracle, detect_new_character, enrich_entity, generate_seed_draft
-from .memory import create_memory_from_event, update_agent_memory
+from .memory import create_memory_from_event, retrieve_relevant_memories, get_agent_beliefs
 from .models import AgentRole, AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedEnvelope, SeedLineage, SeedType, Session, SessionStatus, WorldSeed
 from .significance import event_score, finalize_event_significance
 from .validator import validate_seed
@@ -485,25 +488,12 @@ async def broadcast(session_id: str, msg_type: str, data: Any) -> None:
 
 def _event_dict(e: Event) -> dict:
     """Serialize an Event model to a dict for API responses / broadcasts."""
-    return {
-        "id": e.id,
-        "tick": e.tick,
-        "agent_id": e.agent_id,
-        "agent_name": e.agent_name,
-        "action_type": e.action_type if isinstance(e.action_type, str) else e.action_type.value,
-        "action": e.action,
-        "result": e.result,
-        "structured": e.structured if hasattr(e, "structured") else {},
-        "location": e.location if hasattr(e, "location") else "",
-        "involved_agents": e.involved_agents if hasattr(e, "involved_agents") else [],
-        "significance": (
-            e.significance.model_dump()
-            if hasattr(e, "significance") and hasattr(e.significance, "model_dump")
-            else {}
-        ),
-        "importance": e.importance if hasattr(e, "importance") else 0.5,
-        "node_id": e.node_id if hasattr(e, "node_id") else "",
-    }
+    d = e.model_dump()
+    # Normalize action_type to string value
+    at = e.action_type
+    d["action_type"] = at if isinstance(at, str) else at.value
+    d["significance"] = e.significance.model_dump()
+    return d
 
 
 def make_event_callback(session_id: str):
@@ -559,7 +549,6 @@ async def _get_engine(session_id: str) -> Engine | None:
             location=a["location"],
             inventory=a["inventory"],
             status=AgentStatus(a["status"]) if a["status"] != "acting" else AgentStatus.IDLE,
-            memory=a["memory"],
             role=AgentRole(role_val) if role_val else AgentRole.MAIN,
         )
 
@@ -931,7 +920,7 @@ async def get_sessions() -> list[dict]:
     return await list_sessions()
 
 
-# ── Feature 1: Inject world event ─────────────────────
+# ── NUDGE: Inject world event ─────────────────────────
 
 @app.post("/api/worlds/{session_id}/inject")
 async def inject_event(session_id: str, req: InjectEventRequest) -> dict:
@@ -965,7 +954,6 @@ async def _inject_event_inner(engine: Engine, session_id: str, req: InjectEventR
     # Write into ALL alive agents' memory so they react to it
     for aid in engine.session.agent_ids:
         agent = engine.session.agents[aid]
-        update_agent_memory(agent, event.result)
         await create_memory_from_event(agent, event, engine.session)
 
     # ── Auto-detect new character from injected event ──
@@ -1005,10 +993,6 @@ async def _inject_event_inner(engine: Engine, session_id: str, req: InjectEventR
                 inventory=[],
                 role=AgentRole.SUPPORTING,
             )
-            # Give initial memory about their arrival
-            arrival_memory = f"I have just arrived. {req.content}"
-            update_agent_memory(new_agent, arrival_memory)
-
             engine.session.agents[agent_id] = new_agent
             new_agent_data = {
                 "agent_id": agent_id,
@@ -1039,7 +1023,7 @@ async def _inject_event_inner(engine: Engine, session_id: str, req: InjectEventR
     return result
 
 
-# ── Feature: Human agent control ("Play as Agent") ────
+# ── DIRECT: Human agent control ("Play as Agent") ─────
 
 @app.post("/api/worlds/{session_id}/take-control/{agent_id}")
 async def take_control(session_id: str, agent_id: str) -> dict:
@@ -1167,7 +1151,7 @@ async def get_human_status(session_id: str) -> dict:
     }
 
 
-# ── Feature 2: Chat with agent ────────────────────────
+# ── OBSERVE: Chat with agent ──────────────────────────
 
 @app.post("/api/worlds/{session_id}/chat")
 async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
@@ -1180,13 +1164,18 @@ async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
     if not agent:
         raise HTTPException(404, f"Agent not found: {req.agent_id}")
 
+    # Use structured memory instead of legacy sliding window
+    memories = await retrieve_relevant_memories(agent, engine.session, limit=8)
+    beliefs = await get_agent_beliefs(engine.session.id, agent.agent_id, limit=5)
+    memory_strings = [m["content"] for m in memories] + beliefs
+
     reply = await chat_with_agent(
         agent_name=agent.name,
         agent_personality=agent.personality,
         agent_goals=agent.goals,
         agent_location=agent.location,
         agent_inventory=agent.inventory,
-        agent_memory=agent.memory,
+        agent_memory=memory_strings,
         agent_description=agent.description,
         user_message=req.message,
         preferred_language=req.language or "",
@@ -1202,7 +1191,7 @@ async def chat_with_agent_endpoint(session_id: str, req: ChatRequest) -> dict:
     }
 
 
-# ── Feature 2b: Oracle (omniscient narrator) ────────
+# ── OBSERVE: Oracle (omniscient narrator) ─────────────
 
 @app.post("/api/worlds/{session_id}/oracle")
 async def oracle_chat_endpoint(session_id: str, req: OracleChatRequest) -> dict:
@@ -1259,7 +1248,6 @@ async def oracle_chat_endpoint(session_id: str, req: OracleChatRequest) -> dict:
             "location": agent.location,
             "inventory": agent.inventory,
             "status": agent.status.value if hasattr(agent.status, "value") else agent.status,
-            "memory": agent.memory,
             "role": agent.role.value if hasattr(agent.role, "value") else agent.role,
         }
 
@@ -1773,6 +1761,20 @@ async def extract_world_seed(req: ExtractSeedRequest) -> dict:
     return seed.model_dump()
 
 
+# ── OBSERVE: World Report ─────────────────────────────
+
+
+@app.get("/api/worlds/{session_id}/report")
+async def get_world_report(session_id: str) -> dict:
+    """Generate a significance-driven world report. Zero LLM calls."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+    from .report import generate_report
+
+    return await generate_report(session_id, engine.session)
+
+
 # ── Timeline & Memory endpoints ───────────────────────
 
 
@@ -1831,6 +1833,73 @@ async def reconstruct_state(session_id: str, req: ReconstructRequest) -> dict:
         "agent_states": snapshot["agent_states"],
         "events_since_snapshot": target_events,
         "lineage": snapshot.get("lineage", {}),
+    }
+
+
+# ── FORK: branch a new world from a snapshot ─────────
+
+
+class ForkRequest(BaseModel):
+    tick: int
+
+
+@app.post("/api/worlds/{session_id}/fork")
+async def fork_world(session_id: str, req: ForkRequest) -> dict:
+    """Create a new world session branching from a snapshot at the given tick."""
+    # 1. Load nearest snapshot
+    snapshot = await load_nearest_snapshot(session_id, req.tick)
+    if not snapshot:
+        raise HTTPException(404, f"No snapshot found at or before tick {req.tick}")
+
+    # 2. Reconstruct world seed and agent states from snapshot
+    world_seed = WorldSeed(**snapshot["world_seed"])
+    agent_states: dict[str, AgentState] = {}
+    for aid, adata in snapshot["agent_states"].items():
+        adata.pop("memory", None)  # legacy field
+        agent_states[aid] = AgentState(**adata)
+
+    # 3. Create new session at the snapshot tick
+    import uuid
+    branch_id = f"fork-{uuid.uuid4().hex[:6]}"
+    new_session = Session(
+        world_seed=world_seed,
+        agents=agent_states,
+        tick=snapshot["tick"],
+        status=SessionStatus.PAUSED,
+    )
+    new_session.seed_lineage = SeedLineage.runtime(
+        root_name=world_seed.name,
+        source_seed_ref=session_id,  # parent session
+        session_id=new_session.id,
+        tick=snapshot["tick"],
+        branch_id=branch_id,
+        snapshot_id=snapshot["id"],
+        root_type=SeedType.WORLD.value,
+    )
+
+    # 4. Copy relations from parent at fork point
+    parent_engine = await _get_engine(session_id)
+    if parent_engine:
+        new_session.relations = [r.model_copy() for r in parent_engine.session.relations]
+
+    await save_session(new_session)
+
+    # 5. Register engine
+    async with _global_lock:
+        _engines[new_session.id] = Engine(
+            session=new_session,
+            on_event=make_event_callback(new_session.id),
+        )
+
+    return {
+        "session_id": new_session.id,
+        "parent_session_id": session_id,
+        "fork_tick": snapshot["tick"],
+        "branch_id": branch_id,
+        "name": world_seed.name,
+        "agents": [a.name for a in new_session.agents.values()],
+        "tick": new_session.tick,
+        "status": new_session.status.value,
     }
 
 
@@ -1913,7 +1982,6 @@ def _serialize_state(engine: Engine) -> dict:
                 "location": a.location,
                 "inventory": a.inventory,
                 "status": a.status.value,
-                "memory": a.memory,
                 "role": a.role.value,
                 "active_goal": a.active_goal.model_dump() if a.active_goal else None,
                 "immediate_intent": a.immediate_intent,

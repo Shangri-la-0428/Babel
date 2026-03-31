@@ -41,35 +41,12 @@ class AgentContext(BaseModel):
     last_outcome: str = ""
     urgent_events: list[str] | None = None
     tick: int = 0
+    # World context: item/location descriptions from seed for richer decisions
+    item_context: dict[str, str] = Field(default_factory=dict)
+    location_context: dict[str, str] = Field(default_factory=dict)
     # Phase B: Psyche emotional context (optional, for LLM prompt enrichment)
     emotional_context: str = ""
     drive_state: dict[str, float] = Field(default_factory=dict)
-
-
-class DecisionRequest(BaseModel):
-    """Canonical payload passed from world context into a decision model."""
-
-    world_rules: list[str] = Field(default_factory=list)
-    agent_name: str = ""
-    agent_personality: str = ""
-    agent_goals: list[str] = Field(default_factory=list)
-    agent_location: str = ""
-    agent_inventory: list[str] = Field(default_factory=list)
-    agent_memory: list[str] = Field(default_factory=list)
-    tick: int = 0
-    visible_agents: list[dict[str, Any]] = Field(default_factory=list)
-    recent_events: list[str] = Field(default_factory=list)
-    available_locations: list[str] = Field(default_factory=list)
-    urgent_events: list[str] | None = None
-    world_time_display: str = ""
-    world_time_period: str = ""
-    agent_relations: list[dict[str, Any]] | None = None
-    reachable_locations: list[str] | None = None
-    agent_beliefs: list[str] | None = None
-    active_goal: dict[str, Any] | None = None
-    ongoing_intent: dict[str, str] | None = None
-    last_outcome: str = ""
-    emotional_context: str = ""
 
 
 @runtime_checkable
@@ -80,54 +57,10 @@ class DecisionSource(Protocol):
 
 
 @runtime_checkable
-class DecisionContextPolicy(Protocol):
-    """Build a decision-model request from the canonical agent context."""
-
-    def build(self, context: AgentContext) -> DecisionRequest: ...
-
-
-@runtime_checkable
-class DecisionModel(Protocol):
-    """Produce an action candidate from a structured decision request."""
-
-    async def decide(self, request: DecisionRequest) -> ActionOutput: ...
-
-
-@runtime_checkable
 class ActionCritic(Protocol):
     """Review or rewrite an action candidate before it leaves the brain layer."""
 
     async def critique(self, context: AgentContext, action: ActionOutput) -> ActionOutput: ...
-
-
-class DefaultDecisionContextPolicy:
-    """Default projection from AgentContext into the LLM-facing request payload."""
-
-    def build(self, context: AgentContext) -> DecisionRequest:
-        memory_strings = [m["content"] for m in context.memories] if context.memories else []
-        return DecisionRequest(
-            world_rules=context.world_rules,
-            agent_name=context.agent_name,
-            agent_personality=context.agent_personality,
-            agent_goals=context.agent_goals,
-            agent_location=context.agent_location,
-            agent_inventory=context.agent_inventory,
-            agent_memory=memory_strings,
-            tick=context.tick,
-            visible_agents=context.visible_agents,
-            recent_events=context.recent_events,
-            available_locations=context.available_locations,
-            urgent_events=context.urgent_events,
-            world_time_display=context.world_time.get("display", ""),
-            world_time_period=context.world_time.get("period", ""),
-            agent_relations=context.relations or None,
-            reachable_locations=context.reachable_locations or None,
-            agent_beliefs=context.beliefs or None,
-            active_goal=context.active_goal,
-            ongoing_intent=context.ongoing_intent,
-            last_outcome=context.last_outcome,
-            emotional_context=context.emotional_context,
-        )
 
 
 class LLMDecisionModel:
@@ -143,34 +76,39 @@ class LLMDecisionModel:
         self.api_key = api_key
         self.api_base = api_base
 
-    async def decide(self, request: DecisionRequest) -> ActionOutput:
+    async def decide(self, context: AgentContext) -> ActionOutput:
         from .llm import get_agent_action
 
+        memory_strings = (
+            [m["content"] for m in context.memories] if context.memories else []
+        )
         response = await get_agent_action(
-            world_rules=request.world_rules,
-            agent_name=request.agent_name,
-            agent_personality=request.agent_personality,
-            agent_goals=request.agent_goals,
-            agent_location=request.agent_location,
-            agent_inventory=request.agent_inventory,
-            agent_memory=request.agent_memory,
-            tick=request.tick,
-            visible_agents=request.visible_agents,
-            recent_events=request.recent_events,
-            available_locations=request.available_locations,
+            world_rules=context.world_rules,
+            agent_name=context.agent_name,
+            agent_personality=context.agent_personality,
+            agent_goals=context.agent_goals,
+            agent_location=context.agent_location,
+            agent_inventory=context.agent_inventory,
+            agent_memory=memory_strings,
+            tick=context.tick,
+            visible_agents=context.visible_agents,
+            recent_events=context.recent_events,
+            available_locations=context.available_locations,
             model=self.model,
             api_key=self.api_key,
             api_base=self.api_base,
-            urgent_events=request.urgent_events,
-            world_time_display=request.world_time_display,
-            world_time_period=request.world_time_period,
-            agent_relations=request.agent_relations,
-            reachable_locations=request.reachable_locations,
-            agent_beliefs=request.agent_beliefs,
-            active_goal=request.active_goal,
-            ongoing_intent=request.ongoing_intent,
-            last_outcome=request.last_outcome,
-            emotional_context=request.emotional_context,
+            urgent_events=context.urgent_events,
+            world_time_display=context.world_time.get("display", ""),
+            world_time_period=context.world_time.get("period", ""),
+            agent_relations=context.relations or None,
+            reachable_locations=context.reachable_locations or None,
+            agent_beliefs=context.beliefs or None,
+            active_goal=context.active_goal,
+            ongoing_intent=context.ongoing_intent,
+            last_outcome=context.last_outcome,
+            emotional_context=context.emotional_context,
+            item_context=context.item_context or None,
+            location_context=context.location_context or None,
         )
         return response.action.model_copy(update={"intent": response.intent})
 
@@ -191,11 +129,9 @@ class LLMDecisionSource:
         api_key: str | None = None,
         api_base: str | None = None,
         *,
-        context_policy: DecisionContextPolicy | None = None,
-        decision_model: DecisionModel | None = None,
+        decision_model: LLMDecisionModel | None = None,
         action_critic: ActionCritic | None = None,
     ):
-        self._context_policy = context_policy or DefaultDecisionContextPolicy()
         self._decision_model = decision_model or LLMDecisionModel(
             model=model,
             api_key=api_key,
@@ -231,8 +167,7 @@ class LLMDecisionSource:
             setattr(self._decision_model, "api_base", value)
 
     async def decide(self, context: AgentContext) -> ActionOutput:
-        request = self._context_policy.build(context)
-        action = await self._decision_model.decide(request)
+        action = await self._decision_model.decide(context)
         return await self._action_critic.critique(context, action)
 
 

@@ -17,9 +17,13 @@ Rules:
 - Do NOT write narrative, descriptions of feelings, or inner monologue (use the "thinking" field for reasoning).
 - Do NOT act for other characters.
 - Do NOT reference items, locations, or characters that don't exist in the current state.
-- Do NOT repeat the same action you took in recent turns unless there's a strong reason.
+- VARIETY IS ESSENTIAL: Never use the same action type 3+ turns in a row. Alternate between action types. A good 5-turn sequence uses at least 3 different types.
 - Keep "content" brief (1-2 sentences max).
 - Prefer goal-directed, socially legible choices over empty filler.
+- ACT, don't just talk. Speaking is only useful when it changes something. If speech won't move the situation forward, DO something physical: move, trade, use an item.
+- TRADE when someone at your location has something useful. Give items or eddies to get what you need. Check their inventory in the agent list.
+- USE ITEMS to advance your goals — show a photo to get information, use a device to contact someone, deploy a tool to change the situation.
+- MOVE to where the people or resources you need are. If the person relevant to your goal is elsewhere, go to them. Staying put without reason is stagnation.
 
 Output JSON schema:
 {
@@ -43,11 +47,11 @@ Output JSON schema:
 }
 
 Action type rules:
-- speak: target = agent_id of who you're talking to. content = what you say.
+- speak: target = agent_id. content = what you say. Only speak when words change the situation.
 - move: target = location name. state_changes.location = same location name.
-- use_item: target = item name from your inventory. content = how you use it.
-- trade: target = agent_id. content = what you offer/request. Update inventory accordingly.
-- observe: target = what you observe (location, agent, or null for general). content = what you notice.
+- use_item: target = item name FROM YOUR INVENTORY. content = how you use it and what happens. You may set inventory_remove if the item is consumed.
+- trade: target = agent_id OF SOMEONE AT YOUR LOCATION. content = the deal terms. Set inventory_remove (what you give) and/or inventory_add (what you receive — must be in THEIR inventory).
+- observe: target = what you observe. content = what you notice.
 - wait: No target needed. content = brief description of waiting.\
 """
 
@@ -87,18 +91,45 @@ def build_user_prompt(
     ongoing_intent: dict | None = None,
     last_outcome: str = "",
     emotional_context: str = "",
+    item_context: dict[str, str] | None = None,
+    location_context: dict[str, str] | None = None,
 ) -> str:
     rules_text = "\n".join(f"- {r}" for r in world_rules)
     goals_text = "\n".join(f"- {g}" for g in agent_goals)
-    inv_text = ", ".join(agent_inventory) if agent_inventory else "(empty)"
 
-    # Show reachable locations if topology is defined, otherwise all
+    # Enrich inventory with item descriptions from seed
+    # Inventory names may include quantities (e.g. "500 eddies") so we
+    # match if any seed key appears as a substring of the inventory entry.
+    if agent_inventory:
+        _ictx = item_context or {}
+        inv_lines = []
+        for item_name in agent_inventory:
+            desc = _ictx.get(item_name)
+            if not desc:
+                for key, val in _ictx.items():
+                    if key in item_name:
+                        desc = val
+                        break
+            inv_lines.append(f"- {item_name}" + (f" — {desc}" if desc else ""))
+        inv_text = "\n".join(inv_lines)
+    else:
+        inv_text = "(empty)"
+
+    # Enrich locations with descriptions from seed
+    loc_descs = location_context or {}
     if reachable_locations:
-        locs_text = ", ".join(reachable_locations)
+        locs_lines = []
+        for loc_name in reachable_locations:
+            desc = loc_descs.get(loc_name)
+            locs_lines.append(f"- {loc_name}" + (f" — {desc}" if desc else ""))
+        locs_text = "\n".join(locs_lines)
         locs_label = "Reachable Locations (from your current position)"
     else:
         locs_text = ", ".join(available_locations)
         locs_label = "Available Locations"
+
+    # Current location description
+    current_loc_desc = loc_descs.get(agent_location, "")
 
     memory_text = "(no memories yet)"
     if agent_memory:
@@ -109,12 +140,14 @@ def build_user_prompt(
         lines = []
         for a in visible_agents:
             loc_info = f" (at {a['location']})" if a.get("location") != agent_location else ""
-            lines.append(f"- {a['id']}: {a['name']}{loc_info}")
+            inv = a.get("inventory")
+            inv_info = f" [has: {', '.join(inv)}]" if inv else ""
+            lines.append(f"- {a['id']}: {a['name']}{loc_info}{inv_info}")
         agents_text = "\n".join(lines)
 
     events_text = "(nothing has happened yet)"
     if recent_events:
-        events_text = "\n".join(f"- {e}" for e in recent_events[-8:])
+        events_text = "\n".join(f"- {e}" for e in recent_events[-15:])
 
     # Relations section
     relations_section = ""
@@ -210,8 +243,9 @@ Consider how your emotional state influences your choice of action.
 Name: {agent_name}
 Personality: {agent_personality}
 {goals_section}
-Location: {agent_location}
-Inventory: {inv_text}
+Location: {agent_location}{f" — {current_loc_desc}" if current_loc_desc else ""}
+Inventory:
+{inv_text}
 {relations_section}{beliefs_section}{emotional_section}
 [Continuity]
 Stay coherent across ticks. Continue your ongoing line of action unless the current situation gives you a clear reason to pivot.

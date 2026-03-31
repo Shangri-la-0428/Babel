@@ -720,7 +720,7 @@ function HomeContent() {
                   type="button"
                   onClick={() => handleStartNew(selectedSeedMeta.file)}
                   disabled={loading || deletingSeedFile === selectedSeedMeta.file}
-                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {loading ? t("creating") : t("world_start_new")}
                 </button>
@@ -728,7 +728,7 @@ function HomeContent() {
                   type="button"
                   onClick={handleSaveLaunch}
                   disabled={loading || !ed || deletingSeedFile === selectedSeedMeta.file}
-                  className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,box-shadow,transform]"
+                  className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,box-shadow,transform]"
                 >
                   {loading ? t("creating") : t("save_launch")}
                 </button>
@@ -736,7 +736,7 @@ function HomeContent() {
                   type="button"
                   onClick={handleEditWorld}
                   disabled={!ed || deletingSeedFile === selectedSeedMeta.file}
-                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {t("edit_world")}
                 </button>
@@ -744,7 +744,7 @@ function HomeContent() {
                   type="button"
                   onClick={() => void handleDeleteWorldSeed(selectedSeedMeta)}
                   disabled={deletingSeedFile === selectedSeedMeta.file}
-                  className="h-9 px-4 text-micro font-medium tracking-wider border border-danger text-danger hover:bg-danger/10 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="h-9 px-4 text-micro font-medium tracking-wider border border-danger text-danger hover:bg-danger/10 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
                 >
                   {deletingSeedFile === selectedSeedMeta.file ? t("loading") : t("delete")}
                 </button>
@@ -1051,7 +1051,7 @@ function HomeContent() {
                                       type="button"
                                       onClick={() => void handleCommitItemRename(item.name)}
                                       disabled={!itemDraft.trim() || itemDraft.trim() === item.name}
-                                      className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                      className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                     >
                                       {t("save")}
                                     </button>
@@ -1059,7 +1059,7 @@ function HomeContent() {
                                       type="button"
                                       onClick={() => void handleGenerateWorldItem(item)}
                                       disabled={!latestWorldSessionId || generatingItem === item.name}
-                                      className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                      className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                     >
                                       {generatingItem === item.name
                                         ? t("generating")
@@ -1071,7 +1071,7 @@ function HomeContent() {
                                       type="button"
                                       onClick={() => void handleExportWorldItem(item)}
                                       disabled={!item.name.trim() || exportingItem === item.name}
-                                      className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                      className="text-micro tracking-wider text-t-muted hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                     >
                                       {exportingItem === item.name
                                         ? t("saving")

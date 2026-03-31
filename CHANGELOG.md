@@ -4,6 +4,96 @@ All notable changes to BABEL.
 
 ## [Unreleased]
 
+### FORK Backend (Timeline Branching)
+
+- `POST /api/worlds/{session_id}/fork` — create new session from snapshot at target tick
+- Reconstructs WorldSeed + AgentState from nearest snapshot, copies relations
+- SeedLineage links forked session to parent (source_seed_ref, snapshot_id, branch_id)
+- Frontend: `forkWorld()` API client + `handleFork` handler navigates to forked session
+- 5 new tests in `test_fork.py`, 442 total passing
+
+### World Report + Publishing + Simplification (Tranche 4b + 5)
+
+**World Report** — significance-driven retrospective, zero LLM calls:
+- `report.py`: pure-function report generator aggregating DB events + live session state
+- Agent arcs, social dynamics, milestones, axis/action distribution, signal ratio
+- `GET /api/worlds/{session_id}/report` endpoint
+- `WorldReport.tsx`: full-viewport overlay (Overview, Milestones, Agent Arcs, Social, Axes)
+- ControlBar: REPORT toggle button with active glow state
+- `/report?session=<id>` — shareable standalone report page
+
+**Architecture simplification** — net deletion, fewer abstractions:
+- Deleted `DecisionRequest` + `DefaultDecisionContextPolicy` — shadow types replaced by direct `AgentContext` passthrough
+- Deleted `CombinedSocialPolicy` + `CombinedGoalPolicy` + `resolve_*_policies()` — pure-forwarding wrappers, engine now uses projection/mutation directly
+- Deleted `SocialPolicy` + `GoalPolicy` combined protocol types
+- Deleted `AgentState.memory` field + `update_agent_memory()` — deprecated legacy, never populated
+- Deleted `ActionPicker.tsx` — unused component (259 lines)
+- Simplified `_event_dict()` — removed 12 hasattr guards, replaced with `model_dump()`
+- 25 new i18n keys (CN/EN) for report UI
+- 9 new backend tests (`test_report.py`), 439 total passing
+
+### Intervention Unification (Tranche 3)
+
+**4-verb intervention model** — all user intervention mapped to OBSERVE / NUDGE / DIRECT / FORK:
+- ControlBar: unified intervention button strip with 4 verb entries
+- OBSERVE button toggles Oracle drawer, shows info glow when active
+- NUDGE button focuses InjectEvent input bar (`#nudge-input`)
+- DIRECT button scrolls to agent panel, shows warning glow when agents are human-controlled
+- FORK button conditionally rendered (backend API planned)
+- InjectEvent label changed from `// INJECT` to `// NUDGE`
+- Backend API section comments aligned to verb names (OBSERVE/NUDGE/DIRECT)
+- ARCHITECTURE.md documents 4-verb → API endpoint mapping table
+- 4 new i18n keys: `verb_observe`, `verb_nudge`, `verb_direct`, `verb_fork`
+
+### Inspectable Continuity + Quality Baseline (Tranche 2 + 4a)
+
+**Agent intent visibility** — GoalState rich data now surfaces in the UI:
+- Active goal section shows strategy, next step, and blockers (warning badges)
+- TypeScript `ActiveGoal` interface extended with `strategy`, `next_step`, `success_criteria`, `blockers`, `last_progress_reason`, `drive_affinities`
+
+**Relation deep metrics** — trust/tension sub-metrics visible under each relation:
+- TypeScript `RelationData` interface extended with `trust`, `tension`, `familiarity`, `debt_balance`, `leverage`, `last_interaction`
+- Relation strength deltas tracked between ticks with +/- indicators (green/red)
+- Trust and tension shown as mini progress bars when available
+
+**Design system audit & fixes** (28 components audited):
+- Removed 2 `rounded-full` violations (ControlBar ping, sim shockwave ring)
+- Standardized all badge padding to `px-2.5 py-0.5` per design system
+- Added `font-medium` to 7 secondary buttons that were missing it
+- Fixed `disabled:opacity-40` → `disabled:opacity-30` across 26 instances in 14 files
+- Added shared `SectionLabel` and `SecondaryButton` components to `ui.tsx`
+- Fixed holder badge from `border-info/40` opacity to solid `border-info`
+
+**Benchmark scorecard** — `tests/benchmark_scorecard.py`:
+- Runs 100-tick simulations on 3 seeds (cyber_bar, apocalypse, iron_throne)
+- Metrics: goal completion/stall rate, relation volatility, significance axis distribution, durable event ratio, action entropy
+- Comparative summary table across all seeds
+- Zero LLM calls (ContextAwareDecisionSource), runnable as standalone script
+
+### Significance Unification (Tranche 1)
+
+**Unified scoring backbone** — `significance.py` is now the single canonical source of event importance:
+- Removed circular dependency: `assess_event_significance()` no longer reads `event.importance` back from its own output
+- `memory._compute_importance()` derives from `Event.significance.score` + agent-subjective boosts (self-relevance +0.15, involvement +0.1, goal alignment +0.2, relationship +0.15)
+- Removed duplicate `IMPORTANCE_MAP` from `memory.py`; `BASE_EVENT_IMPORTANCE` lives only in `significance.py`
+
+**Unified memory path** — all production paths now use structured memory:
+- `api.py` chat endpoint uses `retrieve_relevant_memories()` + `get_agent_beliefs()` instead of legacy `agent.memory` list
+- `api.py` oracle endpoint no longer sends raw `agent.memory` to narrator
+- `engine._replan_goal()` uses `retrieve_relevant_memories()` instead of `agent.memory[-5:]`
+- `api.py` inject endpoints no longer call `update_agent_memory()`
+- `AgentState.memory` field is effectively deprecated (kept for DB serialization)
+
+**Engine shim cleanup** — removed 4 unused backward-compatible methods:
+- Removed `_update_relations()`, `_check_drive_shift()`, `_summarize_tick()`, `_passive_enrichment()`
+- Remaining test-facing facades (`_update_goals`, `_event_advances_goal`, `_select_next_goal`, `_build_context`) documented as test API
+
+**Frontend significance visibility**:
+- EventFeed now displays significance axis tags (goal/social/state/resource/world/info/ambient)
+- Durable events get a `DURABLE` badge and stronger primary-colored left accent
+- "KEY" toggle button in event feed header filters to significant events only (`durable || score >= 0.7`)
+- 8 new i18n keys (CN/EN) for significance UI
+
 ### CI Maintenance
 - Upgraded GitHub Actions to Node 24 compatible versions: `actions/checkout@v5`, `actions/setup-python@v6`, `actions/setup-node@v5`
 - Workflow file changes now trigger their own backend/frontend CI runs, so pipeline edits are immediately verifiable

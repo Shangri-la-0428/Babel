@@ -47,7 +47,7 @@ export default memo(function SeedCard({
             {(seed.tags || []).map((tag, i) => (
               <span
                 key={i}
-                className="text-micro text-t-dim tracking-wider px-2 py-0.5 border border-surface-3 truncate max-w-[120px]"
+                className="text-micro text-t-dim tracking-wider px-2.5 py-0.5 border border-surface-3 truncate max-w-[120px]"
               >
                 {tag}
               </span>
