@@ -29,7 +29,7 @@ from .clock import world_time
 from .engine import Engine
 from .llm import chat_with_agent, chat_with_oracle, detect_new_character, enrich_entity, generate_seed_draft
 from .memory import create_memory_from_event, update_agent_memory
-from .models import AgentRole, AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedType, Session, SessionStatus, WorldSeed
+from .models import AgentRole, AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedEnvelope, SeedLineage, SeedType, Session, SessionStatus, WorldSeed
 from .validator import validate_seed
 
 
@@ -236,6 +236,50 @@ def _saved_world_ref(seed_id: str) -> str:
     return f"{SAVED_WORLD_PREFIX}{seed_id}"
 
 
+async def _session_lineage_from_seed_ref(seed_ref: str, world_seed: WorldSeed, session_id: str) -> SeedLineage:
+    if seed_ref.startswith(SAVED_WORLD_PREFIX):
+        seed_id = seed_ref[len(SAVED_WORLD_PREFIX):]
+        saved = await get_seed(seed_id)
+        base = SeedLineage(**(saved.get("lineage") or {})) if saved else SeedLineage()
+        return SeedLineage.runtime(
+            root_name=base.root_name or world_seed.name,
+            source_seed_ref=seed_ref,
+            session_id=session_id,
+            tick=0,
+            branch_id=base.branch_id or "main",
+            root_type=base.root_type or SeedType.WORLD.value,
+        )
+
+    return SeedLineage.runtime(
+        root_name=world_seed.name,
+        source_seed_ref=seed_ref,
+        session_id=session_id,
+        tick=0,
+        branch_id="main",
+        root_type=SeedType.WORLD.value,
+    )
+
+
+def _runtime_lineage(
+    session: Session,
+    *,
+    root_name: str | None = None,
+    node_id: str = "",
+    snapshot_id: str = "",
+    root_type: str = SeedType.WORLD.value,
+) -> SeedLineage:
+    return SeedLineage.runtime(
+        root_name=root_name or session.seed_lineage.root_name or session.world_seed.name,
+        source_seed_ref=session.seed_lineage.source_seed_ref,
+        session_id=session.id,
+        tick=session.tick,
+        branch_id=session.seed_lineage.branch_id or "main",
+        node_id=node_id,
+        snapshot_id=snapshot_id,
+        root_type=root_type,
+    )
+
+
 def _normalize_world_event_text(text: str) -> str:
     normalized = text.strip()
     if normalized.startswith("[WORLD]"):
@@ -267,21 +311,21 @@ async def _auto_save_major_event_seed(session: Session, event: Event) -> None:
     if not content:
         return
 
-    seed = SavedSeed(
-        id=f"auto_event_{session.id}_{event.id}",
-        type=SeedType.EVENT,
-        name=content[:60],
-        description=content,
+    seed = SeedEnvelope.from_event(
+        event,
+        seed_id=f"auto_event_{session.id}_{event.id}",
         tags=["major", "auto", action_type],
-        data={
-            "content": content,
-            "action_type": action_type,
-            "event_id": event.id,
-            "major": True,
-            "auto_saved": True,
-        },
         source_world=session.id,
+        lineage=_runtime_lineage(
+            session,
+            root_name=content[:60],
+            root_type=SeedType.EVENT.value,
+        ),
     )
+    seed.description = content
+    seed.data["content"] = content
+    seed.data["major"] = True
+    seed.data["auto_saved"] = True
     await save_seed(seed)
 
 
@@ -305,7 +349,7 @@ async def _load_world_seed_from_ref(seed_ref: str) -> WorldSeed:
         if not saved or saved.get("type") != SeedType.WORLD.value:
             raise HTTPException(404, f"Saved world seed not found: {seed_ref}")
         try:
-            return WorldSeed(**saved.get("data", {}))
+            return SeedEnvelope(**saved).to_world_seed()
         except Exception as exc:
             raise HTTPException(500, f"Saved world seed is invalid: {seed_ref}") from exc
 
@@ -489,6 +533,7 @@ async def _get_engine(session_id: str) -> Engine | None:
     session = Session(
         id=data["id"],
         world_seed=world_seed,
+        seed_lineage=SeedLineage(**(data.get("seed_lineage") or {})),
         tick=data["tick"],
         status=SessionStatus(data["status"]) if data["status"] != "running" else SessionStatus.PAUSED,
         relations=relations,
@@ -635,14 +680,12 @@ async def update_world_seed(filename: str, req: CreateWorldRequest) -> dict:
     if seed_errors:
         raise HTTPException(400, f"Invalid world seed: {'; '.join(seed_errors)}")
 
-    saved_seed = SavedSeed(
-        id=seed_id,
-        type=SeedType.WORLD,
-        name=world_seed.name,
-        description=world_seed.description,
+    saved_seed = SeedEnvelope.from_world_seed(
+        world_seed,
+        seed_id=seed_id,
         tags=existing.get("tags") or ["custom"],
-        data=world_seed.model_dump(),
         source_world=existing.get("source_world", ""),
+        lineage=SeedLineage(**(existing.get("lineage") or {})) if existing.get("lineage") else SeedLineage(root_name=world_seed.name, root_type=SeedType.WORLD.value),
         created_at=existing.get("created_at"),
     )
     await save_seed(saved_seed)
@@ -659,16 +702,22 @@ async def create_world(req: CreateWorldRequest) -> dict:
         raise HTTPException(400, f"Invalid world seed: {'; '.join(seed_errors)}")
     session = Session(world_seed=world_seed)
     session.init_agents()
+    session.seed_lineage = SeedLineage.runtime(
+        root_name=world_seed.name,
+        session_id=session.id,
+        tick=0,
+        branch_id="main",
+        root_type=SeedType.WORLD.value,
+    )
     await _record_initial_events(session)
-    await save_session(session)
-    saved_seed = SavedSeed(
-        type=SeedType.WORLD,
-        name=world_seed.name,
-        description=world_seed.description,
+    saved_seed = SeedEnvelope.from_world_seed(
+        world_seed,
         tags=["custom"],
-        data=world_seed.model_dump(),
+        lineage=SeedLineage(root_name=world_seed.name, root_type=SeedType.WORLD.value),
     )
     await save_seed(saved_seed)
+    session.seed_lineage.source_seed_ref = _saved_world_ref(saved_seed.id)
+    await save_session(session)
 
     # Store engine (not yet running)
     async with _global_lock:
@@ -718,6 +767,7 @@ async def create_from_seed(filename: str) -> dict:
         raise HTTPException(400, f"Invalid seed file '{filename}': {'; '.join(seed_errors)}")
     session = Session(world_seed=world_seed)
     session.init_agents()
+    session.seed_lineage = await _session_lineage_from_seed_ref(filename, world_seed, session.id)
 
     await _record_initial_events(session)
     await save_session(session)
@@ -1455,13 +1505,14 @@ async def get_asset(seed_id: str) -> dict:
 @app.post("/api/assets")
 async def create_asset(req: SaveSeedRequest) -> dict:
     """Save a new seed to the asset library."""
-    seed = SavedSeed(
+    seed = SeedEnvelope(
         type=SeedType(req.type),
         name=req.name,
         description=req.description,
         tags=req.tags,
         data=req.data,
         source_world=req.source_world,
+        lineage=SeedLineage(root_name=req.name, root_type=req.type, tick=0),
     )
     await save_seed(seed)
     return {"id": seed.id, "name": seed.name, "type": seed.type.value}
@@ -1475,7 +1526,7 @@ async def update_asset(seed_id: str, req: UpdateSeedRequest) -> dict:
         raise HTTPException(404, "Seed not found")
 
     seed_type = req.type or existing["type"]
-    seed = SavedSeed(
+    seed = SeedEnvelope(
         id=existing["id"],
         type=SeedType(seed_type),
         name=req.name if req.name is not None else existing["name"],
@@ -1483,6 +1534,7 @@ async def update_asset(seed_id: str, req: UpdateSeedRequest) -> dict:
         tags=req.tags if req.tags is not None else existing["tags"],
         data=req.data if req.data is not None else existing["data"],
         source_world=req.source_world if req.source_world is not None else existing.get("source_world", ""),
+        lineage=SeedLineage(**(existing.get("lineage") or {})),
         created_at=existing["created_at"],
     )
     await save_seed(seed)
@@ -1522,21 +1574,14 @@ async def extract_agent_seed(req: ExtractSeedRequest) -> dict:
     if not agent:
         raise HTTPException(404, f"Agent not found: {req.target_id}")
 
-    seed = SavedSeed(
-        type=SeedType.AGENT,
-        name=agent.name,
-        description=agent.description,
-        tags=[],
-        data={
-            "id": agent.agent_id,
-            "name": agent.name,
-            "description": agent.description,
-            "personality": agent.personality,
-            "goals": agent.goals,
-            "inventory": agent.inventory,
-            "location": agent.location,
-        },
+    seed = SeedEnvelope.from_agent_state(
+        agent,
         source_world=req.session_id,
+        lineage=_runtime_lineage(
+            engine.session,
+            root_name=agent.name,
+            root_type=SeedType.AGENT.value,
+        ),
     )
     return seed.model_dump()
 
@@ -1611,19 +1656,18 @@ async def extract_item_seed(req: ExtractSeedRequest) -> dict:
     if not isinstance(properties, list):
         properties = []
 
-    seed = SavedSeed(
-        type=SeedType.ITEM,
-        name=item_name,
+    seed = SeedEnvelope.from_item_state(
+        item_name,
         description=description,
-        tags=[],
-        data={
-            "name": item_name,
-            **({"description": description} if description else {}),
-            **({"origin": details.get("origin")} if details.get("origin") else {}),
-            **({"properties": properties} if properties else {}),
-            **({"significance": details.get("significance")} if details.get("significance") else {}),
-        },
+        origin=str(details.get("origin") or ""),
+        properties=[str(prop) for prop in properties],
+        significance=str(details.get("significance") or ""),
         source_world=req.session_id,
+        lineage=_runtime_lineage(
+            engine.session,
+            root_name=item_name,
+            root_type=SeedType.ITEM.value,
+        ),
     )
     return seed.model_dump()
 
@@ -1644,13 +1688,14 @@ async def extract_location_seed(req: ExtractSeedRequest) -> dict:
     if not loc:
         raise HTTPException(404, f"Location not found: {req.target_id}")
 
-    seed = SavedSeed(
-        type=SeedType.LOCATION,
-        name=loc.name,
-        description=loc.description,
-        tags=getattr(loc, "tags", []),
-        data={"name": loc.name, "description": loc.description},
+    seed = SeedEnvelope.from_location_seed(
+        loc,
         source_world=req.session_id,
+        lineage=_runtime_lineage(
+            engine.session,
+            root_name=loc.name,
+            root_type=SeedType.LOCATION.value,
+        ),
     )
     return seed.model_dump()
 
@@ -1667,17 +1712,23 @@ async def extract_event_seed(req: ExtractSeedRequest) -> dict:
     if not event_data:
         raise HTTPException(404, f"Event not found: {req.target_id}")
 
-    at = event_data.get("action_type", "")
-    seed = SavedSeed(
-        type=SeedType.EVENT,
-        name=(event_data.get("result", "") or "Event")[:60],
-        description="",
-        tags=[at] if at else [],
-        data={
-            "content": event_data.get("result", ""),
-            "action_type": at,
-        },
+    seed = SeedEnvelope.from_event(
+        Event(
+            id=str(event_data.get("id") or ""),
+            session_id=req.session_id,
+            tick=int(event_data.get("tick") or 0),
+            agent_id=event_data.get("agent_id"),
+            agent_name=event_data.get("agent_name"),
+            action_type=str(event_data.get("action_type") or ""),
+            action=event_data.get("action") or {},
+            result=str(event_data.get("result") or ""),
+        ),
         source_world=req.session_id,
+        lineage=_runtime_lineage(
+            engine.session,
+            root_name=str(event_data.get("result") or "")[:60],
+            root_type=SeedType.EVENT.value,
+        ),
     )
     return seed.model_dump()
 
@@ -1690,13 +1741,14 @@ async def extract_world_seed(req: ExtractSeedRequest) -> dict:
         raise HTTPException(404, "Session not found")
 
     ws = engine.session.world_seed
-    seed = SavedSeed(
-        type=SeedType.WORLD,
-        name=ws.name,
-        description=ws.description,
-        tags=[],
-        data=ws.model_dump(),
+    seed = SeedEnvelope.from_world_seed(
+        ws,
         source_world=ws.name,
+        lineage=_runtime_lineage(
+            engine.session,
+            root_name=ws.name,
+            root_type=SeedType.WORLD.value,
+        ),
     )
     return seed.model_dump()
 
@@ -1758,6 +1810,7 @@ async def reconstruct_state(session_id: str, req: ReconstructRequest) -> dict:
         "world_seed": snapshot["world_seed"],
         "agent_states": snapshot["agent_states"],
         "events_since_snapshot": target_events,
+        "lineage": snapshot.get("lineage", {}),
     }
 
 

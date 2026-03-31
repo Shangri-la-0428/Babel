@@ -676,6 +676,8 @@ async def test_extract_item_seed_uses_request_llm_config_for_restored_session(mo
     data = resp.json()
     assert data["name"] == "map"
     assert data["description"] == "一张磨损的地图。"
+    assert data["lineage"]["session_id"] == sid
+    assert data["lineage"]["root_type"] == "item"
     kwargs = mock_enrich.await_args.kwargs
     assert kwargs["model"] == "gpt-4o-mini"
     assert kwargs["api_key"] == "sk-test"
@@ -1009,6 +1011,24 @@ async def test_timeline_populated_after_step(client):
     nodes = resp.json()["nodes"]
     assert len(nodes) >= 1
     assert nodes[0]["tick"] == 1
+    assert nodes[0]["lineage"]["session_id"] == sid
+    assert nodes[0]["lineage"]["root_name"] == "Test World"
+    assert str(nodes[0]["lineage"]["source_seed_ref"]).startswith("saved:")
+
+
+@pytest.mark.asyncio
+async def test_create_from_seed_propagates_source_seed_ref_into_timeline(client):
+    resp = await client.post("/api/worlds/from-seed/cyber_bar.yaml")
+    assert resp.status_code == 200
+    sid = resp.json()["session_id"]
+    _swap_to_scripted(sid)
+    await client.post(f"/api/worlds/{sid}/step")
+
+    timeline = await client.get(f"/api/worlds/{sid}/timeline")
+    assert timeline.status_code == 200
+    nodes = timeline.json()["nodes"]
+    assert len(nodes) >= 1
+    assert nodes[0]["lineage"]["source_seed_ref"] == "cyber_bar.yaml"
 
 
 # ===================================================================

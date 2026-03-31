@@ -931,11 +931,22 @@ export function createWebSocket(sessionId: string): WebSocket {
   return new WebSocket(`${wsBase}/ws/${sessionId}`);
 }
 
-// ── Asset Library (Seeds) ──
+// ── Seed Library (legacy assets UI consumes the same envelope) ──
 
 export type SeedTypeValue = "world" | "agent" | "item" | "location" | "event";
 
-export interface SavedSeedData {
+export interface SeedLineageData {
+  root_type: string;
+  root_name: string;
+  source_seed_ref: string;
+  session_id: string;
+  tick: number;
+  branch_id: string;
+  node_id: string;
+  snapshot_id: string;
+}
+
+export interface SeedEnvelopeData {
   id: string;
   type: SeedTypeValue;
   name: string;
@@ -943,10 +954,14 @@ export interface SavedSeedData {
   tags: string[];
   data: Record<string, unknown>;
   source_world: string;
+  lineage?: SeedLineageData;
   created_at: string;
   virtual?: boolean;
   context_session_id?: string;
 }
+
+// Backward-compatible alias for existing UI code.
+export type SavedSeedData = SeedEnvelopeData;
 
 export async function fetchAssets(type?: SeedTypeValue): Promise<SavedSeedData[]> {
   const url = type
@@ -957,7 +972,7 @@ export async function fetchAssets(type?: SeedTypeValue): Promise<SavedSeedData[]
   return res.json();
 }
 
-export interface AssetPayload {
+export interface SeedEnvelopeInput {
   type: SeedTypeValue;
   name: string;
   description?: string;
@@ -965,6 +980,9 @@ export interface AssetPayload {
   data?: Record<string, unknown>;
   source_world?: string;
 }
+
+// Backward-compatible alias for existing UI code.
+export type AssetPayload = SeedEnvelopeInput;
 
 export async function saveAsset(data: AssetPayload): Promise<{ id: string; name: string; type: string }> {
   const res = await fetchWithTimeout(`${API_BASE}/api/assets`, {
@@ -1026,6 +1044,7 @@ export interface TimelineNode {
   event_count: number;
   agent_locations: Record<string, string>;
   significant: boolean;
+  lineage?: SeedLineageData;
   created_at: string;
 }
 
@@ -1035,6 +1054,7 @@ export interface ReconstructedState {
   world_seed: Record<string, unknown>;
   agent_states: Record<string, Record<string, unknown>>;
   events_since_snapshot: EventData[];
+  lineage?: SeedLineageData;
 }
 
 export async function getTimeline(

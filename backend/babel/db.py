@@ -13,10 +13,17 @@ import aiosqlite
 
 DB_PATH = Path(os.environ.get("BABEL_DB_PATH", Path(__file__).parent.parent / "babel.db"))
 
+
+def _dump_json(value) -> str:
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    return json.dumps(value, ensure_ascii=False)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     world_seed TEXT NOT NULL,
+    seed_lineage TEXT DEFAULT '{}',
     tick INTEGER DEFAULT 0,
     status TEXT DEFAULT 'paused',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -58,6 +65,7 @@ CREATE TABLE IF NOT EXISTS saved_seeds (
     tags TEXT DEFAULT '[]',
     data TEXT NOT NULL DEFAULT '{}',
     source_world TEXT DEFAULT '',
+    lineage TEXT DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -80,6 +88,7 @@ CREATE TABLE IF NOT EXISTS timeline_nodes (
     event_count INTEGER DEFAULT 0,
     agent_locations TEXT DEFAULT '{}',
     significant INTEGER DEFAULT 0,
+    lineage TEXT DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
@@ -93,6 +102,7 @@ CREATE TABLE IF NOT EXISTS world_snapshots (
     tick INTEGER NOT NULL,
     world_seed_json TEXT NOT NULL,
     agent_states_json TEXT NOT NULL,
+    lineage TEXT DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
@@ -251,6 +261,19 @@ async def _migrate_v9(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+async def _migrate_v10(db: aiosqlite.Connection) -> None:
+    """Add seed lineage columns to reusable seeds, timeline nodes, and snapshots."""
+    for table in ("saved_seeds", "timeline_nodes", "world_snapshots", "sessions"):
+        cursor = await db.execute(f"PRAGMA table_info({table})")
+        columns = {row[1] for row in await cursor.fetchall()}
+        column_name = "seed_lineage" if table == "sessions" else "lineage"
+        if column_name not in columns:
+            await db.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column_name} TEXT DEFAULT '{{}}'"
+            )
+    await db.commit()
+
+
 async def init_db(db_path: str | Path | None = None) -> None:
     path = str(db_path or DB_PATH)
     async with aiosqlite.connect(path) as db:
@@ -264,6 +287,7 @@ async def init_db(db_path: str | Path | None = None) -> None:
         await _migrate_v7(db)
         await _migrate_v8(db)
         await _migrate_v9(db)
+        await _migrate_v10(db)
         await db.commit()
 
 
@@ -278,15 +302,18 @@ async def save_session(session) -> None:
     async with aiosqlite.connect(str(DB_PATH)) as db:
         # Upsert session (with relations)
         await db.execute(
-            """INSERT INTO sessions (id, world_seed, tick, status, relations)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET tick=?, status=?, relations=?""",
+            """INSERT INTO sessions (id, world_seed, seed_lineage, tick, status, relations)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET world_seed=?, seed_lineage=?, tick=?, status=?, relations=?""",
             (
                 session.id,
                 session.world_seed.model_dump_json(),
+                _dump_json(getattr(session, "seed_lineage", {})),
                 session.tick,
                 session.status.value,
                 relations_json,
+                session.world_seed.model_dump_json(),
+                _dump_json(getattr(session, "seed_lineage", {})),
                 session.tick,
                 session.status.value,
                 relations_json,
@@ -496,6 +523,7 @@ async def load_session(session_id: str) -> dict | None:
             return None
         session = dict(row)
         session["world_seed"] = json.loads(session["world_seed"])
+        session["seed_lineage"] = json.loads(session.get("seed_lineage") or "{}")
         # Deserialize relations (V6+)
         if session.get("relations"):
             session["relations"] = json.loads(session["relations"])
@@ -541,22 +569,25 @@ async def save_seed(seed) -> None:
     """Save a seed to the asset library."""
     async with aiosqlite.connect(str(DB_PATH)) as db:
         await db.execute(
-            """INSERT INTO saved_seeds (id, type, name, description, tags, data, source_world)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO saved_seeds (id, type, name, description, tags, data, source_world, lineage)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
-                name=?, description=?, tags=?, data=?""",
+                name=?, description=?, tags=?, data=?, source_world=?, lineage=?""",
             (
                 seed.id,
                 seed.type.value if hasattr(seed.type, "value") else seed.type,
                 seed.name,
                 seed.description,
-                json.dumps(seed.tags, ensure_ascii=False),
-                json.dumps(seed.data, ensure_ascii=False),
+                _dump_json(seed.tags),
+                _dump_json(seed.data),
                 seed.source_world,
+                _dump_json(getattr(seed, "lineage", {})),
                 seed.name,
                 seed.description,
-                json.dumps(seed.tags, ensure_ascii=False),
-                json.dumps(seed.data, ensure_ascii=False),
+                _dump_json(seed.tags),
+                _dump_json(seed.data),
+                seed.source_world,
+                _dump_json(getattr(seed, "lineage", {})),
             ),
         )
         await db.commit()
@@ -581,6 +612,7 @@ async def list_seeds(seed_type: str | None = None) -> list[dict]:
             d = dict(row)
             d["tags"] = json.loads(d["tags"])
             d["data"] = json.loads(d["data"])
+            d["lineage"] = json.loads(d.get("lineage") or "{}")
             results.append(d)
         return results
 
@@ -598,6 +630,7 @@ async def get_seed(seed_id: str) -> dict | None:
         d = dict(row)
         d["tags"] = json.loads(d["tags"])
         d["data"] = json.loads(d["data"])
+        d["lineage"] = json.loads(d.get("lineage") or "{}")
         return d
 
 
@@ -761,8 +794,8 @@ async def save_timeline_node(node) -> None:
         await db.execute(
             """INSERT OR IGNORE INTO timeline_nodes
                (id, session_id, tick, parent_id, branch_id, node_type,
-                summary, event_count, agent_locations, significant)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                summary, event_count, agent_locations, significant, lineage)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 node.id,
                 node.session_id,
@@ -772,8 +805,9 @@ async def save_timeline_node(node) -> None:
                 node.node_type,
                 node.summary,
                 node.event_count,
-                json.dumps(node.agent_locations, ensure_ascii=False),
+                _dump_json(node.agent_locations),
                 1 if node.significant else 0,
+                _dump_json(getattr(node, "lineage", {})),
             ),
         )
         await db.commit()
@@ -808,6 +842,7 @@ async def load_timeline(
             d = dict(row)
             d["agent_locations"] = json.loads(d["agent_locations"])
             d["significant"] = bool(d["significant"])
+            d["lineage"] = json.loads(d.get("lineage") or "{}")
             results.append(d)
         return results
 
@@ -833,8 +868,8 @@ async def save_snapshot(snapshot) -> None:
     async with aiosqlite.connect(str(DB_PATH)) as db:
         await db.execute(
             """INSERT OR IGNORE INTO world_snapshots
-               (id, session_id, node_id, tick, world_seed_json, agent_states_json)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (id, session_id, node_id, tick, world_seed_json, agent_states_json, lineage)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 snapshot.id,
                 snapshot.session_id,
@@ -842,6 +877,7 @@ async def save_snapshot(snapshot) -> None:
                 snapshot.tick,
                 snapshot.world_seed_json,
                 snapshot.agent_states_json,
+                _dump_json(getattr(snapshot, "lineage", {})),
             ),
         )
         await db.commit()
@@ -863,6 +899,7 @@ async def load_nearest_snapshot(session_id: str, tick: int) -> dict | None:
         d = dict(row)
         d["world_seed"] = json.loads(d["world_seed_json"])
         d["agent_states"] = json.loads(d["agent_states_json"])
+        d["lineage"] = json.loads(d.get("lineage") or "{}")
         return d
 
 
@@ -871,12 +908,17 @@ async def list_snapshots(session_id: str) -> list[dict]:
     async with aiosqlite.connect(str(DB_PATH)) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            """SELECT id, session_id, node_id, tick, created_at
+            """SELECT id, session_id, node_id, tick, lineage, created_at
                FROM world_snapshots WHERE session_id = ?
                ORDER BY tick ASC""",
             (session_id,),
         )
-        return [dict(row) for row in await cursor.fetchall()]
+        rows = []
+        for row in await cursor.fetchall():
+            d = dict(row)
+            d["lineage"] = json.loads(d.get("lineage") or "{}")
+            rows.append(d)
+        return rows
 
 
 # ── Entity Details (Progressive Enrichment) ──

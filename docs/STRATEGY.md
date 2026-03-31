@@ -19,6 +19,12 @@ In short:
 
 > **BABEL = AI-native World Studio + Live-World Operating System**
 
+One of the cleanest abstractions for this is:
+
+> **seed + time + intervention -> living form**
+
+That should be treated as a product principle, not just an implementation detail.
+
 ## The Durable Problem
 
 Most AI storytelling tools generate fragments.
@@ -111,20 +117,36 @@ The moat is not “better prompts”.
 
 The moat is the combination of:
 
-1. **World Protocol**
+1. **Seed Protocol**
+   - anything reusable and growable should be representable as a seed: a compact generative specification that unfolds over time
+
+2. **World Protocol**
    - canonical definitions for entities, events, goals, memory, assets, and timelines
 
-2. **Behavior Kernel**
+3. **Behavior Kernel**
    - persistent intent, structured goals, social tension, validation, and repair
 
-3. **World Continuity**
+4. **World Continuity**
    - characters and relationships survive across time, not just across one response
 
-4. **Intervention Layer**
+5. **Intervention Layer**
    - users can observe, direct, pause, fork, and inject without breaking coherence
 
-5. **Publishing Layer**
+6. **Publishing Layer**
    - worlds and branches can become reusable, shareable, and eventually marketable objects
+
+## Seed Principle
+
+Seeds should become the canonical abstraction boundary across the product.
+
+That means:
+
+- a seed is not just a static asset file
+- a seed is a compressed description of how a thing can become many concrete forms
+- runtime state is a seed after time and intervention have acted on it
+- exporting should usually mean reseeding evolved state, not inventing a parallel object system
+
+If this principle holds, BABEL gets more powerful by becoming more uniform.
 
 ## Product Principles
 
@@ -177,8 +199,11 @@ Avoid these traps:
 - “more controls” as a substitute for better systems
 - auto-saving everything into the asset library
 - decorative complexity without strategic value
+- inventing object categories that a stronger seed protocol could unify
 
 ## Strategic Roadmap
+
+See [`docs/ROADMAP.md`](ROADMAP.md) for the executable breakdown: workstreams, phases, task sequencing, and acceptance criteria.
 
 ## Phase 1: Make One World Feel Alive
 
@@ -227,12 +252,16 @@ Success signal:
 
 ## Near-Term Execution Guidance
 
-The next major product direction should prioritize:
+The next major product direction should prioritize one thing:
 
-1. world coherence over surface breadth
-2. creator workflow over casual novelty
-3. publishing and branching over random new controls
-4. canonical protocols over page-level fixes
+> strengthen the canonical world capability instead of adding adjacent feature categories
+
+That means:
+
+1. deepen the world loop before broadening the surface
+2. solve product problems with stronger protocols, not page-local cases
+3. make the system simpler as it becomes more capable
+4. treat summaries, assets, and publishing as projections of one living world model
 
 ## One-Sentence Product Memory
 

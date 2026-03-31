@@ -27,6 +27,7 @@ from babel.models import (
     MemoryEntry,
     Relation,
     SavedSeed,
+    SeedLineage,
     SeedType,
     Session,
     SessionStatus,
@@ -86,8 +87,16 @@ def _make_session(
     s = Session(
         id=session_id or uuid.uuid4().hex[:12],
         world_seed=ws,
+        seed_lineage=SeedLineage.runtime(
+            root_name=ws.name,
+            source_seed_ref="saved:seed-root-1",
+            session_id=session_id or "temp",
+            tick=tick,
+            branch_id="main",
+        ),
         tick=tick,
     )
+    s.seed_lineage.session_id = s.id
     s.init_agents()
     if with_relations:
         s.relations = [
@@ -161,6 +170,12 @@ def _make_timeline_node(
         event_count=2,
         agent_locations={"a1": "Tavern", "a2": "Market"},
         significant=tick % 5 == 0,
+        lineage=SeedLineage.runtime(
+            root_name="Test World",
+            session_id=session_id,
+            tick=tick,
+            branch_id="main",
+        ),
     )
 
 
@@ -177,6 +192,14 @@ def _make_snapshot(
         tick=tick,
         world_seed_json=json.dumps({"name": "Test World"}),
         agent_states_json=json.dumps([{"agent_id": "a1", "location": "Tavern"}]),
+        lineage=SeedLineage.runtime(
+            root_name="Test World",
+            session_id=session_id,
+            tick=tick,
+            branch_id="main",
+            node_id=node_id,
+            snapshot_id=snap_id or "",
+        ),
     )
 
 
@@ -202,6 +225,8 @@ async def test_save_and_load_session(db_path):
     # World seed
     assert loaded["world_seed"]["name"] == "Test World"
     assert len(loaded["world_seed"]["locations"]) == 2
+    assert loaded["seed_lineage"]["root_name"] == "Test World"
+    assert loaded["seed_lineage"]["source_seed_ref"] == "saved:seed-root-1"
 
     # Relations (V6)
     assert len(loaded["relations"]) == 1
@@ -504,6 +529,8 @@ async def test_save_and_load_timeline(db_path):
     # agent_locations deserialized
     assert isinstance(rows[0]["agent_locations"], dict)
     assert rows[0]["agent_locations"]["a1"] == "Tavern"
+    assert rows[0]["lineage"]["session_id"] == sid
+    assert rows[0]["lineage"]["tick"] == 1
 
 
 @pytest.mark.asyncio
@@ -541,6 +568,8 @@ async def test_save_and_load_snapshot(db_path):
     # Deserialized JSON fields
     assert loaded["world_seed"]["name"] == "Test World"
     assert loaded["agent_states"][0]["agent_id"] == "a1"
+    assert loaded["lineage"]["session_id"] == sid
+    assert loaded["lineage"]["node_id"] == "n10"
 
 
 @pytest.mark.asyncio
@@ -577,6 +606,7 @@ async def test_list_snapshots(db_path):
     assert len(rows) == 3
     ticks = [r["tick"] for r in rows]
     assert ticks == [5, 10, 20]
+    assert rows[0]["lineage"]["session_id"] == sid
 
 
 # ===================================================================
@@ -740,6 +770,7 @@ async def test_get_seed(db_path):
     assert loaded["tags"] == ["weapon", "magic"]
     assert loaded["data"]["damage"] == 15
     assert loaded["source_world"] == "world-x"
+    assert loaded["lineage"]["root_name"] == ""
 
 
 @pytest.mark.asyncio

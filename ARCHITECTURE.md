@@ -12,6 +12,7 @@ That means the architecture should optimize for:
 - reusable protocols over page-specific cases
 - clear instance/template boundaries
 - multiple projection layers over duplicated product logic
+- seed-based compression of domain concepts wherever possible
 
 The architecture follows three principles:
 
@@ -25,6 +26,10 @@ And four long-term engineering constraints:
 5. **Projection layers consume one canonical world** — Home, sim, create, assets, and future publish surfaces should be different views of the same domain model
 6. **Instances and templates remain distinct** — Runtime world entities are not the same thing as exported reusable assets
 7. **Do not solve strategy with feature accretion** — Prefer new protocols, policies, or domain capabilities over isolated UI controls
+
+And one simplifying abstraction:
+
+8. **Seeds are the canonical generative boundary** — Anything that can be created, evolved, branched, reused, or published should prefer a `seed + time + intervention` model over a new bespoke object type
 
 ## Layer Diagram
 
@@ -69,6 +74,12 @@ And four long-term engineering constraints:
 
 ### models.py — Pure Data (0 dependencies)
 Foundation layer. Pydantic models with no I/O.
+
+Architecturally, `WorldSeed` should be read as the canonical pattern, not a special case:
+
+- a seed is a compact generative specification
+- runtime state is an unfolded seed
+- export is reseeding evolved state for reuse elsewhere
 
 | Model | Purpose |
 |-------|---------|

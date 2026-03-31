@@ -26,6 +26,7 @@ from .models import (
     GoalState,
     IntentState,
     LLMResponse,
+    SeedLineage,
     StateChanges,
     TimelineNode,
     WorldSnapshot,
@@ -241,6 +242,7 @@ class DefaultTimelinePolicy:
             session_id=engine.session.id,
             tick=engine.session.tick,
             parent_id=parent_id,
+            branch_id=engine.session.seed_lineage.branch_id or "main",
             summary=self.summarize_tick(tick_events),
             event_count=len(tick_events),
             agent_locations={
@@ -248,6 +250,13 @@ class DefaultTimelinePolicy:
                 for agent_id, agent in engine.session.agents.items()
             },
             significant=has_significant,
+            lineage=SeedLineage.runtime(
+                root_name=engine.session.seed_lineage.root_name or engine.session.world_seed.name,
+                source_seed_ref=engine.session.seed_lineage.source_seed_ref,
+                session_id=engine.session.id,
+                tick=engine.session.tick,
+                branch_id=engine.session.seed_lineage.branch_id or "main",
+            ),
         )
 
         for event in tick_events:
@@ -262,7 +271,15 @@ class DefaultTimelinePolicy:
                 tick=engine.session.tick,
                 world_seed_json=engine.session.world_seed.model_dump_json(),
                 agent_states_json=engine._dump_agent_states_json(),
+                lineage=SeedLineage.runtime(
+                    root_name=engine.session.world_seed.name,
+                    session_id=engine.session.id,
+                    tick=engine.session.tick,
+                    branch_id=node.branch_id,
+                    node_id=node.id,
+                ),
             )
+            snapshot.lineage.snapshot_id = snapshot.id
             await engine._save_snapshot(snapshot)
 
     @staticmethod

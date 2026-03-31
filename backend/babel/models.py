@@ -30,6 +30,41 @@ class SeedType(str, Enum):
     EVENT = "event"
 
 
+class SeedLineage(BaseModel):
+    root_type: str = "world"
+    root_name: str = ""
+    source_seed_ref: str = ""
+    session_id: str = ""
+    tick: int = 0
+    branch_id: str = "main"
+    node_id: str = ""
+    snapshot_id: str = ""
+
+    @classmethod
+    def runtime(
+        cls,
+        *,
+        root_name: str,
+        source_seed_ref: str = "",
+        session_id: str,
+        tick: int = 0,
+        branch_id: str = "main",
+        node_id: str = "",
+        snapshot_id: str = "",
+        root_type: str = "world",
+    ) -> SeedLineage:
+        return cls(
+            root_type=root_type,
+            root_name=root_name,
+            source_seed_ref=source_seed_ref,
+            session_id=session_id,
+            tick=tick,
+            branch_id=branch_id,
+            node_id=node_id,
+            snapshot_id=snapshot_id,
+        )
+
+
 class SessionStatus(str, Enum):
     RUNNING = "running"
     PAUSED = "paused"
@@ -113,6 +148,10 @@ class WorldSeed(BaseModel):
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         return cls(**data)
+
+    def to_seed_payload(self) -> dict[str, Any]:
+        """Return the canonical reusable payload for this world."""
+        return self.model_dump()
 
 
 # ── LLM Output Schema ─────────────────────────────────
@@ -301,6 +340,7 @@ class Event(BaseModel):
 class Session(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     world_seed: WorldSeed
+    seed_lineage: SeedLineage = Field(default_factory=SeedLineage)
     agents: dict[str, AgentState] = Field(default_factory=dict)
     events: list[Event] = Field(default_factory=list)
     tick: int = 0
@@ -367,9 +407,9 @@ class Session(BaseModel):
         return []
 
 
-# ── Saved Seed (Asset Library) ───────────────────────
+# ── Seed Envelope (Reusable Generative Boundary) ─────
 
-class SavedSeed(BaseModel):
+class SeedEnvelope(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
     type: SeedType
     name: str
@@ -377,9 +417,177 @@ class SavedSeed(BaseModel):
     tags: list[str] = Field(default_factory=list)
     data: dict[str, Any] = Field(default_factory=dict)
     source_world: str = ""
+    lineage: SeedLineage = Field(default_factory=SeedLineage)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        """Canonical payload accessor.
+
+        A seed envelope stores reusable metadata plus the compressed payload that
+        can unfold into a runtime form again later.
+        """
+        return self.data
+
+    @classmethod
+    def from_world_seed(
+        cls,
+        world_seed: WorldSeed,
+        *,
+        seed_id: str | None = None,
+        tags: list[str] | None = None,
+        source_world: str = "",
+        lineage: SeedLineage | None = None,
+        created_at: str | None = None,
+    ) -> SeedEnvelope:
+        return cls(
+            id=seed_id or uuid.uuid4().hex[:8],
+            type=SeedType.WORLD,
+            name=world_seed.name,
+            description=world_seed.description,
+            tags=list(tags or []),
+            data=world_seed.to_seed_payload(),
+            source_world=source_world,
+            lineage=lineage or SeedLineage(root_name=world_seed.name),
+            created_at=created_at or datetime.now(timezone.utc).isoformat(),
+        )
+
+    @classmethod
+    def from_agent_state(
+        cls,
+        agent: AgentState,
+        *,
+        seed_id: str | None = None,
+        tags: list[str] | None = None,
+        source_world: str = "",
+        lineage: SeedLineage | None = None,
+        created_at: str | None = None,
+    ) -> SeedEnvelope:
+        return cls(
+            id=seed_id or uuid.uuid4().hex[:8],
+            type=SeedType.AGENT,
+            name=agent.name,
+            description=agent.description,
+            tags=list(tags or []),
+            data={
+                "id": agent.agent_id,
+                "name": agent.name,
+                "description": agent.description,
+                "personality": agent.personality,
+                "goals": list(agent.goals),
+                "inventory": list(agent.inventory),
+                "location": agent.location,
+            },
+            source_world=source_world,
+            lineage=lineage or SeedLineage(root_name=agent.name, root_type=SeedType.AGENT.value),
+            created_at=created_at or datetime.now(timezone.utc).isoformat(),
+        )
+
+    @classmethod
+    def from_item_state(
+        cls,
+        item_name: str,
+        *,
+        description: str = "",
+        origin: str = "",
+        properties: list[str] | None = None,
+        significance: str = "",
+        seed_id: str | None = None,
+        tags: list[str] | None = None,
+        source_world: str = "",
+        lineage: SeedLineage | None = None,
+        created_at: str | None = None,
+    ) -> SeedEnvelope:
+        payload: dict[str, Any] = {"name": item_name}
+        if description:
+            payload["description"] = description
+        if origin:
+            payload["origin"] = origin
+        if properties:
+            payload["properties"] = list(properties)
+        if significance:
+            payload["significance"] = significance
+        return cls(
+            id=seed_id or uuid.uuid4().hex[:8],
+            type=SeedType.ITEM,
+            name=item_name,
+            description=description,
+            tags=list(tags or []),
+            data=payload,
+            source_world=source_world,
+            lineage=lineage or SeedLineage(root_name=item_name, root_type=SeedType.ITEM.value),
+            created_at=created_at or datetime.now(timezone.utc).isoformat(),
+        )
+
+    @classmethod
+    def from_location_seed(
+        cls,
+        location: LocationSeed,
+        *,
+        seed_id: str | None = None,
+        tags: list[str] | None = None,
+        source_world: str = "",
+        lineage: SeedLineage | None = None,
+        created_at: str | None = None,
+    ) -> SeedEnvelope:
+        merged_tags = list(tags or []) or list(getattr(location, "tags", []) or [])
+        return cls(
+            id=seed_id or uuid.uuid4().hex[:8],
+            type=SeedType.LOCATION,
+            name=location.name,
+            description=location.description,
+            tags=merged_tags,
+            data={
+                "name": location.name,
+                "description": location.description,
+            },
+            source_world=source_world,
+            lineage=lineage or SeedLineage(root_name=location.name, root_type=SeedType.LOCATION.value),
+            created_at=created_at or datetime.now(timezone.utc).isoformat(),
+        )
+
+    @classmethod
+    def from_event(
+        cls,
+        event: Event,
+        *,
+        seed_id: str | None = None,
+        tags: list[str] | None = None,
+        source_world: str = "",
+        lineage: SeedLineage | None = None,
+        created_at: str | None = None,
+    ) -> SeedEnvelope:
+        action_type = event.action_type.value if hasattr(event.action_type, "value") else str(event.action_type)
+        event_tags = list(tags or [])
+        if action_type:
+            event_tags.append(action_type)
+        deduped_tags = list(dict.fromkeys(tag for tag in event_tags if tag))
+        return cls(
+            id=seed_id or uuid.uuid4().hex[:8],
+            type=SeedType.EVENT,
+            name=(event.result or "Event")[:60],
+            description="",
+            tags=deduped_tags,
+            data={
+                "content": event.result,
+                "action_type": action_type,
+                **({"event_id": event.id} if event.id else {}),
+            },
+            source_world=source_world,
+            lineage=lineage or SeedLineage(root_name=event.result[:60], root_type=SeedType.EVENT.value),
+            created_at=created_at or datetime.now(timezone.utc).isoformat(),
+        )
+
+    def to_world_seed(self) -> WorldSeed:
+        if self.type != SeedType.WORLD:
+            raise ValueError("Only world seeds can unfold into WorldSeed")
+        return WorldSeed(**self.payload)
+
+
+# Backward-compatible name retained at the API boundary.
+SavedSeed = SeedEnvelope
 
 
 # ── Timeline & Memory ─────────────────────────────────
@@ -413,6 +621,7 @@ class TimelineNode(BaseModel):
     event_count: int = 0
     agent_locations: dict[str, str] = Field(default_factory=dict)
     significant: bool = False
+    lineage: SeedLineage = Field(default_factory=SeedLineage)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -425,6 +634,7 @@ class WorldSnapshot(BaseModel):
     tick: int = 0
     world_seed_json: str = ""
     agent_states_json: str = ""
+    lineage: SeedLineage = Field(default_factory=SeedLineage)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
