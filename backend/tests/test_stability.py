@@ -72,6 +72,7 @@ class TestStability100Ticks(unittest.TestCase):
             patch("babel.engine.save_entity_details", new_callable=AsyncMock),
             patch("babel.engine.load_events", new_callable=AsyncMock, return_value=[]),
             patch("babel.engine.load_events_filtered", new_callable=AsyncMock, return_value=[]),
+            patch("babel.engine.generate_chapter", new_callable=AsyncMock, return_value="[Test chapter]"),
         ]
 
         for p in patches:
@@ -92,7 +93,7 @@ class TestStability100Ticks(unittest.TestCase):
                 events = await engine.tick()
                 cls.all_events.extend(events)
 
-        asyncio.get_event_loop().run_until_complete(run())
+        asyncio.run(run())
 
         for p in patches:
             p.stop()
@@ -290,10 +291,14 @@ class TestStabilityInvariants(unittest.TestCase):
         )
 
         types = set()
-        for _ in range(50):
-            action = asyncio.get_event_loop().run_until_complete(src.decide(ctx))
-            at = action.type.value if hasattr(action.type, "value") else action.type
-            types.add(at)
+
+        async def run_decisions():
+            for _ in range(50):
+                action = await src.decide(ctx)
+                at = action.type.value if hasattr(action.type, "value") else action.type
+                types.add(at)
+
+        asyncio.run(run_decisions())
 
         self.assertGreaterEqual(len(types), 3,
                                f"Expected >=3 action types from 50 decisions, got: {types}")

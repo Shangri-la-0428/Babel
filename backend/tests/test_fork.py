@@ -100,7 +100,7 @@ async def test_fork_creates_new_session(parent_session):
         patch("babel.api.save_session", new_callable=AsyncMock),
         patch("babel.api.init_db", new_callable=AsyncMock),
     ):
-        mock_engine.return_value = type("E", (), {"session": parent_session})()
+        mock_engine.return_value = type("E", (), {"session": parent_session, "is_running": False, "pause": lambda self: None})()
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             resp = await ac.post("/api/worlds/parent-1/fork", json={"tick": 25})
 
@@ -154,7 +154,7 @@ async def test_fork_copies_relations(parent_session):
         patch("babel.api.save_session", new_callable=AsyncMock) as mock_save,
         patch("babel.api.init_db", new_callable=AsyncMock),
     ):
-        mock_engine.return_value = type("E", (), {"session": parent_session})()
+        mock_engine.return_value = type("E", (), {"session": parent_session, "is_running": False, "pause": lambda self: None})()
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             resp = await ac.post("/api/worlds/parent-1/fork", json={"tick": 25})
 

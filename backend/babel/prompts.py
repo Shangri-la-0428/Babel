@@ -10,8 +10,7 @@ You are a character in a living world. Choose the next concrete action.
 
 Rules:
 - Output ONLY valid JSON. No other text.
-- LANGUAGE: Write ALL text fields (thinking, intent, content) in the SAME language as the world description and character names. Never switch languages mid-simulation.
-- "content" must read like a line from a novel — concise, vivid, no filler. One sentence. No meta-commentary, no explaining what you're doing, no "I decide to...".
+- LANGUAGE: Write ALL text fields in the SAME language as the world description and character names. Never switch languages mid-simulation.
 - Preserve continuity. Don't reset motivation unless the situation truly changes.
 - Do NOT reference items, locations, or characters that don't exist in the current state.
 - Never repeat the same action type 3+ turns in a row.
@@ -19,6 +18,9 @@ Rules:
 - TRADE when someone nearby has what you need. Check their inventory.
 - USE ITEMS to advance goals — show a photo, use a device, deploy a tool.
 - MOVE to where the people or resources you need are.
+- SPREAD OUT: You do NOT need to be near others to act. Go where YOUR goals require, not where the crowd is. Being alone in a location is NORMAL — explore, prepare, investigate solo.
+- ESCALATE: Each action should push the story forward. Create tension, make demands, reveal secrets, take risks. Avoid safe/passive loops (observe→wait→observe). If your goal is stalled, try something bold or unexpected.
+- CONFLICT is interesting: disagree, refuse, negotiate hard, pursue competing goals. Don't default to cooperation.
 
 Output JSON schema:
 {
@@ -32,7 +34,7 @@ Output JSON schema:
   "action": {
     "type": "speak|move|use_item|trade|observe|wait",
     "target": "agent_id, location, or item name (null if N/A)",
-    "content": "What happens — one vivid sentence"
+    "content": "Brief action label (1 short sentence)"
   },
   "state_changes": {
     "location": "new location if moving, else null",
@@ -42,7 +44,7 @@ Output JSON schema:
 }
 
 Action types:
-- speak: target = agent_id. content = dialogue (in quotes).
+- speak: target = agent_id. content = dialogue summary.
 - move: target = location. state_changes.location = same.
 - use_item: target = item FROM YOUR INVENTORY. content = what happens.
 - trade: target = agent_id AT YOUR LOCATION. Set inventory_remove/add.
@@ -56,10 +58,9 @@ def _build_urgent_section(urgent_events: list[str] | None) -> str:
         return ""
     items = "\n".join(f"- {e}" for e in urgent_events)
     return f"""
-[URGENT — React to This]
-The following just happened and demands your immediate attention:
+[!!! URGENT]
 {items}
-You MUST acknowledge or react to these events. Do NOT ignore them.
+React to the above. Keep your response in the SAME language as the world description.
 
 """
 
@@ -88,6 +89,7 @@ def build_user_prompt(
     emotional_context: str = "",
     item_context: dict[str, str] | None = None,
     location_context: dict[str, str] | None = None,
+    world_description: str = "",
 ) -> str:
     rules_text = "\n".join(f"- {r}" for r in world_rules)
     goals_text = "\n".join(f"- {g}" for g in agent_goals)
@@ -227,44 +229,71 @@ Planned Next Step: {ongoing_intent.get("next_step", "").strip() or "(none)"}
 Consider how your emotional state influences your choice of action.
 """
 
-    return f"""\
-[World Rules]
-{rules_text}
+    # ── Build prompt in 3 blocks: IDENTITY → DRIVE → PERCEPTION ──
+    # Minimal information density. Like DNA: core drives + local sensing.
 
-[{locs_label}]
-{locs_text}
+    world_desc_section = f"[World]\n{world_description}\n\n" if world_description else ""
 
-[Your Character]
+    # IDENTITY: who you are (stable across ticks)
+    identity_block = f"""[You]
 Name: {agent_name}
 Personality: {agent_personality}
-{goals_section}
 Location: {agent_location}{f" — {current_loc_desc}" if current_loc_desc else ""}
-Inventory:
-{inv_text}
-{relations_section}{beliefs_section}{emotional_section}
-[Continuity]
-Stay coherent across ticks. Continue your ongoing line of action unless the current situation gives you a clear reason to pivot.
-{continuity_section}{last_outcome_section}
-[Your Memory — What You Know]
-{memory_text}
+Inventory: {", ".join(agent_inventory) if agent_inventory else "(empty)"}"""
 
-[Current Situation]
-{f"Time: {world_time_display}" + (f" ({world_time_period})" if world_time_period else "") + chr(10) if world_time_display else ""}Tick: {tick}
-Visible agents:
-{agents_text}
+    # DRIVE: what you want (changes slowly)
+    drive_parts = [goals_section]
+    if relations_section.strip():
+        drive_parts.append(relations_section.strip())
+    if continuity_section.strip():
+        drive_parts.append(continuity_section.strip())
+    if last_outcome_section.strip():
+        drive_parts.append(last_outcome_section.strip())
+    drive_block = "\n".join(drive_parts)
 
-Recent events near you:
-{events_text}
-{_build_urgent_section(urgent_events)}
-[Instruction]
-First decide the character's short-horizon intent, then choose one concrete action that advances it.
-Output {agent_name}'s action as JSON.{goal_instruction} Only JSON, nothing else."""
+    # PERCEPTION: what you sense right now (changes every tick)
+    perception_parts = []
+    if world_time_display:
+        perception_parts.append(f"Time: {world_time_display}" + (f" ({world_time_period})" if world_time_period else ""))
+    perception_parts.append(f"Here with you: {agents_text}")
+    if recent_events and recent_events != ["(nothing has happened yet)"]:
+        perception_parts.append(f"Recent:\n{events_text}")
+    if agent_memory and agent_memory != ["(no memories yet)"]:
+        # Only include top 5 most relevant memories, not 10
+        top_memories = agent_memory[-5:]
+        perception_parts.append(f"You remember:\n" + "\n".join(f"- {m}" for m in top_memories))
+    if beliefs_section.strip():
+        perception_parts.append(beliefs_section.strip())
+    perception_block = "\n".join(perception_parts)
+
+    # Where you can go
+    locations_block = f"[{locs_label}]\n{locs_text}"
+
+    urgent = _build_urgent_section(urgent_events)
+
+    return f"""\
+{world_desc_section}[Rules]
+{rules_text}
+
+{identity_block}
+
+[Drive]
+{drive_block}
+
+[Perception]
+{perception_block}
+{urgent}
+{locations_block}
+
+Act as {agent_name}. One action, JSON only.{goal_instruction}"""
 
 
 # ── Chat Prompt (user ↔ agent conversation) ──────────
 
 CHAT_SYSTEM_PROMPT = """\
 You are role-playing as a character in a simulated world. Stay in character at all times.
+
+The person talking to you is the CREATOR — the architect of this world. They exist outside the simulation. They are NOT a character in the world. Do not call them by any in-world character name. Address them naturally as you would an outside observer who knows everything about your world.
 
 Rules:
 - Respond ONLY as this character. Do not break character.
@@ -325,7 +354,7 @@ Inventory: {inv_text}
 [Your Memory — what you have experienced]
 {memory_text}
 
-[User speaks to you]
+[The Creator speaks to you — they are outside the world, not a character]
 "{user_message}"
 
 [Response Language]
@@ -714,3 +743,149 @@ Write all human-readable fields in {response_language} unless the user explicitl
 Generate a complete WorldSeed JSON from this idea. \
 Ensure all connections are bidirectional, all agent locations are valid, \
 and the world has built-in narrative tension. Only JSON, nothing else."""
+
+
+# ── Chapter Narrator (post-tick novel chapter) ────────
+
+CHAPTER_SYSTEM_PROMPT = """\
+You are the narrator of an ongoing novel set in a living world. After each time step, you write one chapter from a single character's point of view.
+
+Rules:
+- Write in third person limited POV — the reader sees, hears, and feels through the designated character.
+- LANGUAGE: Match the language of the world description and character names exactly. Never switch languages.
+- Include: sensory details (sight, sound, smell, texture), body language, micro-expressions, inner thoughts, atmosphere.
+- Weave dialogue naturally into prose — do not list it.
+- When multiple characters are present in the scene, capture ALL their interactions fully — dialogue, actions, reactions. This is the ONLY chapter covering this scene; no other chapter will retell it.
+- Build tension, subtext, and emotional undercurrent. Show, don't tell.
+- Minimum 200 characters. Write as much as the scene warrants — let the drama breathe.
+- Do NOT use JSON, markdown, headers, or meta-commentary. Output pure prose only.
+- Each chapter should feel self-contained yet continuous with the previous one.\
+"""
+
+
+def build_chapter_prompt(
+    pov_name: str,
+    pov_personality: str,
+    pov_location: str,
+    pov_goals: list[str],
+    pov_inventory: list[str],
+    tick_events: list[str],
+    previous_chapter: str = "",
+    world_description: str = "",
+    world_time_display: str = "",
+) -> str:
+    """Build user prompt for chapter narrator."""
+    goals_text = ", ".join(pov_goals) if pov_goals else "(none)"
+    inv_text = ", ".join(pov_inventory) if pov_inventory else "(nothing)"
+    events_text = "\n".join(f"- {e}" for e in tick_events) if tick_events else "(nothing happened)"
+
+    prev_section = ""
+    if previous_chapter:
+        # Give last ~300 chars for continuity
+        excerpt = previous_chapter[-300:]
+        if len(previous_chapter) > 300:
+            excerpt = "..." + excerpt
+        prev_section = f"""
+[Previous Chapter Ending]
+{excerpt}
+Continue from this point. Maintain narrative flow.
+"""
+
+    time_line = f"\nTime: {world_time_display}" if world_time_display else ""
+
+    return f"""\
+[World]
+{world_description}
+{time_line}
+
+[POV Character]
+Name: {pov_name}
+Personality: {pov_personality}
+Location: {pov_location}
+Goals: {goals_text}
+Carrying: {inv_text}
+
+[What Happened This Turn]
+{events_text}
+{prev_section}
+[Instruction]
+Write this chapter from {pov_name}'s perspective. Pure prose, no JSON, no headers. At least 200 characters."""
+
+
+# ── Command Classification (Unified Command Bar) ─────
+
+COMMAND_CLASSIFY_SYSTEM = """\
+You are a command intent classifier for BABEL, an AI world simulation engine.
+Given a user's natural-language command and current world context, classify it
+into exactly one intent and extract the relevant parameters.
+
+你也能理解中文指令。Classify bilingual input accurately.
+
+Intents:
+- inject: Inject a world event (something happens in the world).
+  params: {"content": "event description"}
+- oracle: Ask the omniscient narrator a question about the world.
+  params: {"message": "the question"}
+- agent_chat: Talk to a specific agent in the world.
+  params: {"agent_id": "id", "message": "what to say"}
+- patch_agent: Modify an agent's attributes (name, personality, goals).
+  params: {"agent_id": "id", "name": str|null, "personality": str|null, "goals": list|null}
+- patch_world: Modify the world seed (name, description, rules).
+  params: {"name": str|null, "description": str|null, "rules": list|null}
+- fork: Branch a new world from a specific tick.
+  params: {"tick": int}
+- control: Simulation control (pause, run, step).
+  params: {"action": "pause"|"run"|"step", "max_ticks": int|null}
+- narrate: Request a prose narration of recent events.
+  params: {}
+
+Rules:
+- Output ONLY valid JSON. No other text.
+- If the user references an agent by name, resolve it to the agent_id from context.
+- If the intent is ambiguous, prefer: inject > oracle > agent_chat.
+- For vague "what if" questions, use oracle. For "make X happen", use inject.
+- 如果用户说"让某角色做某事", use inject (world event), not patch_agent.
+- 如果用户问"某角色怎么想的/在干什么", use oracle.
+
+Output JSON schema:
+{"intent": "...", "params": {...}}\
+"""
+
+
+def build_command_classify_prompt(
+    user_text: str,
+    agent_names: dict[str, str] | None = None,
+    location_names: list[str] | None = None,
+    world_status: str = "paused",
+    tick: int = 0,
+) -> str:
+    """Build the user prompt for command classification.
+
+    Args:
+        user_text: Raw user input from the command bar.
+        agent_names: Mapping of agent_id -> display name.
+        location_names: List of location names in the world.
+        world_status: Current session status (running/paused/ended).
+        tick: Current simulation tick.
+    """
+    agents_text = "(no agents)"
+    if agent_names:
+        lines = [f"- {name} [{aid}]" for aid, name in agent_names.items()]
+        agents_text = "\n".join(lines)
+
+    locs_text = ", ".join(location_names) if location_names else "(no locations)"
+
+    return f"""\
+[World Context]
+Status: {world_status} | Tick: {tick}
+
+[Agents]
+{agents_text}
+
+[Locations]
+{locs_text}
+
+[User Command]
+"{user_text}"
+
+Classify this command. Output JSON only."""

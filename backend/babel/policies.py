@@ -131,7 +131,8 @@ class DefaultPressurePolicy:
 
 
 def _build_agent_context(engine: Engine, agent: AgentState, **overrides) -> AgentContext:
-    visible = get_visible_agents(agent, engine.session)
+    frozen_locations = getattr(engine, "_frozen_locations", None)
+    visible = get_visible_agents(agent, engine.session, frozen_locations=frozen_locations)
     reachable = engine.session.location_connections(agent.location)
     agent_relations = engine.social_projection_policy.build_relation_context(engine.session, agent)
     wt = world_time(engine.session.tick, engine.session.world_seed.time)
@@ -172,6 +173,7 @@ def _build_agent_context(engine: Engine, agent: AgentState, **overrides) -> Agen
         tick=engine.session.tick,
         item_context=item_context,
         location_context=location_context,
+        world_description=engine.session.world_seed.description,
     )
 
     for key, value in overrides.items():

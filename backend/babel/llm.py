@@ -27,6 +27,8 @@ from .prompts import (
     build_oracle_prompt,
     ORACLE_CREATIVE_SYSTEM,
     build_creative_prompt,
+    CHAPTER_SYSTEM_PROMPT,
+    build_chapter_prompt,
 )
 
 # Suppress litellm debug noise
@@ -231,6 +233,7 @@ async def get_agent_action(
     emotional_context: str = "",
     item_context: dict[str, str] | None = None,
     location_context: dict[str, str] | None = None,
+    world_description: str = "",
 ) -> LLMResponse:
     """Get a validated agent action from the LLM."""
     user_prompt = build_user_prompt(
@@ -257,6 +260,7 @@ async def get_agent_action(
         emotional_context=emotional_context,
         item_context=item_context,
         location_context=location_context,
+        world_description=world_description,
     )
 
     raw = await _complete_json(
@@ -647,3 +651,43 @@ async def generate_seed_draft(
             )
 
     return seed.model_dump()
+
+
+# ── Chapter narrator ────────────────────────────────────
+
+async def generate_chapter(
+    pov_name: str,
+    pov_personality: str,
+    pov_location: str,
+    pov_goals: list[str],
+    pov_inventory: list[str],
+    tick_events: list[str],
+    previous_chapter: str = "",
+    world_description: str = "",
+    world_time_display: str = "",
+    *,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> str:
+    """Generate a novel chapter from one character's POV after a tick."""
+    user_prompt = build_chapter_prompt(
+        pov_name=pov_name,
+        pov_personality=pov_personality,
+        pov_location=pov_location,
+        pov_goals=pov_goals,
+        pov_inventory=pov_inventory,
+        tick_events=tick_events,
+        previous_chapter=previous_chapter,
+        world_description=world_description,
+        world_time_display=world_time_display,
+    )
+    return await _complete(
+        CHAPTER_SYSTEM_PROMPT,
+        user_prompt,
+        model=model,
+        api_key=api_key,
+        api_base=api_base,
+        temperature=0.85,
+        max_tokens=1024,
+    )

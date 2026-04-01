@@ -15,8 +15,10 @@ load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .db import (
@@ -77,6 +79,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    logger.error("Validation error on %s %s: %s", request.method, request.url, exc.errors())
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
 SEEDS_DIR = Path(__file__).parent / "seeds"
 SAVED_WORLD_PREFIX = "saved:"
 
@@ -92,8 +99,8 @@ class CreateWorldRequest(BaseModel):
     name: str
     description: str = ""
     rules: list[str] = []
-    locations: list[dict[str, str]] = []
-    resources: list[dict[str, str]] = []
+    locations: list[dict[str, Any]] = []
+    resources: list[dict[str, Any]] = []
     items: list[dict[str, Any]] = []
     agents: list[dict[str, Any]] = []
     initial_events: list[str] = []
@@ -383,8 +390,24 @@ async def _list_session_ids_for_world_name(world_name: str) -> list[str]:
 
 
 async def _delete_world_linked_assets(world_name: str) -> int:
-    """Delete assets linked to a world name and any sessions spawned from that world."""
-    source_worlds = [world_name, *(await _list_session_ids_for_world_name(world_name))]
+    """Delete sessions AND child seeds linked to a world name."""
+    session_ids = await _list_session_ids_for_world_name(world_name)
+
+    # Delete all sessions spawned from this world
+    for sid in session_ids:
+        # Remove from in-memory engines
+        async with _global_lock:
+            engine = _engines.pop(sid, None)
+            if engine:
+                engine.pause()
+            _engine_locks.pop(sid, None)
+        # Remove from WebSocket clients
+        _ws_clients.pop(sid, None)
+        # Delete from DB (events, agents, timeline, snapshots, memories)
+        await delete_session(sid)
+
+    # Delete child seeds (extracted agent/world seeds)
+    source_worlds = [world_name, *session_ids]
     return await delete_seeds_by_source_worlds(source_worlds)
 
 
@@ -695,15 +718,35 @@ async def update_world_seed(filename: str, req: CreateWorldRequest) -> dict:
     )
     await save_seed(saved_seed)
 
+    # Sync updated seed to any active sessions that were created from this seed
+    seed_ref = filename
+    for sid, engine in _engines.items():
+        if getattr(engine.session, "seed_lineage", None) and engine.session.seed_lineage.source_seed_ref == seed_ref:
+            engine.session.world_seed = world_seed
+            # Re-sync agent fields that come from the seed (description, personality, goals)
+            for agent_seed in world_seed.agents:
+                if agent_seed.id in engine.session.agents:
+                    agent = engine.session.agents[agent_seed.id]
+                    agent.description = agent_seed.description
+                    agent.personality = agent_seed.personality
+                    agent.goals = agent_seed.goals
+            await save_session(engine.session)
+            logger.info("Synced seed update to session %s", sid)
+
     return _serialize_seed_summary(filename, world_seed)
 
 
 @app.post("/api/worlds")
 async def create_world(req: CreateWorldRequest) -> dict:
     """Create a new world session."""
-    world_seed = WorldSeed(**req.model_dump())
+    try:
+        world_seed = WorldSeed(**req.model_dump())
+    except Exception as e:
+        logger.error("WorldSeed parse error: %s", e)
+        raise HTTPException(400, f"Seed parse error: {e}")
     seed_errors = validate_seed(world_seed)
     if seed_errors:
+        logger.warning("Seed validation failed: %s", seed_errors)
         raise HTTPException(400, f"Invalid world seed: {'; '.join(seed_errors)}")
     session = Session(world_seed=world_seed)
     session.init_agents()
@@ -808,6 +851,63 @@ async def add_agent(session_id: str, req: AddAgentRequest) -> dict:
     await save_session(engine.session)
 
     return {"agent_id": seed.id, "name": seed.name}
+
+
+class PatchAgentRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    personality: str | None = None
+    goals: list[str] | None = None
+
+
+class PatchWorldSeedRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    rules: list[str] | None = None
+    locations: list[dict[str, str]] | None = None
+
+
+@app.patch("/api/worlds/{session_id}/seed")
+async def patch_world_seed(session_id: str, req: PatchWorldSeedRequest) -> dict:
+    """Update the world seed of a running or paused world."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+    ws = engine.session.world_seed
+    if req.name is not None:
+        ws.name = req.name
+    if req.description is not None:
+        ws.description = req.description
+    if req.rules is not None:
+        ws.rules = req.rules
+    if req.locations is not None:
+        from .models import LocationSeed
+        ws.locations = [LocationSeed(**loc) for loc in req.locations]
+    await save_session(engine.session)
+    return {"ok": True}
+
+
+@app.patch("/api/worlds/{session_id}/agents/{agent_id}")
+async def patch_agent(session_id: str, agent_id: str, req: PatchAgentRequest) -> dict:
+    """Update editable fields of an agent in a running or paused world."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+    agent = engine.session.agents.get(agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+
+    if req.name is not None:
+        agent.name = req.name
+    if req.description is not None:
+        agent.description = req.description
+    if req.personality is not None:
+        agent.personality = req.personality
+    if req.goals is not None:
+        agent.goals = req.goals
+
+    await save_session(engine.session)
+    return {"ok": True}
 
 
 @app.post("/api/worlds/{session_id}/run")
@@ -1902,9 +2002,13 @@ async def fork_world(session_id: str, req: ForkRequest) -> dict:
         root_type=SeedType.WORLD.value,
     )
 
-    # 4. Copy relations from parent at fork point
+    # 4. Copy relations from parent at fork point; pause parent so it doesn't advance
     parent_engine = await _get_engine(session_id)
     if parent_engine:
+        if parent_engine.is_running:
+            parent_engine.pause()
+            await save_session(parent_engine.session)
+            await broadcast(session_id, "status", {"status": "paused"})
         new_session.relations = [r.model_copy() for r in parent_engine.session.relations]
 
     await save_session(new_session)
@@ -1926,6 +2030,84 @@ async def fork_world(session_id: str, req: ForkRequest) -> dict:
         "tick": new_session.tick,
         "status": new_session.status.value,
     }
+
+
+# ── COMMAND BAR: unified intent classification + dispatch ──
+
+
+class CommandRequest(BaseModel):
+    text: str
+    language: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    api_base: str | None = None
+
+
+class CommandResponse(BaseModel):
+    intent: str
+    params: dict = {}
+    reply: str | None = None
+    data: dict | None = None
+    error: str | None = None
+
+
+@app.post("/api/worlds/{session_id}/command")
+async def command_endpoint(session_id: str, req: CommandRequest) -> dict:
+    """Unified command bar: classify natural-language input and dispatch."""
+    from .commander import classify_command, execute_command
+
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    session = engine.session
+
+    # Build context for classification
+    agent_names = {
+        aid: a.name
+        for aid, a in session.agents.items()
+        if a.status not in (AgentStatus.DEAD, AgentStatus.GONE)
+    }
+
+    classified = await classify_command(
+        user_text=req.text,
+        agent_names=agent_names,
+        location_names=session.location_names,
+        world_status=session.status.value,
+        tick=session.tick,
+        model=req.model,
+        api_key=req.api_key,
+        api_base=req.api_base,
+    )
+
+    intent = classified["intent"]
+    params = classified.get("params", {})
+
+    lock = _get_session_lock(session_id)
+    async with lock:
+        result = await execute_command(
+            intent=intent,
+            params=params,
+            session_id=session_id,
+            engine=engine,
+            model=req.model,
+            api_key=req.api_key,
+            api_base=req.api_base,
+            language=req.language,
+        )
+
+    resp = {
+        "intent": intent,
+        "params": params,
+    }
+    if result.get("ok"):
+        data = result.get("data", {})
+        resp["data"] = data
+        resp["reply"] = data.get("reply")
+    else:
+        resp["error"] = result.get("error", "Unknown error")
+
+    return resp
 
 
 # ── WebSocket ──────────────────────────────────────────

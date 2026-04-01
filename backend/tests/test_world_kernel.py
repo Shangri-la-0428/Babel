@@ -875,10 +875,12 @@ class TestScriptedTenTicks(unittest.TestCase):
         # Verify: all events have valid action types
         for event in all_events:
             at = event.action_type if isinstance(event.action_type, str) else event.action_type.value
-            assert at in ("observe", "wait"), f"Unexpected action type: {at}"
+            assert at in ("observe", "wait", "chapter"), f"Unexpected action type: {at}"
 
-        # Verify: structured fields are populated
+        # Verify: structured fields are populated (skip chapter events)
         for event in all_events:
+            if event.action_type == "chapter":
+                continue
             assert event.structured, f"Event {event.id} has empty structured"
             assert "verb" in event.structured
 

@@ -17,7 +17,7 @@ from .db import (
     load_entity_details, save_entity_details, load_events,
     load_events_filtered,
 )
-from .llm import enrich_entity, replan_goal
+from .llm import enrich_entity, generate_chapter, replan_goal
 from .memory import (
     consolidate_memories,
     create_memory_from_event,
@@ -138,6 +138,7 @@ class Engine:
         self.enrichment_policy: EnrichmentPolicy = enrichment_policy or DefaultEnrichmentPolicy()
         self.world_authority: WorldAuthority = world_authority or DefaultWorldAuthority()
         self._running = False
+        self._frozen_locations: dict[str, str] | None = None  # tick-start snapshot
         self._enrichment_queue: list[tuple[str, str]] = []  # (entity_type, entity_id)
         # Configurable intervals
         self.snapshot_interval = snapshot_interval
@@ -146,9 +147,15 @@ class Engine:
         # Phase B: per-agent Psyche snapshots for drive tracking
         self._psyche_snapshots: dict[str, Any] = {}      # agent_id → current PsycheSnapshot
         self._prev_psyche_snapshots: dict[str, Any] = {}  # agent_id → previous tick's snapshot
+        self._last_chapter: str = ""  # Previous chapter text for continuity
 
     async def tick(self) -> list[Event]:
-        """Execute one tick of the simulation."""
+        """Execute one tick of the simulation.
+
+        Uses snapshot-based perception: all agents see agent locations as
+        they were at tick start, preventing causal contamination where
+        agent B's decision is distorted by agent A's mid-tick movement.
+        """
         self.session.tick += 1
         tick_events: list[Event] = []
 
@@ -158,6 +165,17 @@ class Engine:
             return tick_events
         random.shuffle(alive_ids)
 
+        # Track if we were running at tick start (for mid-tick pause)
+        was_running = self._running
+
+        # ── Snapshot: freeze agent locations at tick start ──
+        # Each agent will perceive others at their tick-start positions,
+        # even if earlier agents already moved this tick.
+        self._frozen_locations = {
+            aid: self.session.agents[aid].location
+            for aid in alive_ids
+        }
+
         for agent_id in alive_ids:
             agent = self.session.agents[agent_id]
 
@@ -166,22 +184,29 @@ class Engine:
                 agent.status = AgentStatus.IDLE
                 continue
 
+            # Respect mid-tick pause (only if engine was running and user paused)
+            if was_running and not self._running:
+                break
+
             agent.status = AgentStatus.ACTING
 
             tick_events.extend(await self.pressure_policy.before_agent_turn(self, agent))
 
-            # Get action from LLM
+            # Get action from LLM (perception uses frozen locations)
             event = await self._resolve_agent_action(agent)
             tick_events.append(event)
 
             agent.status = AgentStatus.IDLE
 
-            # Respect mid-tick pause — stop processing remaining agents
-            if not self._running:
-                break
+        # Clear frozen snapshot
+        self._frozen_locations = None
 
         # Clear urgent events after all agents have processed them
         self.session.urgent_events.clear()
+
+        # ── Generate novel chapters (one per location group) ──
+        chapter_events = await self._generate_chapter(tick_events)
+        tick_events.extend(chapter_events)
 
         # ── Post-tick: timeline node + snapshot + consolidation ──
         await self._post_tick(tick_events)
@@ -257,6 +282,99 @@ class Engine:
             api_key=self.api_key,
             api_base=self.api_base,
         )
+
+    async def _generate_chapter(self, tick_events: list[Event]) -> list[Event]:
+        """Generate novel chapters after a tick.
+
+        Groups agents by location.  Co-located agents share ONE chapter
+        (one POV, others woven in as supporting cast).  Agents in separate
+        locations each get their own chapter — parallel storylines.
+        """
+        agent_events = [e for e in tick_events if e.agent_id]
+        if not agent_events:
+            return []
+
+        alive_ids = list(self.session.agent_ids)
+        if not alive_ids:
+            return []
+
+        # ── Group alive agents by location ──
+        loc_groups: dict[str, list[str]] = {}
+        for aid in alive_ids:
+            agent = self.session.agents[aid]
+            loc_groups.setdefault(agent.location, []).append(aid)
+
+        # ── Pick one POV per location group ──
+        # Rotate which agent is POV within each group across ticks
+        pov_picks: list[tuple[str, list[str]]] = []  # (pov_id, group_ids)
+        for loc, group in loc_groups.items():
+            pov_id = group[self.session.tick % len(group)]
+            pov_picks.append((pov_id, group))
+
+        # ── Get world time display ──
+        world_time_display = ""
+        if hasattr(self, "_get_world_time"):
+            wt = self._get_world_time()
+            world_time_display = wt.get("display", "") if wt else ""
+
+        # ── Generate one chapter per location group ──
+        chapters: list[Event] = []
+        for pov_id, group_ids in pov_picks:
+            pov = self.session.agents[pov_id]
+
+            # Filter events relevant to this location group
+            group_set = set(group_ids)
+            local_events = [
+                e for e in tick_events
+                if e.result and (
+                    e.agent_id in group_set
+                    or e.location == pov.location
+                    or not e.agent_id  # world events
+                )
+            ]
+            if not local_events:
+                continue
+
+            event_summaries = [e.result for e in local_events]
+
+            try:
+                chapter_text = await generate_chapter(
+                    pov_name=pov.name,
+                    pov_personality=pov.personality,
+                    pov_location=pov.location,
+                    pov_goals=pov.goals,
+                    pov_inventory=list(pov.inventory),
+                    tick_events=event_summaries,
+                    previous_chapter=getattr(self, "_last_chapter", ""),
+                    world_description=self.session.world_seed.description,
+                    world_time_display=world_time_display,
+                    model=self.model,
+                    api_key=self.api_key,
+                    api_base=self.api_base,
+                )
+            except Exception:
+                logger.warning("Chapter generation failed for tick %d pov %s",
+                               self.session.tick, pov.name, exc_info=True)
+                continue
+
+            self._last_chapter = chapter_text
+
+            event = Event(
+                session_id=self.session.id,
+                tick=self.session.tick,
+                agent_id=pov_id,
+                agent_name=pov.name,
+                action_type="chapter",
+                action={"type": "chapter", "pov": pov_id, "location": pov.location},
+                result=chapter_text,
+                location=pov.location,
+                involved_agents=group_ids,
+            )
+            self._append_event(event)
+            asyncio.create_task(self._emit_safe(event))
+            chapters.append(event)
+
+        return chapters
 
     async def _replan_goal(self, agent: AgentState, goal: GoalState) -> dict:
         # Use structured memory instead of legacy sliding window

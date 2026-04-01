@@ -32,11 +32,12 @@ import {
 } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import EventFeed from "@/components/EventFeed";
+import ChronicleView from "@/components/ChronicleView";
 import AssetPanel from "@/components/AssetPanel";
 import { buildAssetsHref, buildSimHref, buildWorldHref } from "@/lib/navigation";
 import ControlBar from "@/components/ControlBar";
+import CommandBar from "@/components/CommandBar";
 import Settings from "@/components/Settings";
-import InjectEvent from "@/components/InjectEvent";
 import SeekBar from "@/components/SeekBar";
 import { ErrorBanner, GlitchReveal } from "@/components/ui";
 
@@ -44,8 +45,6 @@ const ParticleField = dynamic(() => import("@/components/ParticleField"), { ssr:
 const WorldRadar = dynamic(() => import("@/components/WorldRadar"), { ssr: false });
 const WorldShader = dynamic(() => import("@/components/WorldShader"), { ssr: false });
 const SeedPreview = lazy(() => import("@/components/SeedPreview"));
-const AgentChat = lazy(() => import("@/components/AgentChat"));
-const OracleDrawer = lazy(() => import("@/components/OracleDrawer"));
 const WorldReport = lazy(() => import("@/components/WorldReport"));
 
 const MAX_EVENTS = 500;
@@ -67,13 +66,11 @@ function SimContent() {
   const [settings, setSettings] = useState<BabelSettings>(loadSettings);
   const [error, setError] = useState<string | null>(null);
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
-  const [chatAgent, setChatAgent] = useState<{ id: string; name: string } | null>(null);
   const [seedPreview, setSeedPreview] = useState<SavedSeedData | null>(null);
-  const [oracleOpen, setOracleOpen] = useState(false);
-  const [oracleEverOpened, setOracleEverOpened] = useState(false);
   const [controlledAgents, setControlledAgents] = useState<Set<string>>(new Set());
   const [radarCollapsed, setRadarCollapsed] = useState(false);
   const [highlightsOnly, setHighlightsOnly] = useState(false);
+  const [viewMode, setViewMode] = useState<"timeline" | "chronicle">("chronicle");
   const [reportOpen, setReportOpen] = useState(false);
   // Track relation strength deltas between ticks
   const prevRelationsRef = useRef<Map<string, number>>(new Map());
@@ -408,32 +405,10 @@ function SimContent() {
     }
   }, [sessionId, t]);
 
-  const handleOpenChat = useCallback((id: string, name: string) => {
-    setChatAgent({ id, name });
-  }, []);
-
   const handleCloseSettings = useCallback(() => setShowSettings(false), []);
   const handleSaveSettings = useCallback((s: BabelSettings) => setSettings(s), []);
   const handleDismissError = useCallback(() => setError(null), []);
   const handleCloseSeedPreview = useCallback(() => setSeedPreview(null), []);
-  const handleCloseChat = useCallback(() => setChatAgent(null), []);
-  const handleToggleOracle = useCallback(() => {
-    setOracleOpen((prev) => {
-      if (!prev) setOracleEverOpened(true);
-      return !prev;
-    });
-  }, []);
-
-  const handleFork = useCallback(async () => {
-    if (!sessionId) return;
-    try {
-      const result = await forkWorld(sessionId, tick);
-      window.location.href = buildSimHref({ sessionId: result.session_id });
-    } catch {
-      setError(t("fork_failed"));
-    }
-  }, [sessionId, tick, t]);
-  const handleCloseOracle = useCallback(() => setOracleOpen(false), []);
 
   const handleTakeControl = useCallback(async (agentId: string) => {
     if (!sessionId) return;
@@ -694,22 +669,45 @@ function SimContent() {
             </div>
           )}
           <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 flex justify-between items-center shrink-0">
-            <span className="text-micro text-t-muted tracking-widest">
-              {t("event_feed")}
-            </span>
-            <span className="flex items-center gap-3">
+            <span className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setHighlightsOnly((p) => !p)}
-                aria-pressed={highlightsOnly}
+                onClick={() => setViewMode("timeline")}
                 className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium transition-[colors,box-shadow] active:scale-[0.97] ${
-                  highlightsOnly
+                  viewMode === "timeline"
                     ? "border-primary text-primary shadow-[0_0_8px_var(--color-primary-glow)]"
                     : "border-b-DEFAULT text-t-dim hover:text-t-muted hover:border-b-hover"
                 }`}
               >
-                {t("highlights")}
+                {t("view_timeline")}
               </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("chronicle")}
+                className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium transition-[colors,box-shadow] active:scale-[0.97] ${
+                  viewMode === "chronicle"
+                    ? "border-primary text-primary shadow-[0_0_8px_var(--color-primary-glow)]"
+                    : "border-b-DEFAULT text-t-dim hover:text-t-muted hover:border-b-hover"
+                }`}
+              >
+                {t("chronicle")}
+              </button>
+            </span>
+            <span className="flex items-center gap-3">
+              {viewMode === "timeline" && (
+                <button
+                  type="button"
+                  onClick={() => setHighlightsOnly((p) => !p)}
+                  aria-pressed={highlightsOnly}
+                  className={`text-micro tracking-wider px-2 py-0.5 border leading-none font-medium transition-[colors,box-shadow] active:scale-[0.97] ${
+                    highlightsOnly
+                      ? "border-primary text-primary shadow-[0_0_8px_var(--color-primary-glow)]"
+                      : "border-b-DEFAULT text-t-dim hover:text-t-muted hover:border-b-hover"
+                  }`}
+                >
+                  {t("highlights")}
+                </button>
+              )}
               <span className="text-micro text-t-muted tracking-wider">
                 {events.length} {t("events_count")}
               </span>
@@ -726,6 +724,12 @@ function SimContent() {
                   {t("no_signals")}
                 </div>
               </div>
+            ) : viewMode === "chronicle" ? (
+              <ChronicleView
+                events={displayEvents}
+                newEventIds={newEventIds}
+                isRunning={status === "running"}
+              />
             ) : (
               <EventFeed
                 events={displayEvents}
@@ -741,7 +745,6 @@ function SimContent() {
               {idleMessage}
             </div>
           )}
-          <InjectEvent sessionId={sessionId} settings={settings} disabled={status === "running" || replay.isReplay} />
         </section>
 
         {/* Sidebar — Asset Management */}
@@ -750,7 +753,7 @@ function SimContent() {
           activeAgentId={activeAgentId}
           sessionId={sessionId}
           seedFile={seedFile || undefined}
-          onChat={handleOpenChat}
+          onChat={() => {}}
           onExtractAgent={handleGenerateAgentSeed}
           onExtractWorld={handleGenerateWorldSeed}
           controlledAgents={controlledAgents}
@@ -758,6 +761,7 @@ function SimContent() {
           onTakeControl={handleTakeControl}
           onReleaseControl={handleReleaseControl}
           onSubmitHumanAction={handleSubmitHumanAction}
+          onStateRefresh={() => { getState(sessionId).then(setState).catch(() => {}); }}
           relationDeltas={relationDeltas}
         />
       </main>
@@ -768,32 +772,6 @@ function SimContent() {
           <SeedPreview
             seed={seedPreview}
             onClose={handleCloseSeedPreview}
-          />
-        </Suspense>
-      )}
-
-      {/* Oracle Drawer (lazy — stays mounted after first open for exit animation) */}
-      {oracleEverOpened && (
-        <Suspense fallback={null}>
-          <OracleDrawer
-            sessionId={sessionId}
-            settings={settings}
-            open={oracleOpen}
-            onClose={handleCloseOracle}
-            tick={tick}
-          />
-        </Suspense>
-      )}
-
-      {/* Agent Chat Modal (lazy) */}
-      {chatAgent && (
-        <Suspense fallback={null}>
-          <AgentChat
-            sessionId={sessionId}
-            agentId={chatAgent.id}
-            agentName={chatAgent.name}
-            settings={settings}
-            onClose={handleCloseChat}
           />
         </Suspense>
       )}
@@ -809,6 +787,21 @@ function SimContent() {
         isReplay={replay.isReplay}
       />
 
+      {/* Command Bar */}
+      <CommandBar
+        sessionId={sessionId}
+        status={status}
+        onRun={handleRun}
+        onPause={handlePause}
+        onStep={handleStep}
+        onFork={(targetTick: number) => {
+          forkWorld(sessionId, targetTick)
+            .then((result) => { window.location.href = buildSimHref({ sessionId: result.session_id }); })
+            .catch(() => setError(t("fork_failed")));
+        }}
+        onStateRefresh={() => { if (sessionId) getState(sessionId).then(setState).catch(() => {}); }}
+      />
+
       {/* Control Bar */}
       <ControlBar
         tick={displayTick}
@@ -819,11 +812,7 @@ function SimContent() {
         disabled={loading && status !== "running"}
         wsStatus={wsStatus}
         worldTime={displayState?.world_time || null}
-        onOracle={handleToggleOracle}
-        oracleOpen={oracleOpen}
         isReplay={replay.isReplay}
-        onFork={handleFork}
-        hasControlledAgents={controlledAgents.size > 0}
         onReport={() => setReportOpen((v) => !v)}
         reportOpen={reportOpen}
       />

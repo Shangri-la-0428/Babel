@@ -365,23 +365,23 @@ def validate_seed(seed) -> list[str]:
             errors.append(f"Duplicate agent ID: '{agent.id}'")
         seen_ids.add(agent.id)
 
-    # Check duplicate item names
+    # Auto-deduplicate items by name (keep first occurrence, skip unnamed)
     seen_items: set[str] = set()
+    deduped_items = []
     for item in getattr(seed, "items", []) or []:
         normalized = item.name.strip()
         if not normalized:
-            errors.append("Item name cannot be empty.")
             continue
-        if normalized in seen_items:
-            errors.append(f"Duplicate item name: '{normalized}'")
-        seen_items.add(normalized)
+        if normalized not in seen_items:
+            seen_items.add(normalized)
+            deduped_items.append(item)
+    if hasattr(seed, "items"):
+        seed.items = deduped_items
 
-    # Check agent locations exist
+    # Auto-fix agent locations: if location doesn't exist, assign first location
+    first_loc = loc_names[0] if loc_names else ""
     for agent in seed.agents:
         if agent.location and agent.location not in seen_locs:
-            errors.append(
-                f"Agent '{agent.id}' placed at unknown location '{agent.location}'. "
-                f"Valid locations: {loc_names}"
-            )
+            agent.location = first_loc
 
     return errors

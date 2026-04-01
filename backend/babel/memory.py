@@ -580,27 +580,35 @@ async def get_relevant_events(
 # ── Visibility (unchanged logic) ──
 
 
-def get_visible_agents(agent: AgentState, session: Session) -> list[dict]:
-    """Get agents visible to this agent (same location or elsewhere)."""
+def get_visible_agents(
+    agent: AgentState,
+    session: Session,
+    frozen_locations: dict[str, str] | None = None,
+) -> list[dict]:
+    """Get agents visible to this agent (same location only).
+
+    Agents at other locations are NOT visible — the character only knows
+    about them through memory and past interactions. This prevents the
+    unrealistic clustering where everyone gravitates to the same spot.
+
+    If frozen_locations is provided (snapshot-based tick), uses those
+    positions instead of live state to prevent causal contamination.
+    """
+    agent_loc = frozen_locations.get(agent.agent_id, agent.location) if frozen_locations else agent.location
     visible = []
     for aid, a in session.agents.items():
         if aid == agent.agent_id:
             continue
         if a.status.value in ("dead", "gone"):
             continue
-        if a.location == agent.location:
+        other_loc = frozen_locations.get(aid, a.location) if frozen_locations else a.location
+        if other_loc == agent_loc:
             visible.append({
                 "id": aid,
                 "name": a.name,
-                "location": a.location,
+                "location": other_loc,
                 "description": a.description,
                 "inventory": list(a.inventory),
-            })
-        else:
-            visible.append({
-                "id": aid,
-                "name": a.name,
-                "location": a.location,
             })
     return visible
 

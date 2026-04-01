@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { AgentData, WorldState, SavedSeedData, RelationData, HumanWaitingContext, fetchAssets, enrichEntity, saveAsset, saveEntityDetails, updateAsset } from "@/lib/api";
+import { AgentData, WorldState, SavedSeedData, RelationData, HumanWaitingContext, fetchAssets, enrichEntity, saveAsset, saveEntityDetails, updateAsset, patchAgent, patchWorldSeed } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 import { AutoTextarea, ExpandableInput, StatusDot, StringListEditor } from "./ui";
 import SeedDetail from "./SeedDetail";
@@ -283,7 +283,9 @@ function AgentRow({
   onTakeControl,
   onReleaseControl,
   onSubmitHumanAction,
+  onStateRefresh,
   relationDeltas,
+  sessionId,
 }: {
   agent: AgentData;
   agentId: string;
@@ -305,11 +307,16 @@ function AgentRow({
   onTakeControl?: () => void;
   onReleaseControl?: () => void;
   onSubmitHumanAction?: (agentId: string, actionType: string, target: string, content: string) => Promise<void> | void;
+  onStateRefresh?: () => void;
   relationDeltas?: Map<string, number>;
+  sessionId: string;
 }) {
   const { t } = useLocale();
   const isDead = agent.status === "dead";
   const isSupporting = agent.role === "supporting";
+  const [editing, setEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState({ description: "", personality: "", goals: [] as string[] });
+  const [editSaving, setEditSaving] = useState(false);
 
   // Auto-enrich when expanded and no enrichment exists
   const autoEnrichRef = useRef(false);
@@ -371,22 +378,40 @@ function AgentRow({
       <div className="accordion-grid border-t border-b-DEFAULT" data-open={expanded}>
         <div className="accordion-inner bg-void">
           {/* Description */}
-          {agent.description && (
+          {(agent.description || editing) && (
             <div className="px-4 py-2 border-b border-b-DEFAULT">
               <div className="text-micro text-t-muted tracking-widest mb-1">{t("description")}</div>
-              <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
-                {agent.description}
-              </div>
+              {editing ? (
+                <AutoTextarea
+                  rows={3}
+                  className="w-full min-h-[66px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-none focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+                  value={editDraft.description}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, description: e.target.value }))}
+                />
+              ) : (
+                <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                  {agent.description}
+                </div>
+              )}
             </div>
           )}
 
           {/* Personality */}
-          {agent.personality && (
+          {(agent.personality || editing) && (
             <div className="px-4 py-2 border-b border-b-DEFAULT">
               <div className="text-micro text-t-muted tracking-widest mb-1">{t("personality")}</div>
-              <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
-                {agent.personality}
-              </div>
+              {editing ? (
+                <AutoTextarea
+                  rows={3}
+                  className="w-full min-h-[66px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-none focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+                  value={editDraft.personality}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, personality: e.target.value }))}
+                />
+              ) : (
+                <div className="text-detail text-t-secondary normal-case tracking-normal leading-relaxed">
+                  {agent.personality}
+                </div>
+              )}
             </div>
           )}
 
@@ -513,19 +538,30 @@ function AgentRow({
           )}
 
           {/* Core Goals */}
-          {(agent.goals || []).length > 0 && (
+          {((agent.goals || []).length > 0 || editing) && (
             <div className="px-4 py-2 border-b border-b-DEFAULT">
               <div className="text-micro text-t-muted tracking-widest mb-1">
                 {agent.active_goal ? t("core_goals") : t("goals_label")}
               </div>
-              <div className="flex flex-col gap-1">
-                {(agent.goals || []).map((goal, i) => (
-                  <div key={i} className="flex items-baseline gap-2">
-                    <span className="text-micro text-t-dim tracking-wider shrink-0">{String(i + 1).padStart(2, "0")}</span>
-                    <span className="text-detail text-t-secondary normal-case tracking-normal">{goal}</span>
-                  </div>
-                ))}
-              </div>
+              {editing ? (
+                <StringListEditor
+                  idBase={`agent-goals-${agentId}`}
+                  values={editDraft.goals}
+                  addLabel={t("add_goal")}
+                  itemPlaceholder={t("ph_agent_goal")}
+                  addPlaceholder={t("ph_agent_goal")}
+                  onChange={(goals) => setEditDraft((d) => ({ ...d, goals }))}
+                />
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {(agent.goals || []).map((goal, i) => (
+                    <div key={i} className="flex items-baseline gap-2">
+                      <span className="text-micro text-t-dim tracking-wider shrink-0">{String(i + 1).padStart(2, "0")}</span>
+                      <span className="text-detail text-t-secondary normal-case tracking-normal">{goal}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -681,9 +717,57 @@ function AgentRow({
             )}
           </div>
 
+          {/* Edit save/cancel bar */}
+          {editing && (
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-b-DEFAULT">
+              <button
+                type="button"
+                disabled={editSaving}
+                onClick={async () => {
+                  setEditSaving(true);
+                  try {
+                    await patchAgent(sessionId, agentId, {
+                      description: editDraft.description,
+                      personality: editDraft.personality,
+                      goals: editDraft.goals,
+                    });
+                    setEditing(false);
+                    onStateRefresh?.();
+                  } catch { /* keep edit open */ }
+                  setEditSaving(false);
+                }}
+                className="h-8 px-4 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
+              >
+                {editSaving ? t("saving") : t("save")}
+              </button>
+              <button
+                type="button"
+                disabled={editSaving}
+                onClick={() => setEditing(false)}
+                className="h-8 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-30 transition-colors"
+              >
+                {t("cancel")}
+              </button>
+            </div>
+          )}
+
           {/* Actions */}
-          {!isDead && (
+          {!isDead && !editing && (
             <div className="flex items-center gap-2 px-4 py-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditDraft({
+                    description: agent.description || "",
+                    personality: agent.personality || "",
+                    goals: [...(agent.goals || [])],
+                  });
+                  setEditing(true);
+                }}
+                className="h-8 px-3 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+              >
+                {t("edit_agent")}
+              </button>
               <button
                 type="button"
                 onClick={isHumanControlled ? onReleaseControl : onTakeControl}
@@ -1218,6 +1302,170 @@ function LocationRow({
   );
 }
 
+// ── World Tab (editable) ──
+function WorldTabContent({
+  state,
+  sessionId,
+  onExtractWorld,
+}: {
+  state: WorldState | null;
+  sessionId: string;
+  onExtractWorld: () => void;
+}) {
+  const { t } = useLocale();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState({ name: "", description: "", rules: [] as string[] });
+
+  if (!state) {
+    return (
+      <div className="p-4 text-detail text-t-dim normal-case tracking-normal">
+        {t("panel_no_world")}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col">
+      {editing ? (
+        <>
+          {/* Editable fields */}
+          <div className="px-4 py-3 border-b border-b-DEFAULT flex flex-col gap-3">
+            <div>
+              <label className="text-micro text-t-muted tracking-widest mb-1.5 block">{t("name")}</label>
+              <input
+                type="text"
+                className="w-full h-9 px-3 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+                value={draft.name}
+                onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-micro text-t-muted tracking-widest mb-1.5 block">{t("description")}</label>
+              <AutoTextarea
+                rows={4}
+                className="w-full min-h-[88px] px-3 py-2 bg-void border border-b-DEFAULT text-detail text-t-DEFAULT normal-case tracking-normal leading-relaxed resize-none focus:border-primary focus:outline-none hover:border-b-hover transition-colors"
+                value={draft.description}
+                onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-micro text-t-muted tracking-widest mb-1.5 block">{t("rules")}</label>
+              <StringListEditor
+                idBase="world-rules-edit"
+                values={draft.rules}
+                addLabel={t("add_rule")}
+                itemPlaceholder=""
+                addPlaceholder=""
+                onChange={(rules) => setDraft((d) => ({ ...d, rules }))}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-b-DEFAULT">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await patchWorldSeed(sessionId, {
+                    name: draft.name,
+                    description: draft.description,
+                    rules: draft.rules,
+                  });
+                  setEditing(false);
+                } catch { /* keep open */ }
+                setSaving(false);
+              }}
+              className="h-8 px-4 text-micro tracking-wider border border-primary bg-primary text-void hover:bg-transparent hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
+            >
+              {saving ? t("saving") : t("save")}
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setEditing(false)}
+              className="h-8 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary disabled:opacity-30 transition-colors"
+            >
+              {t("cancel")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Read-only display */}
+          <div className="px-4 py-3 border-b border-b-DEFAULT">
+            <div className="text-body font-semibold truncate">{state.name}</div>
+            {state.description && (
+              <div className="text-detail text-t-muted normal-case tracking-normal leading-relaxed mt-1">
+                {state.description}
+              </div>
+            )}
+          </div>
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-3 gap-px bg-b-DEFAULT border-b border-b-DEFAULT">
+            <div className="bg-surface-1 p-3">
+              <div className="text-micro text-t-muted tracking-widest">{t("tick")}</div>
+              <div className="text-heading font-bold text-primary mt-1">{state.tick}</div>
+            </div>
+            <div className="bg-surface-1 p-3">
+              <div className="text-micro text-t-muted tracking-widest">{t("agents")}</div>
+              <div className="text-heading font-bold mt-1">{Object.keys(state.agents || {}).length}</div>
+            </div>
+            <div className="bg-surface-1 p-3">
+              <div className="text-micro text-t-muted tracking-widest">{t("locations")}</div>
+              <div className="text-heading font-bold mt-1">{(state.locations || []).length}</div>
+            </div>
+          </div>
+
+          {/* Rules */}
+          <div className="px-4 py-3 border-b border-b-DEFAULT">
+            <div className="text-micro text-t-muted tracking-widest mb-2">{t("rules")}</div>
+            {(state.rules || []).length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                {(state.rules || []).map((rule, i) => (
+                  <div key={i} className="flex items-baseline gap-2">
+                    <span className="text-micro text-t-dim tracking-wider shrink-0">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="text-detail text-t-secondary normal-case tracking-normal">{rule}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-detail text-t-dim normal-case tracking-normal">{t("panel_no_rules")}</div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 px-4 py-3">
+            <button
+              type="button"
+              onClick={() => {
+                setDraft({
+                  name: state.name || "",
+                  description: state.description || "",
+                  rules: [...(state.rules || [])],
+                });
+                setEditing(true);
+              }}
+              className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+            >
+              {t("edit_world")}
+            </button>
+            <button
+              type="button"
+              onClick={onExtractWorld}
+              className="h-9 px-4 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
+            >
+              {t("extract_world")}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main Asset Panel ──
 export default function AssetPanel({
   state,
@@ -1232,6 +1480,7 @@ export default function AssetPanel({
   onTakeControl,
   onReleaseControl,
   onSubmitHumanAction,
+  onStateRefresh,
   relationDeltas,
 }: {
   state: WorldState | null;
@@ -1246,6 +1495,7 @@ export default function AssetPanel({
   onTakeControl?: (agentId: string) => void;
   onReleaseControl?: (agentId: string) => void;
   onSubmitHumanAction?: (agentId: string, actionType: string, target: string, content: string) => Promise<void> | void;
+  onStateRefresh?: () => void;
   relationDeltas?: Map<string, number>;
 }) {
   const { t, locale } = useLocale();
@@ -1594,7 +1844,9 @@ export default function AssetPanel({
                   onTakeControl={() => onTakeControl?.(id)}
                   onReleaseControl={() => onReleaseControl?.(id)}
                   onSubmitHumanAction={onSubmitHumanAction}
+                  onStateRefresh={onStateRefresh}
                   relationDeltas={relationDeltas}
+                  sessionId={sessionId}
                 />
               ))
             )}
@@ -1676,69 +1928,7 @@ export default function AssetPanel({
 
         {/* World tab */}
         {tab === "world" && (
-          <div className="flex flex-col">
-            {state ? (
-              <>
-                {/* World name & description */}
-                <div className="px-4 py-3 border-b border-b-DEFAULT">
-                  <div className="text-body font-semibold truncate">{state.name}</div>
-                  {state.description && (
-                    <div className="text-detail text-t-muted normal-case tracking-normal leading-relaxed mt-1">
-                      {state.description}
-                    </div>
-                  )}
-                </div>
-
-                {/* Stats grid */}
-                <div className="grid grid-cols-3 gap-px bg-b-DEFAULT border-b border-b-DEFAULT">
-                  <div className="bg-surface-1 p-3">
-                    <div className="text-micro text-t-muted tracking-widest">{t("tick")}</div>
-                    <div className="text-heading font-bold text-primary mt-1">{state.tick}</div>
-                  </div>
-                  <div className="bg-surface-1 p-3">
-                    <div className="text-micro text-t-muted tracking-widest">{t("agents")}</div>
-                    <div className="text-heading font-bold mt-1">{Object.keys(state.agents || {}).length}</div>
-                  </div>
-                  <div className="bg-surface-1 p-3">
-                    <div className="text-micro text-t-muted tracking-widest">{t("locations")}</div>
-                    <div className="text-heading font-bold mt-1">{(state.locations || []).length}</div>
-                  </div>
-                </div>
-
-                {/* Rules */}
-                <div className="px-4 py-3 border-b border-b-DEFAULT">
-                  <div className="text-micro text-t-muted tracking-widest mb-2">{t("rules")}</div>
-                  {(state.rules || []).length > 0 ? (
-                    <div className="flex flex-col gap-1.5">
-                      {(state.rules || []).map((rule, i) => (
-                        <div key={i} className="flex items-baseline gap-2">
-                          <span className="text-micro text-t-dim tracking-wider shrink-0">{String(i + 1).padStart(2, "0")}</span>
-                          <span className="text-detail text-t-secondary normal-case tracking-normal">{rule}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-detail text-t-dim normal-case tracking-normal">{t("panel_no_rules")}</div>
-                  )}
-                </div>
-
-                {/* Extract world button */}
-                <div className="px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={onExtractWorld}
-                    className="w-full h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]"
-                  >
-                    {t("extract_world")}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="p-4 text-detail text-t-dim normal-case tracking-normal">
-                {t("panel_no_world")}
-              </div>
-            )}
-          </div>
+          <WorldTabContent state={state} sessionId={sessionId} onExtractWorld={onExtractWorld} />
         )}
       </div>
 

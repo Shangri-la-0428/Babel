@@ -273,7 +273,7 @@ class TestTickMechanics:
             events = await engine.tick()
             for e in events:
                 at = e.action_type if isinstance(e.action_type, str) else e.action_type.value
-                assert at in ("observe", "wait"), f"Unexpected action type: {at}"
+                assert at in ("observe", "wait", "chapter"), f"Unexpected action type: {at}"
         finally:
             _stop_patches()
 
@@ -354,7 +354,7 @@ class TestAgentFiltering:
             acted_count = 0
             for _ in range(40):
                 events = await engine.tick()
-                acted_count += len([e for e in events if e.agent_id == "s1"])
+                acted_count += len([e for e in events if e.agent_id == "s1" and e.action_type != "chapter"])
 
             # 70% chance of acting each tick -> expected ~28/40
             # With 40 ticks this should be very unlikely to be exactly 40
@@ -388,8 +388,9 @@ class TestEventCallback:
             events = await engine.tick()
             # on_event is called once per event emitted during the tick
             assert len(received) >= 1
-            # Every returned event should have triggered the callback
-            for e in events:
+            # Agent events (not chapters) should have triggered the callback
+            agent_events = [e for e in events if e.action_type != "chapter"]
+            for e in agent_events:
                 assert e in received
         finally:
             _stop_patches()
@@ -511,9 +512,10 @@ class TestDecisionSourceSwitch:
         try:
             engine = _make_engine(decision_source=ErrorDecisionSource())
             events = await engine.tick()
+            agent_events = [e for e in events if e.action_type != "chapter"]
             # Should get WAIT fallback events, not a crash
-            assert len(events) >= 1
-            for e in events:
+            assert len(agent_events) >= 1
+            for e in agent_events:
                 at = e.action_type if isinstance(e.action_type, str) else e.action_type.value
                 assert at == "wait"
         finally:
@@ -534,7 +536,8 @@ class TestErrorRecovery:
         try:
             engine = _make_engine(decision_source=ErrorDecisionSource())
             events = await engine.tick()
-            for e in events:
+            agent_events = [e for e in events if e.action_type != "chapter"]
+            for e in agent_events:
                 at = e.action_type if isinstance(e.action_type, str) else e.action_type.value
                 assert at == "wait"
                 # The result should mention the error
@@ -553,9 +556,10 @@ class TestErrorRecovery:
             # the loop after processing the first agent.
             engine.start()
             events = await engine.tick()
+            agent_events = [e for e in events if e.action_type != "chapter"]
             # Both agents should have events (first via error fallback, second normally)
-            assert len(events) == 2
-            agent_ids = {e.agent_id for e in events}
+            assert len(agent_events) == 2
+            agent_ids = {e.agent_id for e in agent_events}
             assert "a1" in agent_ids
             assert "a2" in agent_ids
         finally:

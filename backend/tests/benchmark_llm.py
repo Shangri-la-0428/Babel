@@ -6,7 +6,7 @@ against the deterministic ContextAwareDecisionSource baseline.
 
 Usage:
     cd backend && python3 tests/benchmark_llm.py --model gpt-4o-mini --api-key sk-xxx --ticks 20
-    cd backend && python3 tests/benchmark_llm.py --model gpt-4o-mini --api-key sk-xxx --seed apocalypse.yaml --ticks 30
+    cd backend && python3 tests/benchmark_llm.py --model gpt-4o-mini --api-key sk-xxx --seed cyber_bar.yaml --ticks 30
     cd backend && python3 tests/benchmark_llm.py --model gpt-4o-mini --api-key sk-xxx --api-base https://custom.endpoint/v1 --ticks 10
 """
 from __future__ import annotations

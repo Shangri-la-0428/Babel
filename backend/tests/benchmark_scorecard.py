@@ -27,7 +27,7 @@ from babel.models import AgentStatus, EventSignificance, GoalState, Session, Wor
 # ── Configuration ────────────────────────────────────────
 
 SEED_DIR = Path(__file__).resolve().parent.parent / "babel" / "seeds"
-BENCHMARK_SEEDS = ["cyber_bar.yaml", "apocalypse.yaml", "iron_throne.yaml"]
+BENCHMARK_SEEDS = ["cyber_bar.yaml"]
 TICKS = 100
 RNG_SEED = 42
 

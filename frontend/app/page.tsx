@@ -4,14 +4,17 @@ import { Suspense, useEffect, useState, useMemo, useRef, useCallback } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import { fetchSeeds, fetchSeedDetail, createFromSeed, createWorld, deleteWorldSeed, getSessions, fetchAssets, saveAsset, updateAsset, updateWorldSeed, SavedSeedData, SeedInfo, SeedDetail, WorldItemData, enrichEntity } from "@/lib/api";
 import { collapseSessionHistory } from "@/lib/session-history";
-import { buildAssetsHref, buildCreateHref, buildSimHref, buildWorldHref } from "@/lib/navigation";
+import { buildAssetsHref, buildSimHref, buildWorldHref } from "@/lib/navigation";
 import { useLocale } from "@/lib/locale-context";
 import Nav from "@/components/Nav";
 import Settings from "@/components/Settings";
 import Timeline from "@/components/Timeline";
 import { AutoTextarea, StatusDot, ErrorBanner, EmptyState, SkeletonLine, GlitchReveal, DecodeText, ExpandableInput, StringListEditor } from "@/components/ui";
 import WorldBootOverlay from "@/components/WorldBootOverlay";
+import dynamic from "next/dynamic";
 import { buildItemHolders, mergeWorldItemsWithInventories, normalizeWorldItem } from "@/lib/world-items";
+
+const AmbientGrid = dynamic(() => import("@/components/AmbientGrid"), { ssr: false });
 
 interface SessionRecord {
   id: string;
@@ -53,6 +56,7 @@ function HomeContent() {
   const [exportingItem, setExportingItem] = useState<string | null>(null);
   const [editDetail, setEditDetail] = useState<SeedDetail | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [bootOverlay, setBootOverlay] = useState<{ worldName: string; targetUrl: string } | null>(null);
   const [booting, setBooting] = useState(false);
   const assetTabIndicatorRef = useRef<HTMLSpanElement>(null);
@@ -195,73 +199,53 @@ function HomeContent() {
     setExpandedItem(nextName);
   }
 
-  function handleEditWorld() {
-    if (!editDetail || !selectedSeedMeta) return;
-    try {
-      localStorage.setItem("babel_edit_seed", JSON.stringify(editDetail));
-    } catch { /* quota exceeded — navigate anyway */ }
-    router.push(
-      buildCreateHref({
-        seedFile: selectedSeedMeta.file,
-        backHref: buildWorldHref(selectedSeedMeta.file),
-      }),
-    );
+  function buildSeedPayload() {
+    if (!editDetail) return null;
+    return {
+      name: editDetail.name,
+      description: editDetail.description,
+      rules: sanitizeList(editDetail.rules),
+      locations: editDetail.locations,
+      items: mergeWorldItemsWithInventories(editDetail.items || [], editDetail.agents || [])
+        .map((item) => normalizeWorldItem(item))
+        .filter((item) => item.name),
+      agents: editDetail.agents.map((a) => ({
+        id: a.id,
+        name: a.name,
+        description: a.description,
+        personality: a.personality,
+        goals: sanitizeList(a.goals),
+        inventory: sanitizeList(a.inventory),
+        location: a.location,
+      })),
+      initial_events: sanitizeList(editDetail.initial_events),
+    };
   }
 
-  async function handleSaveLaunch() {
+  async function handleSaveOnly() {
     if (!editDetail || !selectedSeedMeta) return;
+    const data = buildSeedPayload();
+    if (!data) return;
     setLoading(true);
     setError(null);
     try {
-      const data = {
-        name: editDetail.name,
-        description: editDetail.description,
-        rules: sanitizeList(editDetail.rules),
-        locations: editDetail.locations,
-        items: mergeWorldItemsWithInventories(editDetail.items || [], editDetail.agents || [])
-          .map((item) => normalizeWorldItem(item))
-          .filter((item) => item.name),
-        agents: editDetail.agents.map((a) => ({
-          id: a.id,
-          name: a.name,
-          description: a.description,
-          personality: a.personality,
-          goals: sanitizeList(a.goals),
-          inventory: sanitizeList(a.inventory),
-          location: a.location,
-        })),
-        initial_events: sanitizeList(editDetail.initial_events),
-      };
-      let res: { session_id: string; seed_file?: string };
       if (selectedSeedMeta.file.startsWith("saved:")) {
         await updateWorldSeed(selectedSeedMeta.file, data);
-        setSeeds((prev) =>
-          prev.map((seed) =>
-            seed.file === selectedSeedMeta.file
-              ? {
-                  ...seed,
-                  name: data.name,
-                  description: data.description,
-                  agent_count: data.agents.length,
-                  location_count: data.locations.length,
-                }
-              : seed,
-          ),
-        );
-        res = await createFromSeed(selectedSeedMeta.file);
       } else {
-        res = await createWorld(data);
+        // For built-in seeds, create as a new saved seed
+        await createWorld(data);
       }
-      if (!res?.session_id) throw new Error("No session_id");
-      setBootOverlay({
-        worldName: editDetail.name,
-        targetUrl: buildSimHref({
-          sessionId: res.session_id,
-          seedFile: res.seed_file || undefined,
-        }),
-      });
+      setSeeds((prev) =>
+        prev.map((seed) =>
+          seed.file === selectedSeedMeta.file
+            ? { ...seed, name: data.name, description: data.description, agent_count: data.agents.length, location_count: data.locations.length }
+            : seed,
+        ),
+      );
+      setEditing(false);
     } catch {
       setError(t("failed_create"));
+    } finally {
       setLoading(false);
     }
   }
@@ -359,6 +343,7 @@ function HomeContent() {
   useEffect(() => {
     if (!selectedSeedFile) {
       setEditDetail(null);
+      setEditing(false);
       setDetailLoading(false);
       setAssetTab("agents");
       setExpandedAgent(null);
@@ -371,6 +356,7 @@ function HomeContent() {
 
     let cancelled = false;
     setEditDetail(null);
+    setEditing(false);
     setDetailLoading(true);
     setAssetTab("agents");
     setExpandedAgent(null);
@@ -454,7 +440,10 @@ function HomeContent() {
     }
   }
 
+  const creatingRef = useRef(false);
   async function handleStartNew(filename: string) {
+    if (creatingRef.current) return; // prevent double-fire
+    creatingRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -471,6 +460,8 @@ function HomeContent() {
     } catch {
       setError(t("failed_create"));
       setLoading(false);
+    } finally {
+      creatingRef.current = false;
     }
   }
 
@@ -685,10 +676,11 @@ function HomeContent() {
         {/* Main content — single column */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden animate-[seed-detail-enter_300ms_cubic-bezier(0.16,1,0.3,1)_both]">
           {/* World header — compact */}
-          <div className="px-6 py-3 border-b border-b-DEFAULT">
-            <div className="flex items-start justify-between gap-4 max-w-5xl">
+          <div className="px-6 py-4 border-b border-b-DEFAULT">
+            <div className="max-w-5xl flex flex-col gap-3">
+              {/* Title + description */}
               <div className="flex-1 min-w-0">
-                {ed ? (
+                {editing && ed ? (
                   <div className="flex flex-col gap-2">
                     <label htmlFor="world-name" className="sr-only">{t("world_name")}</label>
                     <ExpandableInput
@@ -710,36 +702,41 @@ function HomeContent() {
                   </div>
                 ) : (
                   <>
-                    <h1 className="font-sans font-bold text-heading leading-none tracking-tight">{selectedSeedMeta.name}</h1>
-                    <p className="mt-1.5 text-detail text-t-muted normal-case tracking-normal leading-relaxed">{selectedSeedMeta.description}</p>
+                    <h1 className="font-sans font-bold text-heading leading-none tracking-tight">{ed?.name || selectedSeedMeta.name}</h1>
+                    <p className="mt-1.5 text-detail text-t-muted normal-case tracking-normal leading-relaxed">{ed?.description || selectedSeedMeta.description}</p>
                   </>
                 )}
               </div>
-              <div className="flex items-center gap-2 shrink-0 pt-1">
+              {/* Actions: start new (full width) then edit/save + delete */}
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => handleStartNew(selectedSeedMeta.file)}
                   disabled={loading || deletingSeedFile === selectedSeedMeta.file}
-                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
+                  className="h-9 px-5 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,box-shadow,transform]"
                 >
                   {loading ? t("creating") : t("world_start_new")}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleSaveLaunch}
-                  disabled={loading || !ed || deletingSeedFile === selectedSeedMeta.file}
-                  className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,box-shadow,transform]"
-                >
-                  {loading ? t("creating") : t("save_launch")}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleEditWorld}
-                  disabled={!ed || deletingSeedFile === selectedSeedMeta.file}
-                  className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
-                >
-                  {t("edit_world")}
-                </button>
+                <span className="flex-1" />
+                {editing ? (
+                  <button
+                    type="button"
+                    onClick={handleSaveOnly}
+                    disabled={loading || !ed || deletingSeedFile === selectedSeedMeta.file}
+                    className="h-9 px-4 text-micro font-medium tracking-wider bg-primary text-void border border-primary hover:bg-transparent hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,box-shadow,transform]"
+                  >
+                    {loading ? t("saving") : t("save_only")}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    disabled={!ed || deletingSeedFile === selectedSeedMeta.file}
+                    className="h-9 px-4 text-micro font-medium tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed transition-[colors,transform]"
+                  >
+                    {t("edit_world")}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => void handleDeleteWorldSeed(selectedSeedMeta)}
@@ -846,7 +843,7 @@ function HomeContent() {
                             </span>
                           </button>
                           {expandedAgent === agent.id && (
-                            <div className="border-t border-b-DEFAULT bg-void px-4 py-3 animate-slide-down flex flex-col gap-3">
+                            <fieldset disabled={!editing} className="border-t border-b-DEFAULT bg-void px-4 py-3 animate-slide-down flex flex-col gap-3 disabled:opacity-60">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div>
                                   <label htmlFor={`ed-agent-name-${ai}`} className={fieldLabel}>{t("name")}</label>
@@ -886,7 +883,17 @@ function HomeContent() {
                                 </div>
                                 <div>
                                   <label htmlFor={`ed-agent-loc-${ai}`} className={fieldLabel}>{t("starting_location")}</label>
-                                  <ExpandableInput id={`ed-agent-loc-${ai}`} className={inputCls} value={agent.location} onValueChange={(value) => updateAgent(ai, { location: value })} />
+                                  <select
+                                    id={`ed-agent-loc-${ai}`}
+                                    className={inputCls}
+                                    value={agent.location}
+                                    onChange={(e) => updateAgent(ai, { location: e.target.value })}
+                                  >
+                                    <option value="">—</option>
+                                    {(ed?.locations || []).map((loc) => (
+                                      <option key={loc.name} value={loc.name}>{loc.name}</option>
+                                    ))}
+                                  </select>
                                 </div>
                               </div>
                               <div className="flex items-center gap-3 pt-1">
@@ -904,13 +911,15 @@ function HomeContent() {
                                   </button>
                                 )}
                               </div>
-                            </div>
+                            </fieldset>
                           )}
                         </div>
                       ))}
-                      <button type="button" onClick={addAgent} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
-                        {t("add_agent")}
-                      </button>
+                      {editing && (
+                        <button type="button" onClick={addAgent} className="h-9 text-micro tracking-wider border border-b-DEFAULT text-t-muted hover:bg-surface-1/20 hover:border-primary hover:text-primary active:scale-[0.97] transition-[colors,transform]">
+                          {t("add_agent")}
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -1203,14 +1212,17 @@ function HomeContent() {
       {bootEl}
       {booting && (
         <div className="fixed inset-0 z-boot-screen bg-void flex flex-col items-center justify-center scanlines cursor-pointer" onClick={() => setBooting(false)}>
-          <div className="text-micro text-t-dim tracking-widest mb-4 animate-[fade-in_200ms_ease_both]">
-            <GlitchReveal text="// BABEL WORLD STATE MACHINE" duration={600} />
-          </div>
-          <div className="text-micro text-primary tracking-widest opacity-0 animate-[fade-in_300ms_ease_800ms_both]">
-            <GlitchReveal text="// INITIALIZING PORTAL" duration={500} className="text-micro text-primary tracking-widest" />
-          </div>
-          <div className="mt-6 w-48 h-px overflow-hidden opacity-0 animate-[fade-in_200ms_ease_1200ms_both]">
-            <div className="h-full bg-primary shadow-[0_0_16px_var(--color-primary-glow-strong)] animate-[boot-line-expand_600ms_cubic-bezier(0.16,1,0.3,1)_1400ms_both]" />
+          <AmbientGrid density="dense" className="z-0 opacity-60" />
+          <div className="relative z-10 flex flex-col items-center">
+            <div className="text-micro text-t-dim tracking-widest mb-4 animate-[fade-in_200ms_ease_both]">
+              <GlitchReveal text="// BABEL WORLD STATE MACHINE" duration={600} />
+            </div>
+            <div className="text-micro text-primary tracking-widest opacity-0 animate-[fade-in_300ms_ease_800ms_both]">
+              <GlitchReveal text="// INITIALIZING PORTAL" duration={500} className="text-micro text-primary tracking-widest" />
+            </div>
+            <div className="mt-6 w-48 h-px overflow-hidden opacity-0 animate-[fade-in_200ms_ease_1200ms_both]">
+              <div className="h-full bg-primary shadow-[0_0_16px_var(--color-primary-glow-strong)] animate-[boot-line-expand_600ms_cubic-bezier(0.16,1,0.3,1)_1400ms_both]" />
+            </div>
           </div>
         </div>
       )}

@@ -782,7 +782,7 @@ async def test_list_seed_files(client):
     resp = await client.get("/api/seeds")
     assert resp.status_code == 200
     seeds = resp.json()
-    # At least cyber_bar.yaml, iron_throne.yaml, apocalypse.yaml exist
+    # At least cyber_bar.yaml exists
     filenames = [s["file"] for s in seeds]
     assert "cyber_bar.yaml" in filenames
 
@@ -945,11 +945,7 @@ async def test_asset_list_hides_stale_assets_from_deleted_world_sessions(client)
     assert create_resp.status_code == 200
     session_id = create_resp.json()["session_id"]
 
-    seeds_resp = await client.get("/api/seeds")
-    saved_seed = next(seed for seed in seeds_resp.json() if str(seed["file"]).startswith("saved:"))
-    delete_resp = await client.delete(f"/api/seeds/{saved_seed['file']}")
-    assert delete_resp.status_code == 200
-
+    # Create asset BEFORE deleting the seed — asset is tied to this session
     stale_asset_resp = await client.post("/api/assets", json={
         "type": "item",
         "name": "Stale Session Item",
@@ -966,6 +962,12 @@ async def test_asset_list_hides_stale_assets_from_deleted_world_sessions(client)
         "source_world": "External Import",
     })
     assert healthy_asset_resp.status_code == 200
+
+    # Delete the seed — this also deletes linked sessions and their assets
+    seeds_resp = await client.get("/api/seeds")
+    saved_seed = next(seed for seed in seeds_resp.json() if str(seed["file"]).startswith("saved:"))
+    delete_resp = await client.delete(f"/api/seeds/{saved_seed['file']}")
+    assert delete_resp.status_code == 200
 
     assets_resp = await client.get("/api/assets")
     assert assets_resp.status_code == 200

@@ -13,11 +13,7 @@ interface ControlBarProps {
   disabled?: boolean;
   wsStatus?: "connecting" | "connected" | "disconnected";
   worldTime?: { display: string; period: string; is_night: boolean } | null;
-  onOracle?: () => void;
-  oracleOpen?: boolean;
   isReplay?: boolean;
-  onFork?: () => void;
-  hasControlledAgents?: boolean;
   onReport?: () => void;
   reportOpen?: boolean;
 }
@@ -74,11 +70,7 @@ export default function ControlBar({
   disabled,
   wsStatus,
   worldTime,
-  onOracle,
-  oracleOpen,
   isReplay,
-  onFork,
-  hasControlledAgents,
   onReport,
   reportOpen,
 }: ControlBarProps) {
@@ -200,61 +192,6 @@ export default function ControlBar({
       >
         <StepIcon /> {t("step")}
       </button>
-
-      {/* ── Intervention Verbs ── */}
-      <div className="flex items-center gap-px bg-b-DEFAULT border border-b-DEFAULT">
-        {/* OBSERVE — oracle drawer */}
-        {onOracle && (
-          <button
-            type="button"
-            onClick={onOracle}
-            aria-expanded={!!oracleOpen}
-            className={`inline-flex items-center justify-center h-9 px-3 text-micro font-medium tracking-wider bg-void active:scale-[0.97] transition-[colors,box-shadow,transform] ${
-              oracleOpen
-                ? "text-info shadow-[0_0_8px_rgba(14,165,233,0.3)]"
-                : "text-t-muted hover:text-t-DEFAULT"
-            }`}
-          >
-            {t("verb_observe")}
-          </button>
-        )}
-        {/* NUDGE — inject event (focus handled by sim page) */}
-        <button
-          type="button"
-          onClick={() => {
-            const el = document.getElementById("nudge-input");
-            el?.focus();
-          }}
-          className="inline-flex items-center justify-center h-9 px-3 text-micro font-medium tracking-wider bg-void text-t-muted hover:text-primary active:scale-[0.97] transition-[colors,transform]"
-        >
-          {t("verb_nudge")}
-        </button>
-        {/* DIRECT — human control indicator */}
-        <button
-          type="button"
-          onClick={() => {
-            const el = document.querySelector("[data-panel='agents']");
-            el?.scrollIntoView({ behavior: "smooth" });
-          }}
-          className={`inline-flex items-center justify-center h-9 px-3 text-micro font-medium tracking-wider bg-void active:scale-[0.97] transition-[colors,transform] ${
-            hasControlledAgents
-              ? "text-warning shadow-[0_0_8px_rgba(255,184,0,0.2)]"
-              : "text-t-muted hover:text-t-DEFAULT"
-          }`}
-        >
-          {t("verb_direct")}
-        </button>
-        {/* FORK — timeline branching */}
-        {onFork && (
-          <button
-            type="button"
-            onClick={onFork}
-            className="inline-flex items-center justify-center h-9 px-3 text-micro font-medium tracking-wider bg-void text-t-muted hover:text-primary active:scale-[0.97] transition-[colors,transform]"
-          >
-            {t("verb_fork")}
-          </button>
-        )}
-      </div>
 
       {/* Report */}
       {onReport && (

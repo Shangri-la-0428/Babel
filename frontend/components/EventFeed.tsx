@@ -2,9 +2,8 @@
 
 import { EventData } from "@/lib/api";
 import type { TransKey } from "@/lib/i18n";
-import { memo, useEffect, useMemo, useRef, useCallback } from "react";
+import { memo, useMemo, useRef, useCallback } from "react";
 import { useLocale } from "@/lib/locale-context";
-import { DecodeText } from "./ui";
 
 /** An event is "significant" if the kernel flagged it as durable or score >= 0.7 */
 function isSignificantEvent(event: EventData): boolean {
@@ -100,8 +99,8 @@ const EventItem = memo(function EventItem({
       >
         {event.agent_name || t("system")}
       </span>
-      <span className="text-detail text-t-secondary normal-case tracking-normal leading-normal break-words min-w-0">
-        {isNew ? <DecodeText text={event.result} /> : event.result}
+      <span className="text-detail text-t-secondary normal-case tracking-normal leading-normal truncate min-w-0" title={event.result}>
+        {event.result.length > 60 ? event.result.slice(0, 60) + "…" : event.result}
       </span>
       <span className="flex items-center gap-1.5 flex-wrap">
         {signals.relationChange && (
@@ -190,18 +189,11 @@ export default function EventFeed({
   const { t } = useLocale();
 
   const safeEvents = useMemo(() => {
-    const base = events || [];
+    const base = (events || []).filter((e) => e.action_type !== "chapter");
     return highlightsOnly ? base.filter(isSignificantEvent) : base;
   }, [events, highlightsOnly]);
 
-  const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => {
-    clearTimeout(scrollTimerRef.current);
-    scrollTimerRef.current = setTimeout(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 150);
-    return () => clearTimeout(scrollTimerRef.current);
-  }, [safeEvents.length]);
+  // No auto-scroll — let the user control their reading position
 
   // Stable reference check for newEventIds
   const newIdsRef = useRef(newEventIds);

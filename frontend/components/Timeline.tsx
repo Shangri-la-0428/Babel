@@ -25,7 +25,7 @@ const FORK_W = 48;
 const BRANCH_H = 56;
 const PAD_TOP = 32;
 const PAD_BOTTOM = 20;
-const LABEL_W = 240;
+const LABEL_W = 320;
 const NODE_R = 3;
 const HEAD_R = 5;
 const ORIGIN_R = 6;
@@ -255,9 +255,8 @@ export default function Timeline({ branches, onSelect, onNew, onDeleted }: Timel
                   </text>
                   {evtText && (
                     <text x={headX + 16} y={by + 12} fill={C_DIMTEXT}
-                      style={{ fontSize: 11, fontFamily: "var(--font-mono, monospace)", letterSpacing: "0.02em" }}
-                      textLength={Math.min(evtText.length * 7, LABEL_W - 16)} lengthAdjust="spacing">
-                      {evtText.length > 36 ? evtText.slice(0, 36) + "\u2026" : evtText}
+                      style={{ fontSize: 11, fontFamily: "var(--font-mono, monospace)", letterSpacing: "0.02em" }}>
+                      {evtText.length > 28 ? evtText.slice(0, 28) + "\u2026" : evtText}
                     </text>
                   )}
                 </g>

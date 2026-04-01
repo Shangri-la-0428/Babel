@@ -102,14 +102,16 @@ class TestSeedValidation:
         errors = validate_seed(seed)
         assert any("Duplicate agent ID" in e for e in errors)
 
-    def test_agent_at_nonexistent_location_rejected(self):
+    def test_agent_at_nonexistent_location_auto_fixed(self):
         seed = WorldSeed(
             name="BadLoc",
             locations=[LocationSeed(name="A")],
             agents=[AgentSeed(id="a1", name="Alice", location="NOWHERE")],
         )
         errors = validate_seed(seed)
-        assert any("unknown location" in e for e in errors)
+        # No error — auto-fixed to first location
+        assert not any("unknown location" in e for e in errors)
+        assert seed.agents[0].location == "A"
 
     def test_duplicate_location_names_rejected(self):
         seed = WorldSeed(

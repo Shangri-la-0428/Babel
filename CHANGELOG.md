@@ -4,6 +4,97 @@ All notable changes to BABEL.
 
 ## [Unreleased]
 
+### Snapshot-based Tick + Prompt Restructure (DNA+Time 自然演化)
+
+**Causal isolation** — agents now perceive a frozen world snapshot at tick start:
+- `engine._frozen_locations`: captures all agent positions at tick start
+- `get_visible_agents()` reads frozen positions, not live state
+- Eliminates causal contamination where agent A's move distorts agent B's decision
+- Same-location-only visibility: agents can no longer see who is at other locations in real-time
+
+**Prompt restructure** — from information overload to DNA-like minimalism:
+- Reorganized into 3 blocks: Identity (who you are) → Drive (what you want) → Perception (what you sense)
+- Memories reduced from 10 to 5 most relevant
+- Removed redundant sections (emotional, continuity header, item descriptions inline)
+- System prompt: added SPREAD OUT, ESCALATE, CONFLICT rules to prevent clustering and passive loops
+
+**World deletion now cleans up completely**:
+- `_delete_world_linked_assets()` now deletes all sessions, events, agents, timeline nodes, snapshots, memories, and narrator messages
+- Also removes in-memory engines and WebSocket clients
+
+### Command Bar (Unified Natural Language Intervention)
+
+**Replaces fragmented intervention UI** (Oracle drawer, InjectEvent bar, AgentChat modal, 4-verb buttons) with a single natural language command input:
+
+**Backend — `commander.py`**:
+- `classify_command()`: two-pass intent classification (keyword shortcuts → LLM fallback)
+- `execute_command()`: dispatches to inject, oracle, agent_chat, patch_agent, patch_world, fork, control, narrate handlers
+- `POST /api/worlds/{session_id}/command` endpoint in `api.py`
+- Keyword shortcuts: `run`/`pause`/`step`/`narrate` (bilingual CN/EN) bypass LLM entirely
+- `COMMAND_CLASSIFY_SYSTEM` prompt in `prompts.py` for intent classification with agent/location context
+
+**Frontend — `CommandBar.tsx`**:
+- Fixed bottom bar with monospace input, response history, intent badges
+- `/` hotkey to focus, `Enter` to submit, `Esc` to clear
+- Local control shortcuts (run/pause/step/fork) handled client-side without API call
+- Response area: oracle/agent replies in info-tinted cards, errors in danger, control in primary badges
+- `sendCommand()` API client with model/language passthrough
+
+**Database cleanup**:
+- Removed 459 duplicate sessions (created by rapid-fire button clicks)
+- Added `creatingRef` guard to prevent double-fire on "开始新模拟" button
+
+**Test fixes** (442/442 green):
+- `test_stability.py`: replaced deprecated `asyncio.get_event_loop().run_until_complete()` with `asyncio.run()`
+- Added `conftest.py` with autouse `generate_chapter` mock to prevent LLM calls across all test files
+- Updated engine lifecycle tests to filter chapter events from assertions (chapter generation creates extra events)
+- Updated fork tests: mock engine now includes `is_running` and `pause` attributes
+- Updated `test_agent_at_nonexistent_location` to expect auto-fix behavior (not error)
+- Updated `test_asset_list_hides_stale_assets` to match new world deletion behavior (sessions deleted with seed)
+
+**Frontend cleanup**:
+- Removed `InjectEvent` component from sim page (replaced by CommandBar)
+- Removed `OracleDrawer` and `AgentChat` lazy imports and JSX (replaced by CommandBar oracle/chat commands)
+- Cleaned up unused handlers: `handleOpenChat`, `handleCloseChat`, `handleToggleOracle`, `handleCloseOracle`, `handleOracleApplySeed`, `handleFork`
+- Fixed all lint errors: unused `status` prop in CommandBar, unused `useEffect` in EventFeed
+
+### World Editing + Language Fix + UX Polish
+
+**World seed editing in sim** — live worlds can now be edited without recreating:
+- `PATCH /api/worlds/{session_id}/seed` — update world name/description/rules/locations
+- `PATCH /api/worlds/{session_id}/agents/{agent_id}` — update agent description/personality/goals
+- `PATCH /api/seeds/{filename}` syncs changes to all active sessions sharing the seed
+- AssetPanel: inline agent editing with save/cancel, refreshes state after patch
+- Home page: edit/save toggle (editing mode with fieldset disable), separate "save" button
+- Agent starting location: select dropdown from available locations (was text input)
+- Oracle `onApplySeed` callback for AI-assisted world editing
+
+**Language stability** — agent decisions now stay in the world's language:
+- `world_description` passed into agent decision prompt as `[World]` section
+- LLM sees the Chinese/English world description directly, no longer guesses language from structural labels
+- Urgent event section simplified to prevent English leakage
+
+**Chapter narrator** — location-based grouping prevents duplicate scene descriptions:
+- Co-located agents share ONE chapter (no more repeated POV of same scene)
+- POV rotation: `tick % len(group)` per location group
+- Chapter events filtered by location relevance
+
+**Timeline & creation fixes**:
+- Save no longer creates duplicate worlds (checks for existing session before creating)
+- Fork auto-advance fixed (parent engine paused on fork)
+- Timeline SVG text alignment fixed (removed `textLength`/`lengthAdjust` causing Chinese character distortion)
+- Duplicate item names auto-deduplicated (was rejecting valid seeds)
+- Agent locations auto-fixed when referencing nonexistent locations
+- `CreateWorldRequest.locations` type relaxed to accept `tags`/`connections` arrays
+- EventFeed: chapter events filtered from timeline, entries truncated to index style
+- localStorage auto-save for create form (500ms debounce, restores on mount)
+- Validation error handler logs 422 details for debugging
+
+**Cleanup**:
+- Removed `apocalypse.yaml` and `iron_throne.yaml` seeds (kept `cyber_bar.yaml`)
+- Removed unused `handleEditWorld`, `handleSaveLaunch`, `save_launch` i18n key
+- Removed unused `buildCreateHref` import
+
 ### FORK Backend (Timeline Branching)
 
 - `POST /api/worlds/{session_id}/fork` — create new session from snapshot at target tick
@@ -65,7 +156,7 @@ All notable changes to BABEL.
 - Fixed holder badge from `border-info/40` opacity to solid `border-info`
 
 **Benchmark scorecard** — `tests/benchmark_scorecard.py`:
-- Runs 100-tick simulations on 3 seeds (cyber_bar, apocalypse, iron_throne)
+- Runs 100-tick simulations on seed files (cyber_bar)
 - Metrics: goal completion/stall rate, relation volatility, significance axis distribution, durable event ratio, action entropy
 - Comparative summary table across all seeds
 - Zero LLM calls (ContextAwareDecisionSource), runnable as standalone script

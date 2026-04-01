@@ -368,6 +368,7 @@ async def save_session(session) -> None:
                     location, inventory, status, memory, role, active_goal)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(session_id, agent_id) DO UPDATE SET
+                    name=?, description=?, personality=?, goals=?,
                     location=?, inventory=?, status=?, memory=?, role=?,
                     active_goal=?""",
                 (
@@ -384,6 +385,10 @@ async def save_session(session) -> None:
                     role_val,
                     active_goal_json,
                     # ON CONFLICT updates:
+                    agent.name,
+                    agent.description,
+                    agent.personality,
+                    json.dumps(agent.goals, ensure_ascii=False),
                     agent.location,
                     json.dumps(agent.inventory, ensure_ascii=False),
                     agent.status.value,

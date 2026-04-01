@@ -42,6 +42,7 @@ class AgentContext(BaseModel):
     urgent_events: list[str] | None = None
     tick: int = 0
     # World context: item/location descriptions from seed for richer decisions
+    world_description: str = ""
     item_context: dict[str, str] = Field(default_factory=dict)
     location_context: dict[str, str] = Field(default_factory=dict)
     # Phase B: Psyche emotional context (optional, for LLM prompt enrichment)
@@ -109,6 +110,7 @@ class LLMDecisionModel:
             emotional_context=context.emotional_context,
             item_context=context.item_context or None,
             location_context=context.location_context or None,
+            world_description=context.world_description,
         )
         return response.action.model_copy(update={"intent": response.intent})
 

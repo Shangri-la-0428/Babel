@@ -835,6 +835,35 @@ export async function saveEntityDetails(
   return data.details || details;
 }
 
+// ── Patch World Seed ──
+
+export async function patchWorldSeed(
+  sessionId: string,
+  fields: { name?: string; description?: string; rules?: string[]; locations?: { name: string; description: string }[] },
+): Promise<void> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/seed`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+  assertOk(res);
+}
+
+// ── Patch Agent ──
+
+export async function patchAgent(
+  sessionId: string,
+  agentId: string,
+  fields: { name?: string; description?: string; personality?: string; goals?: string[] },
+): Promise<void> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/agents/${agentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+  assertOk(res);
+}
+
 // ── Oracle (Omniscient Narrator) ──
 
 export interface OracleMessage {
@@ -1203,6 +1232,36 @@ export interface ForkResult {
   agents: string[];
   tick: number;
   status: string;
+}
+
+// ── Command Bar (unified command interface) ──
+
+export interface CommandResponse {
+  intent: string;
+  params: Record<string, unknown>;
+  reply?: string;
+  error?: string;
+}
+
+export async function sendCommand(
+  sessionId: string,
+  text: string,
+  opts?: { model?: string; api_key?: string; api_base?: string; language?: string },
+): Promise<CommandResponse> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/worlds/${sessionId}/command`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text,
+      model: opts?.model ?? null,
+      api_key: opts?.api_key ?? null,
+      api_base: opts?.api_base ?? null,
+      language: opts?.language ?? null,
+    }),
+    timeout: LONG_TIMEOUT,
+  });
+  assertOk(res);
+  return res.json();
 }
 
 export async function forkWorld(

@@ -111,7 +111,7 @@ describe("ControlBar", () => {
   });
 
   it("all control buttons have type=button", () => {
-    render(<ControlBar {...defaultProps} onOracle={vi.fn()} />);
+    render(<ControlBar {...defaultProps} />);
     const buttons = screen.getAllByRole("button");
     for (const btn of buttons) {
       expect(btn.getAttribute("type"), `Button "${btn.textContent}" missing type`).toBe("button");
@@ -138,10 +138,10 @@ describe("ControlBar", () => {
     expect(stepBtn).toHaveProperty("disabled", true);
   });
 
-  it("oracle button has aria-expanded", () => {
-    render(<ControlBar {...defaultProps} onOracle={vi.fn()} oracleOpen={true} />);
-    const oracleBtn = screen.getByText("oracle");
-    expect(oracleBtn.getAttribute("aria-expanded")).toBe("true");
+  it("report button has aria-pressed", () => {
+    render(<ControlBar {...defaultProps} onReport={vi.fn()} reportOpen={true} />);
+    const reportBtn = screen.getByText("report");
+    expect(reportBtn.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("shows tick counter", () => {

@@ -111,6 +111,35 @@ function CreateContent() {
   const [oracleSessionId, setOracleSessionId] = useState("");
   const [oracleBooting, setOracleBooting] = useState(false);
 
+  // ── Auto-save form to localStorage (survive refresh / failure) ──
+  const DRAFT_KEY = "babel_create_draft";
+  const draftLoaded = useState(false)[1];
+
+  // Restore draft on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft.world) setWorld(draft.world);
+      if (draft.agents?.length) setAgents(draft.agents);
+      if (draft.locations?.length) setLocations(draft.locations);
+      if (draft.items?.length) setItems(draft.items);
+    } catch { /* ignore corrupt draft */ }
+    draftLoaded(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save draft on every change (debounced via useEffect)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ world, agents, locations, items }));
+      } catch { /* quota exceeded — ignore */ }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [world, agents, locations, items]);
+
   useEffect(() => {
     let mounted = true;
     fetchAssets("agent").then((d) => { if (mounted) setSavedAgents(d); }).catch(() => { /* asset import is optional — proceed without */ });
@@ -471,6 +500,7 @@ function CreateContent() {
 
       const res = await createWorld(data);
       if (!res?.session_id) throw new Error("No session_id");
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       setBootOverlay({
         worldName: world.name || "WORLD",
         targetUrl: buildSimHref({
@@ -478,8 +508,9 @@ function CreateContent() {
           seedFile: res.seed_file || undefined,
         }),
       });
-    } catch {
-      setError(t("failed_create"));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`${t("failed_create")} — ${msg}`);
       setLoading(false);
     }
   }
