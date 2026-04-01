@@ -231,3 +231,10 @@ BABEL 使用 [litellm](https://github.com/BerriAI/litellm)，支持 OpenAI、Ant
 | 样式 Styling | Tailwind CSS + 自定义设计预设 |
 | 实时通信 Real-time | WebSocket |
 | 数据验证 Validation | Pydantic v2 |
+
+## 生态 / Ecosystem
+
+- [Psyche](https://github.com/Shangri-la-0428/oasyce_psyche) — 主观连续性内核 / Subjectivity kernel
+- [Thronglets](https://github.com/Shangri-la-0428/Thronglets) — 执行连续性 / Delegate continuity
+- [Oasyce Chain](https://github.com/Shangri-la-0428/oasyce-chain) — L1 结算链 / Settlement chain
+- [Oasyce SDK](https://github.com/Shangri-la-0428/oasyce-sdk) — Agent 运行时 / Agent runtime
