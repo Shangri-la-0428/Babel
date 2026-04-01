@@ -291,8 +291,9 @@ class TestUpdateGoals(unittest.TestCase):
         self.assertEqual(agent.active_goal.text, "protect the village")
         self.assertEqual(agent.active_goal.status, "active")
 
+    @patch("babel.engine.retrieve_relevant_memories", new_callable=AsyncMock, return_value=[])
     @patch("babel.engine.replan_goal", new_callable=AsyncMock)
-    def test_stall_triggers_replan(self, mock_replan):
+    def test_stall_triggers_replan(self, mock_replan, _mock_mem):
         mock_replan.return_value = {
             "text": "search the eastern cave for clues",
             "strategy": "follow the smugglers' trail",
@@ -314,8 +315,9 @@ class TestUpdateGoals(unittest.TestCase):
         self.assertEqual(agent.active_goal.next_step, "question the sentry at the cave mouth")
         self.assertEqual(agent.active_goal.status, "active")
 
+    @patch("babel.engine.retrieve_relevant_memories", new_callable=AsyncMock, return_value=[])
     @patch("babel.engine.replan_goal", new_callable=AsyncMock)
-    def test_stall_replan_failure_selects_next(self, mock_replan):
+    def test_stall_replan_failure_selects_next(self, mock_replan, _mock_mem):
         mock_replan.side_effect = Exception("LLM error")
         agent = self.session.agents["a1"]
         agent.active_goal = GoalState(

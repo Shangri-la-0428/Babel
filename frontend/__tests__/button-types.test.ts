@@ -44,7 +44,7 @@ describe("button type attribute audit", () => {
           // Check if tag closes (either self-closing or >)
           if (line.includes(">")) {
             // Tag complete — check if type is present
-            if (!tagBuffer.match(/type\s*=\s*["'](button|submit|reset)["']/)) {
+            if (!tagBuffer.match(/type\s*=\s*(["'](button|submit|reset)["']|\{)/)) {
               violations.push(`line ${buttonStartLine + 1}: <button without type attribute`);
             }
             inButtonTag = false;
@@ -70,7 +70,7 @@ describe("button type attribute audit", () => {
             // Single-line tag
             const tagEnd = rest.indexOf(">");
             const tag = rest.slice(0, tagEnd + 1);
-            if (!tag.match(/type\s*=\s*["'](button|submit|reset)["']/)) {
+            if (!tag.match(/type\s*=\s*(["'](button|submit|reset)["']|\{)/)) {
               violations.push(`line ${i + 1}: <button without type attribute`);
             }
           } else {
