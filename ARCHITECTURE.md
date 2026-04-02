@@ -28,7 +28,8 @@ The architecture follows this belief:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  L3  PRODUCT SHELL                                              │
-│      Next.js 14 · Tailwind · WebSocket · FastAPI (api.py)       │
+│      Next.js 14 · Tailwind · WebSocket                          │
+│      FastAPI: api.py (127) + state.py (503) + 7 routers         │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────────┐
@@ -252,6 +253,22 @@ litellm wrapper for all LLM calls. Isolated from world logic.
 
 ### prompts.py — Text Adapter
 Converts structured data into natural language prompts. This is the **text modality adapter** — replacing it with a different adapter enables non-text modalities.
+
+### api.py + state.py + routes/ — Product Shell
+
+The product layer is decomposed into clean modules:
+
+| Module | Lines | Purpose |
+|--------|-------|---------|
+| `api.py` | 127 | Thin shell: app, middleware, lifespan, WebSocket, router mounting |
+| `state.py` | 503 | Shared state: engine cache, locks, WebSocket pool, serialization, helpers |
+| `routes/seeds.py` | 248 | Seed library CRUD (list, detail, update, delete) |
+| `routes/worlds.py` | 682 | World lifecycle (create, run, step, pause, inject, command) |
+| `routes/agents.py` | 244 | Human control + external SDK gateway |
+| `routes/oracle.py` | 218 | Oracle narrator + agent chat |
+| `routes/assets.py` | 402 | Asset library + seed extraction (agent, item, location, event, world) |
+| `routes/timeline.py` | 217 | Timeline, replay, fork, report, memories |
+| `routes/enrichment.py` | 179 | Progressive entity detail enrichment |
 
 ### db.py — Persistence (0 internal dependencies)
 Async SQLite via aiosqlite. Pure persistence, no business logic.

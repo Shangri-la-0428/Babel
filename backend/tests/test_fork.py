@@ -93,10 +93,10 @@ async def test_fork_creates_new_session(parent_session):
     snapshot = _make_snapshot()
 
     with (
-        patch("babel.api.load_nearest_snapshot", new_callable=AsyncMock, return_value=snapshot),
-        patch("babel.api._get_engine", new_callable=AsyncMock) as mock_engine,
-        patch("babel.api.save_session", new_callable=AsyncMock),
-        patch("babel.api.init_db", new_callable=AsyncMock),
+        patch("babel.routes.timeline.load_nearest_snapshot", new_callable=AsyncMock, return_value=snapshot),
+        patch("babel.routes.timeline.get_engine", new_callable=AsyncMock) as mock_engine,
+        patch("babel.routes.timeline.save_session", new_callable=AsyncMock),
+        patch("babel.db.init_db", new_callable=AsyncMock),
     ):
         mock_engine.return_value = type("E", (), {"session": parent_session, "is_running": False, "pause": lambda self: None})()
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -121,10 +121,10 @@ async def test_fork_restores_agent_states():
     snapshot = _make_snapshot()
 
     with (
-        patch("babel.api.load_nearest_snapshot", new_callable=AsyncMock, return_value=snapshot),
-        patch("babel.api._get_engine", new_callable=AsyncMock, return_value=None),
-        patch("babel.api.save_session", new_callable=AsyncMock) as mock_save,
-        patch("babel.api.init_db", new_callable=AsyncMock),
+        patch("babel.routes.timeline.load_nearest_snapshot", new_callable=AsyncMock, return_value=snapshot),
+        patch("babel.routes.timeline.get_engine", new_callable=AsyncMock, return_value=None),
+        patch("babel.routes.timeline.save_session", new_callable=AsyncMock) as mock_save,
+        patch("babel.db.init_db", new_callable=AsyncMock),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             resp = await ac.post("/api/worlds/parent-1/fork", json={"tick": 25})
@@ -147,10 +147,10 @@ async def test_fork_copies_relations(parent_session):
     snapshot = _make_snapshot()
 
     with (
-        patch("babel.api.load_nearest_snapshot", new_callable=AsyncMock, return_value=snapshot),
-        patch("babel.api._get_engine", new_callable=AsyncMock) as mock_engine,
-        patch("babel.api.save_session", new_callable=AsyncMock) as mock_save,
-        patch("babel.api.init_db", new_callable=AsyncMock),
+        patch("babel.routes.timeline.load_nearest_snapshot", new_callable=AsyncMock, return_value=snapshot),
+        patch("babel.routes.timeline.get_engine", new_callable=AsyncMock) as mock_engine,
+        patch("babel.routes.timeline.save_session", new_callable=AsyncMock) as mock_save,
+        patch("babel.db.init_db", new_callable=AsyncMock),
     ):
         mock_engine.return_value = type("E", (), {"session": parent_session, "is_running": False, "pause": lambda self: None})()
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -172,10 +172,10 @@ async def test_fork_lineage_links_to_parent():
     snapshot = _make_snapshot()
 
     with (
-        patch("babel.api.load_nearest_snapshot", new_callable=AsyncMock, return_value=snapshot),
-        patch("babel.api._get_engine", new_callable=AsyncMock, return_value=None),
-        patch("babel.api.save_session", new_callable=AsyncMock) as mock_save,
-        patch("babel.api.init_db", new_callable=AsyncMock),
+        patch("babel.routes.timeline.load_nearest_snapshot", new_callable=AsyncMock, return_value=snapshot),
+        patch("babel.routes.timeline.get_engine", new_callable=AsyncMock, return_value=None),
+        patch("babel.routes.timeline.save_session", new_callable=AsyncMock) as mock_save,
+        patch("babel.db.init_db", new_callable=AsyncMock),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             resp = await ac.post("/api/worlds/parent-1/fork", json={"tick": 25})
@@ -196,8 +196,8 @@ async def test_fork_no_snapshot_returns_404():
     from httpx import ASGITransport, AsyncClient
 
     with (
-        patch("babel.api.load_nearest_snapshot", new_callable=AsyncMock, return_value=None),
-        patch("babel.api.init_db", new_callable=AsyncMock),
+        patch("babel.routes.timeline.load_nearest_snapshot", new_callable=AsyncMock, return_value=None),
+        patch("babel.db.init_db", new_callable=AsyncMock),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             resp = await ac.post("/api/worlds/parent-1/fork", json={"tick": 5})

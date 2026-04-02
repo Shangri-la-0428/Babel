@@ -419,7 +419,7 @@ async def test_pause_nonexistent_returns_404(client):
 
 
 @pytest.mark.asyncio
-@patch("babel.api.detect_new_character", new_callable=AsyncMock, return_value=None)
+@patch("babel.routes.worlds.detect_new_character", new_callable=AsyncMock, return_value=None)
 async def test_inject_event(mock_detect, client):
     sid = await _create_world(client)
     resp = await client.post(
@@ -434,7 +434,7 @@ async def test_inject_event(mock_detect, client):
 
 
 @pytest.mark.asyncio
-@patch("babel.api.detect_new_character", new_callable=AsyncMock, return_value=None)
+@patch("babel.routes.worlds.detect_new_character", new_callable=AsyncMock, return_value=None)
 async def test_inject_event_appears_in_events(mock_detect, client):
     sid = await _create_world(client)
     await client.post(
@@ -447,7 +447,7 @@ async def test_inject_event_appears_in_events(mock_detect, client):
 
 
 @pytest.mark.asyncio
-@patch("babel.api.detect_new_character", new_callable=AsyncMock, return_value=None)
+@patch("babel.routes.worlds.detect_new_character", new_callable=AsyncMock, return_value=None)
 async def test_minor_event_is_not_auto_saved_as_asset(mock_detect, client):
     sid = await _create_world(client)
     await client.post(
@@ -483,7 +483,7 @@ async def test_major_initial_event_is_auto_saved_as_asset(client):
 
 
 @pytest.mark.asyncio
-@patch("babel.api.detect_new_character", new_callable=AsyncMock, return_value=None)
+@patch("babel.routes.worlds.detect_new_character", new_callable=AsyncMock, return_value=None)
 async def test_major_injected_event_is_auto_saved_as_asset(mock_detect, client):
     sid = await _create_world(client)
     await client.post(
@@ -540,7 +540,7 @@ async def test_add_agent_to_existing_world(client):
 
 
 @pytest.mark.asyncio
-@patch("babel.api.chat_with_agent", new_callable=AsyncMock, return_value="当然。")
+@patch("babel.routes.oracle.chat_with_agent", new_callable=AsyncMock, return_value="当然。")
 async def test_chat_endpoint_passes_language(mock_chat, client):
     sid = await _create_world(client)
     resp = await client.post(
@@ -553,7 +553,7 @@ async def test_chat_endpoint_passes_language(mock_chat, client):
 
 
 @pytest.mark.asyncio
-@patch("babel.api.enrich_entity", new_callable=AsyncMock, return_value={"description": "一把旧手枪。"})
+@patch("babel.routes.enrichment.enrich_entity", new_callable=AsyncMock, return_value={"description": "一把旧手枪。"})
 async def test_enrich_endpoint_passes_language(mock_enrich, client):
     sid = await _create_world(client)
     resp = await client.post(
@@ -574,7 +574,7 @@ async def test_enrich_endpoint_passes_language(mock_enrich, client):
 
 @pytest.mark.asyncio
 @patch(
-    "babel.api.enrich_entity",
+    "babel.routes.enrichment.enrich_entity",
     new_callable=AsyncMock,
     return_value={"description": "一张磨损的地图。", "properties": ["折痕", "手写标记"]},
 )
@@ -617,7 +617,7 @@ async def test_enrich_endpoint_without_llm_config_returns_400_for_restored_sessi
 
 
 @pytest.mark.asyncio
-@patch("babel.api.enrich_entity", new_callable=AsyncMock, return_value={})
+@patch("babel.routes.enrichment.enrich_entity", new_callable=AsyncMock, return_value={})
 async def test_enrich_endpoint_empty_response_returns_502(mock_enrich, client):
     sid = await _create_world(client)
     resp = await client.post(
@@ -636,7 +636,7 @@ async def test_enrich_endpoint_empty_response_returns_502(mock_enrich, client):
 
 @pytest.mark.asyncio
 @patch(
-    "babel.api.enrich_entity",
+    "babel.routes.assets.enrich_entity",
     new_callable=AsyncMock,
     return_value={
         "description": "一张磨损的地图。",
@@ -673,7 +673,7 @@ async def test_extract_item_seed_uses_request_llm_config_for_restored_session(mo
 
 
 @pytest.mark.asyncio
-@patch("babel.api.enrich_entity", new_callable=AsyncMock, return_value={})
+@patch("babel.routes.assets.enrich_entity", new_callable=AsyncMock, return_value={})
 async def test_extract_item_seed_empty_response_returns_502(mock_enrich, client):
     sid = await _create_world(client)
     resp = await client.post(
@@ -1147,7 +1147,7 @@ async def test_full_lifecycle(client):
 
 
 @pytest.mark.asyncio
-@patch("babel.api.detect_new_character", new_callable=AsyncMock, return_value=None)
+@patch("babel.routes.worlds.detect_new_character", new_callable=AsyncMock, return_value=None)
 async def test_inject_then_step(mock_detect, client):
     """Inject a world event, then step — agents should have processed it."""
     sid = await _create_world(client)

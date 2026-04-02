@@ -4,6 +4,13 @@ All notable changes to BABEL.
 
 ## [Unreleased]
 
+### Product Shell Decomposition
+- `api.py` 2340 → 127 lines (thin shell: app setup, middleware, lifespan, WebSocket, router mounting)
+- New `state.py` (503 lines): shared engine cache, locks, WebSocket pool, serialization, world event helpers
+- New `routes/` package (7 routers, 2190 lines total): seeds, worlds, agents, oracle, assets, timeline, enrichment
+- All 55 endpoints preserved with identical API contracts
+- 498 tests passing
+
 ### Four-Phase Causal Deepening
 
 **Phase 1: Accidental complexity elimination**

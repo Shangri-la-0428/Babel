@@ -163,6 +163,8 @@ class TestPureCausalKernel(unittest.TestCase):
         seed = _make_seed()
         session = Session(world_seed=seed)
         session.init_agents()
+        # Remove a2 so the single scripted action targets a1
+        del session.agents["a2"]
 
         # Alpha moves to forest
         source = ScriptedSource([
