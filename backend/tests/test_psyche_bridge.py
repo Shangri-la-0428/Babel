@@ -33,8 +33,12 @@ class MockPsycheHandler(BaseHTTPRequestHandler):
     mock_output_result: dict[str, Any] = {}
     request_log: list[dict[str, Any]] = []
 
+    mock_overlay: dict[str, Any] = {}
+
     def do_GET(self) -> None:
-        if self.path == "/state":
+        if self.path == "/overlay":
+            self._respond(200, self.mock_overlay or _default_overlay())
+        elif self.path == "/state":
             self._respond(200, self.mock_state or _default_state())
         elif self.path.startswith("/protocol"):
             self._respond(200, {"protocol": "test protocol"})
@@ -65,6 +69,10 @@ class MockPsycheHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         pass  # Suppress server logs during tests
+
+
+def _default_overlay() -> dict[str, Any]:
+    return {"arousal": 0.6, "valence": 0.7, "agency": 0.3, "vulnerability": -0.2}
 
 
 def _default_state() -> dict[str, Any]:
@@ -107,6 +115,7 @@ def mock_server():
 
     # Reset state
     MockPsycheHandler.mock_state = {}
+    MockPsycheHandler.mock_overlay = {}
     MockPsycheHandler.mock_input_result = {}
     MockPsycheHandler.mock_output_result = {}
     MockPsycheHandler.request_log = []
@@ -203,6 +212,38 @@ async def test_bridge_get_state(mock_server: str) -> None:
     assert snapshot.autonomic.dominant == "ventral_vagal"
     assert snapshot.dominant_emotion == "contentment"
     assert snapshot.drives.get("curiosity") == 65
+    await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_bridge_get_overlay(mock_server: str) -> None:
+    """get_overlay returns PsycheOverlay from /overlay endpoint."""
+    from babel.models import PsycheOverlay
+
+    bridge = PsycheBridge(base_url=mock_server)
+    overlay = await bridge.get_overlay()
+
+    assert isinstance(overlay, PsycheOverlay)
+    assert overlay.arousal == 0.6
+    assert overlay.valence == 0.7
+    assert overlay.agency == 0.3
+    assert overlay.vulnerability == -0.2
+    await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_bridge_get_overlay_custom(mock_server: str) -> None:
+    """get_overlay respects custom mock overlay."""
+    from babel.models import PsycheOverlay
+
+    MockPsycheHandler.mock_overlay = {
+        "arousal": -0.5, "valence": -0.8, "agency": 0.0, "vulnerability": 1.0,
+    }
+    bridge = PsycheBridge(base_url=mock_server)
+    overlay = await bridge.get_overlay()
+
+    assert overlay.arousal == -0.5
+    assert overlay.vulnerability == 1.0
     await bridge.close()
 
 
@@ -560,7 +601,7 @@ async def test_augmented_source_injects_emotional_context(mock_server: str) -> N
 
     assert captured_ctx is not None
     assert captured_ctx.emotional_context != ""
-    assert "contentment" in captured_ctx.emotional_context  # default mock emotion
+    assert "activated" in captured_ctx.emotional_context  # from overlay arousal > 0.5
 
 
 @pytest.mark.asyncio
