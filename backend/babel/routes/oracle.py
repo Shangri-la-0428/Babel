@@ -14,11 +14,15 @@ from ..db import (
     load_narrator_messages,
     save_narrator_message,
     save_seed,
+    save_session,
 )
 from ..llm import chat_with_agent, chat_with_oracle, generate_seed_draft
 from ..memory import get_agent_beliefs, retrieve_relevant_memories
-from ..models import Event, SeedEnvelope, SeedLineage, SeedType, WorldSeed
-from ..state import get_engine, oracle_prefers_chinese, event_dict, serialize_state
+from ..models import Event, SeedEnvelope, SeedLineage, SeedType, Session, WorldSeed
+from ..state import (
+    engines, get_engine, global_lock, make_engine,
+    make_event_callback, oracle_prefers_chinese,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -216,3 +220,50 @@ async def oracle_chat_endpoint(session_id: str, req: OracleChatRequest) -> dict:
 async def oracle_history_endpoint(session_id: str, limit: int = 50) -> list[dict]:
     """Load Oracle conversation history for a session."""
     return await load_narrator_messages(session_id, limit=limit)
+
+
+# ── Oracle draft ─────────────────────────────────────
+
+ORACLE_DRAFT_WORLD_NAME = "__ORACLE_DRAFT__"
+
+
+def _build_oracle_draft_seed() -> WorldSeed:
+    return WorldSeed(
+        name=ORACLE_DRAFT_WORLD_NAME,
+        description="Temporary Oracle draft session.",
+        locations=[{
+            "name": "Genesis Chamber",
+            "description": "A liminal drafting chamber used for worldbuilding.",
+        }],
+        agents=[{
+            "id": "oracle_architect",
+            "name": "Architect",
+            "description": "A placeholder agent that anchors draft sessions.",
+            "personality": "Neutral",
+            "goals": ["Hold the draft space steady."],
+            "inventory": [],
+            "location": "Genesis Chamber",
+        }],
+        narrator={
+            "persona": "A worldbuilding oracle that shapes coherent worlds from rough ideas."
+        },
+    )
+
+
+@router.post("/api/oracle/draft")
+async def create_oracle_draft() -> dict:
+    """Create a hidden draft session for Oracle-assisted world creation."""
+    world_seed = _build_oracle_draft_seed()
+    session = Session(world_seed=world_seed)
+    session.init_agents()
+    await save_session(session)
+
+    async with global_lock:
+        engines[session.id] = make_engine(session, on_event=make_event_callback(session.id))
+
+    return {
+        "session_id": session.id,
+        "name": world_seed.name,
+        "tick": session.tick,
+        "status": session.status.value,
+    }

@@ -33,7 +33,6 @@ from ..models import (
     SeedLineage,
     SeedType,
     Session,
-    SessionStatus,
     WorldSeed,
 )
 from ..significance import finalize_event_significance
@@ -49,9 +48,7 @@ from ..state import (
     global_lock,
     make_engine,
     make_event_callback,
-    oracle_prefers_chinese,
     record_initial_events,
-    runtime_lineage,
     saved_world_ref,
     serialize_state,
     serialize_state_async,
@@ -126,46 +123,7 @@ class CommandRequest(BaseModel):
     api_base: str | None = None
 
 
-class CommandResponse(BaseModel):
-    intent: str
-    params: dict = {}
-    reply: str | None = None
-    data: dict | None = None
-    error: str | None = None
-
-
-ORACLE_DRAFT_WORLD_NAME = "__ORACLE_DRAFT__"
-
-
 # ── Local helpers ────────────────────────────────────────
-
-def _build_oracle_draft_seed() -> WorldSeed:
-    """Create a minimal hidden session so Oracle can assist before a world exists."""
-    return WorldSeed(
-        name=ORACLE_DRAFT_WORLD_NAME,
-        description="Temporary Oracle draft session.",
-        locations=[
-            {
-                "name": "Genesis Chamber",
-                "description": "A liminal drafting chamber used for worldbuilding.",
-            }
-        ],
-        agents=[
-            {
-                "id": "oracle_architect",
-                "name": "Architect",
-                "description": "A placeholder agent that anchors draft sessions.",
-                "personality": "Neutral",
-                "goals": ["Hold the draft space steady."],
-                "inventory": [],
-                "location": "Genesis Chamber",
-            }
-        ],
-        narrator={
-            "persona": "A worldbuilding oracle that shapes coherent worlds from rough ideas."
-        },
-    )
-
 
 async def _load_world_seed_from_ref(seed_ref: str) -> WorldSeed:
     if await is_seed_ref_hidden(seed_ref):
@@ -635,39 +593,19 @@ async def command_endpoint(session_id: str, req: CommandRequest) -> dict:
     return resp
 
 
-# ── Secondary router for non-/api/worlds paths ──────────
+# ── Session-level endpoints (non-/api/worlds prefix) ──
 
-_aux_router = APIRouter(tags=["worlds"])
-
-
-@_aux_router.post("/api/oracle/draft")
-async def create_oracle_draft() -> dict:
-    """Create a hidden draft session for Oracle-assisted world creation."""
-    world_seed = _build_oracle_draft_seed()
-    session = Session(world_seed=world_seed)
-    session.init_agents()
-    await save_session(session)
-
-    async with global_lock:
-        engines[session.id] = make_engine(session, on_event=make_event_callback(session.id))
-
-    return {
-        "session_id": session.id,
-        "name": world_seed.name,
-        "tick": session.tick,
-        "status": session.status.value,
-    }
+aux_router = APIRouter(tags=["sessions"])
 
 
-@_aux_router.get("/api/sessions")
+@aux_router.get("/api/sessions")
 async def get_sessions() -> list[dict]:
     return await list_sessions()
 
 
-@_aux_router.delete("/api/sessions/{session_id}")
+@aux_router.delete("/api/sessions/{session_id}")
 async def api_delete_session(session_id: str) -> dict:
     """Delete a session and all its data."""
-    # Stop engine if running
     if session_id in engines:
         engines[session_id].stop()
         del engines[session_id]
@@ -676,7 +614,3 @@ async def api_delete_session(session_id: str) -> dict:
         raise HTTPException(404, "Session not found")
     await delete_seeds_by_source_worlds([session_id])
     return {"deleted": True}
-
-
-# Expose auxiliary router for inclusion by the app
-aux_router = _aux_router
