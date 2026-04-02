@@ -122,6 +122,19 @@ class PhysicsConfig(BaseModel):
     regeneration_interval: int = 5  # ticks between resource spawns
 
 
+class AgentInternalState(BaseModel):
+    """Engine-enforced agent internal state. Parallel to PhysicsConfig.
+
+    These are causal-necessary fields — not emotion, not personality preference.
+    Energy is finite (conservation). Momentum resists change (inertia).
+    Stress is accumulated load (entropy). All decay over time (recovery).
+    """
+    energy: float = 1.0       # 0.0-1.0 — fuel for action, depleted by acting
+    stress: float = 0.0       # 0.0-1.0 — accumulated load, impedes recovery
+    momentum: float = 0.0     # 0.0-1.0 — tendency to repeat, resists direction change
+    last_action: str = ""     # previous action type (for momentum calculation)
+
+
 class NarratorConfig(BaseModel):
     persona: str = ""                # custom persona e.g. "A weary bard"
     auto_commentary: bool = False    # auto-generate commentary
@@ -303,7 +316,7 @@ class AgentState(BaseModel):
     inventory: list[str] = Field(default_factory=list)
     status: AgentStatus = AgentStatus.IDLE
     role: AgentRole = AgentRole.MAIN
-    internal_state: dict[str, Any] = Field(default_factory=dict)
+    internal_state: AgentInternalState = Field(default_factory=AgentInternalState)
     active_goal: GoalState | None = None
     immediate_intent: str = ""
     immediate_approach: str = ""

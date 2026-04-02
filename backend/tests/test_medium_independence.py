@@ -340,8 +340,9 @@ class TestAgentPhysicsMediumIndependence(unittest.TestCase):
         )
 
         self._run(engine.tick())
-        # Agent has no internal state — weightless cursor
-        self.assertEqual(session.agents["a1"].internal_state, {})
+        # Agent state unchanged — weightless cursor (defaults)
+        self.assertEqual(session.agents["a1"].internal_state.energy, 1.0)
+        self.assertEqual(session.agents["a1"].internal_state.stress, 0.0)
         self.assertEqual(session.agents["a1"].location, "forest")
 
     def test_default_agent_physics_creates_internal_state(self):
@@ -360,20 +361,18 @@ class TestAgentPhysicsMediumIndependence(unittest.TestCase):
         for _ in range(5):
             self._run(engine.tick())
 
-        # Both agents should now have internal state
+        # Both agents should have been touched by physics
         for aid in session.agents:
             agent = session.agents[aid]
-            self.assertIn("energy", agent.internal_state)
-            self.assertIn("stress", agent.internal_state)
-            self.assertIn("momentum", agent.internal_state)
             # last_action proves the agent took actions through physics
-            self.assertNotEqual(agent.internal_state["last_action"], "")
+            self.assertNotEqual(agent.internal_state.last_action, "")
 
-    def test_agent_physics_personality_differentiation(self):
-        """Different personalities → different internal state trajectories.
-        This is first-order emergence: same physics, different seeds → different behavior."""
+    def test_agent_physics_stress_is_pure_load(self):
+        """Same actions, different personalities → same stress.
+        Stress is pure load (physics), not personality preference."""
+        from babel.models import AgentInternalState
         seed = WorldSeed(
-            name="differentiation-test",
+            name="load-test",
             locations=[
                 LocationSeed(name="plaza", connections=["wild"]),
                 LocationSeed(name="wild", connections=["plaza"]),
@@ -390,7 +389,7 @@ class TestAgentPhysicsMediumIndependence(unittest.TestCase):
 
         ap = DefaultAgentPhysics()
 
-        # Simulate: both agents do the same actions (move + trade)
+        # Both agents do identical actions
         for _ in range(10):
             for aid in list(session.agents):
                 agent = session.agents[aid]
@@ -400,11 +399,11 @@ class TestAgentPhysicsMediumIndependence(unittest.TestCase):
                 )
                 ap.tick_effects(agent, session)
 
-        cautious_stress = session.agents["cautious"].internal_state["stress"]
-        bold_stress = session.agents["bold"].internal_state["stress"]
+        cautious_stress = session.agents["cautious"].internal_state.stress
+        bold_stress = session.agents["bold"].internal_state.stress
 
-        # Cautious agent stressed by moves, bold agent not
-        self.assertGreater(cautious_stress, bold_stress)
+        # Pure physics: same actions → same stress (personality doesn't matter)
+        self.assertEqual(cautious_stress, bold_stress)
 
 
 if __name__ == "__main__":

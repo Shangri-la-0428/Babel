@@ -46,10 +46,30 @@ SAVED_WORLD_PREFIX = "saved:"
 
 # ── Engine helpers ────────────────────────────────────
 
-def make_engine(session: Session, on_event=None) -> Engine:
-    """Create an Engine with full text-world hooks."""
+def make_engine(
+    session: Session,
+    on_event=None,
+    psyche_url: str | None = None,
+) -> Engine:
+    """Create an Engine with full text-world hooks.
+
+    If psyche_url is provided, Psyche is wired as L1 AgentPhysics.
+    Otherwise, DefaultAgentPhysics (pure causal) is used.
+    """
+    from .physics import DefaultAgentPhysics, PsycheAgentPhysics
+
     hooks = DefaultEngineHooks()
-    engine = Engine(session=session, hooks=hooks, on_event=on_event)
+    agent_physics = (
+        PsycheAgentPhysics(psyche_url=psyche_url)
+        if psyche_url
+        else DefaultAgentPhysics()
+    )
+    engine = Engine(
+        session=session,
+        hooks=hooks,
+        agent_physics=agent_physics,
+        on_event=on_event,
+    )
     hooks.install_facades(engine)
     return engine
 

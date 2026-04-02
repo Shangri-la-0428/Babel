@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
 
-from .models import ActionOutput, ActionType
+from .models import ActionOutput, ActionType, AgentInternalState
 
 
 class AgentContext(BaseModel):
@@ -48,8 +48,8 @@ class AgentContext(BaseModel):
     location_context: dict[str, str] = Field(default_factory=dict)
     # Physics: items on the ground at this location (from regeneration)
     ground_items: list[str] = Field(default_factory=list)
-    # Agent internal state (from AgentPhysics: energy, stress, momentum, etc.)
-    internal_state: dict[str, Any] = Field(default_factory=dict)
+    # Agent internal state (from AgentPhysics: energy, stress, momentum)
+    internal_state: AgentInternalState = Field(default_factory=AgentInternalState)
     # Phase B: Psyche emotional context (optional, for LLM prompt enrichment)
     emotional_context: str = ""
     drive_state: dict[str, float] = Field(default_factory=dict)

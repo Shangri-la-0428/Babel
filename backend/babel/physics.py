@@ -19,9 +19,9 @@ from __future__ import annotations
 import logging
 import random
 import re
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
-from .models import ActionOutput, ActionType, AgentState, PhysicsConfig, Session
+from .models import ActionOutput, ActionType, AgentInternalState, AgentState, PhysicsConfig, Session
 
 logger = logging.getLogger(__name__)
 
@@ -112,61 +112,65 @@ class NoAgentPhysics:
 
 
 class DefaultAgentPhysics:
-    """Four causal laws for agent internal state.
+    """Three causal laws for agent internal state. Pure physics, no personality.
 
     Conservation: energy is finite — every action costs energy.
-    Entropy: acting against personality accumulates stress.
-    Cost: changing direction costs willpower (momentum resistance).
-    Regeneration: rest restores energy, social interaction reduces stress.
+    Inertia: momentum resists direction change — switching costs extra energy.
+    Recovery: energy regenerates per tick; stress decays; stress impedes recovery.
 
-    Internal state fields (all 0.0-1.0):
-      energy    — fuel for action. Depleted by acting, restored by rest.
-      stress    — friction from fighting one's nature. Decays slowly.
-      momentum  — tendency to repeat. Builds with consistency, breaks with change.
+    Stress in this implementation is pure load accumulation (sustained activity
+    without rest). Personality-driven stress is NOT physics — it belongs in
+    PsycheAgentPhysics, which maps Psyche's four dimensions to internal state.
     """
 
-    # Action energy costs by type
+    # ── Invariants ───────────────────────────────────────
+    # Constants derive from physical invariants, not tuning.
+
+    # Action energy costs — ordered by cognitive/physical complexity.
+    # wait < observe < speak < use_item < trade < move
+    # This ordering is causal: wait needs zero attention, move needs full coordination.
     ACTION_COST: dict[str, float] = {
-        "speak": 0.05,
-        "observe": 0.03,
         "wait": 0.0,
-        "move": 0.08,
-        "trade": 0.07,
+        "observe": 0.03,
+        "speak": 0.05,
         "use_item": 0.06,
+        "trade": 0.07,
+        "move": 0.08,
     }
 
-    # Actions that build vs break momentum
-    SOCIAL_ACTIONS = frozenset({"speak", "trade"})
-    ACTIVE_ACTIONS = frozenset({"move", "use_item", "trade"})
+    # Invariant: an agent at full rest recovers all energy in N ticks.
+    FULL_REST_TICKS: int = 25
+    RECOVERY_PER_TICK: float = 1.0 / FULL_REST_TICKS  # 0.04
 
-    def _ensure_state(self, agent: AgentState) -> dict:
-        """Initialize internal state if missing."""
-        s = agent.internal_state
-        if "energy" not in s:
-            s["energy"] = 1.0
-        if "stress" not in s:
-            s["stress"] = 0.0
-        if "momentum" not in s:
-            s["momentum"] = 0.0
-        if "last_action" not in s:
-            s["last_action"] = ""
-        return s
+    # Stress per action = action_cost × STRESS_RATIO.
+    # The ratio creates a natural threshold at STRESS_DECAY / STRESS_RATIO = 0.06:
+    #   actions costing > 0.06 (move, trade) accumulate stress under sustained use,
+    #   actions costing < 0.06 (observe, speak) dissipate stress naturally.
+    STRESS_DECAY: float = 0.03
+    STRESS_RATIO: float = 0.5
+
+    # Invariant: after N repeated actions, switching costs as much as a move.
+    # momentum = N × MOMENTUM_BUILD, switch_cost = momentum × MOMENTUM_SWITCH_RATIO
+    # At N=5: 5 × 0.2 = 1.0, switch cost = 1.0 × 0.08 = 0.08 = move cost. ∎
+    MOMENTUM_BUILD: float = 0.2
+    MOMENTUM_SWITCH_RATIO: float = ACTION_COST["move"]  # 0.08
+    MOMENTUM_DECAY: float = 0.05
 
     def pre_decide(self, agent: AgentState, session: Session) -> dict:
         """Expose internal state to decision context."""
-        s = self._ensure_state(agent)
-        ctx: dict = {"internal_state": dict(s)}
+        s = agent.internal_state
+        ctx: dict = {"internal_state": s.model_copy()}
 
-        # High stress → inject stress signal into emotional context
-        if s["stress"] > 0.7:
+        # Extreme states → inject signal into emotional context
+        if s.stress > 0.7:
             ctx["emotional_context"] = (
-                f"Internal tension is high ({s['stress']:.0%}). "
-                f"Energy at {s['energy']:.0%}."
+                f"Internal load is high ({s.stress:.0%}). "
+                f"Energy at {s.energy:.0%}."
             )
-        elif s["energy"] < 0.3:
+        elif s.energy < 0.3:
             ctx["emotional_context"] = (
-                f"Running low on energy ({s['energy']:.0%}). "
-                f"Feeling the need to rest."
+                f"Running low on energy ({s.energy:.0%}). "
+                f"Need to conserve."
             )
         return ctx
 
@@ -176,108 +180,154 @@ class DefaultAgentPhysics:
         agent: AgentState,
         session: Session,
     ) -> list[str]:
-        """Update internal state after action. Four laws applied."""
-        s = self._ensure_state(agent)
+        """Update internal state after action. Three laws applied."""
+        s = agent.internal_state
         effects: list[str] = []
         action_type = action.type.value if hasattr(action.type, "value") else str(action.type)
 
         # Law 1: Conservation — energy cost
         cost = self.ACTION_COST.get(action_type, 0.05)
-        if s["energy"] < 0.2:
+        if s.energy < 0.2:
             cost *= 1.5  # exhaustion amplifies cost
-        s["energy"] = max(0.0, s["energy"] - cost)
-        if s["energy"] < 0.1:
+        s.energy = max(0.0, s.energy - cost)
+        if s.energy < 0.1:
             effects.append(f"{agent.name} is exhausted")
 
-        # Law 2: Entropy — stress from acting against nature
-        stress_delta = self._compute_stress(action_type, agent)
-        if stress_delta != 0:
-            s["stress"] = max(0.0, min(1.0, s["stress"] + stress_delta))
-            if s["stress"] > 0.8:
-                effects.append(f"{agent.name} is under severe stress")
+        # Law 1b: Stress as load — proportional to action cost
+        if cost > 0:
+            s.stress = min(1.0, s.stress + cost * self.STRESS_RATIO)
+            if s.stress > 0.8:
+                effects.append(f"{agent.name} is under heavy load")
 
-        # Law 3: Cost — momentum resistance (direction change costs extra energy)
-        prev = s.get("last_action", "")
-        if prev and prev != action_type:
-            # Breaking momentum costs willpower (extra energy)
-            momentum_cost = s["momentum"] * 0.05
-            s["energy"] = max(0.0, s["energy"] - momentum_cost)
-            s["momentum"] = max(0.0, s["momentum"] - 0.3)
+        # Law 2: Inertia — momentum resistance
+        if s.last_action and s.last_action != action_type:
+            # Breaking momentum costs energy proportional to accumulated inertia.
+            # At full momentum (1.0), switching costs as much as a move.
+            momentum_cost = s.momentum * self.MOMENTUM_SWITCH_RATIO
+            s.energy = max(0.0, s.energy - momentum_cost)
+            s.momentum = max(0.0, s.momentum - 0.3)
         else:
             # Continuing same pattern builds momentum
-            s["momentum"] = min(1.0, s["momentum"] + 0.15)
+            s.momentum = min(1.0, s.momentum + self.MOMENTUM_BUILD)
 
-        # Law 4: Regeneration — social actions reduce stress
-        if action_type in self.SOCIAL_ACTIONS:
-            s["stress"] = max(0.0, s["stress"] - 0.05)
-
-        s["last_action"] = action_type
+        s.last_action = action_type
         return effects
 
     def tick_effects(self, agent: AgentState, session: Session) -> list[str]:
         """Per-tick: passive recovery and decay."""
-        s = self._ensure_state(agent)
+        s = agent.internal_state
         effects: list[str] = []
 
-        # Energy regeneration (rest: small passive recovery each tick)
-        recovery = 0.08
-        if s["stress"] > 0.5:
-            recovery *= 0.5  # stress impedes recovery
-        s["energy"] = min(1.0, s["energy"] + recovery)
+        # Law 3: Recovery — energy regenerates passively.
+        # Derived from invariant: full rest → full energy in FULL_REST_TICKS.
+        recovery = self.RECOVERY_PER_TICK
+        if s.stress > 0.5:
+            recovery *= 0.5  # stress impedes recovery (coupling)
+        s.energy = min(1.0, s.energy + recovery)
 
-        # Stress decay (slow natural recovery)
-        s["stress"] = max(0.0, s["stress"] - 0.03)
+        # Stress decay (slow natural dissipation)
+        s.stress = max(0.0, s.stress - self.STRESS_DECAY)
 
-        # Momentum decay (without reinforcement, habits fade)
-        s["momentum"] = max(0.0, s["momentum"] - 0.05)
+        # Momentum decay (without reinforcement, inertia fades)
+        s.momentum = max(0.0, s.momentum - self.MOMENTUM_DECAY)
 
-        # Second-order effect: extreme stress triggers energy drain
-        if s["stress"] > 0.9:
-            s["energy"] = max(0.0, s["energy"] - 0.05)
+        # Second-order: extreme stress drains energy
+        if s.stress > 0.9:
+            s.energy = max(0.0, s.energy - 0.05)
             effects.append(f"{agent.name}'s stress is draining energy")
 
         return effects
 
-    @staticmethod
-    def _compute_stress(action_type: str, agent: AgentState) -> float:
-        """Stress from acting against personality.
 
-        Personality keywords map to preferred action types.
-        Acting outside preference → stress. Acting in preference → stress relief.
-        """
-        personality = (agent.personality or "").lower()
+class PsycheAgentPhysics(DefaultAgentPhysics):
+    """AgentPhysics powered by Psyche's four dimensions.
 
-        # Personality → preferred actions (simple keyword matching)
-        prefers_social = any(w in personality for w in (
-            "social", "friendly", "charismatic", "talkative",
-            "外向", "社交", "健谈", "热情",
-        ))
-        prefers_cautious = any(w in personality for w in (
-            "cautious", "careful", "quiet", "reserved", "shy",
-            "谨慎", "小心", "安静", "内向", "害羞",
-        ))
-        prefers_active = any(w in personality for w in (
-            "adventurous", "bold", "restless", "energetic", "brave",
-            "冒险", "大胆", "活跃", "勇敢", "好动",
-        ))
+    Extends DefaultAgentPhysics (pure causal) with Psyche-driven stress:
+    - pre_decide: fetch Psyche state → map dimensions to internal state
+    - post_event: feed event to Psyche for emotional update
+    - tick_effects: Psyche cortisol → stress, autonomic → recovery rate
 
-        # Acting against nature → stress
-        if prefers_cautious and action_type in ("move", "trade", "use_item"):
-            return 0.06
-        if prefers_social and action_type in ("wait", "observe"):
-            return 0.04
-        if prefers_active and action_type == "wait":
-            return 0.05
+    When Psyche is unavailable, falls back to pure causal behavior.
+    This is the bridge that makes Psyche a causal constraint (L1),
+    not an optional decorator (L2).
+    """
 
-        # Acting in nature → slight stress relief (returned as negative)
-        if prefers_social and action_type == "speak":
-            return -0.03
-        if prefers_cautious and action_type == "observe":
-            return -0.02
-        if prefers_active and action_type == "move":
-            return -0.02
+    def __init__(self, psyche_url: str | None = None):
+        self._psyche_url = psyche_url
+        self._bridge: Any = None
+        # Per-agent Psyche snapshots (current + previous for drive shift detection)
+        self.snapshots: dict[str, Any] = {}
+        self.prev_snapshots: dict[str, Any] = {}
 
-        return 0.0
+    async def _get_bridge(self):
+        if not self._psyche_url:
+            return None
+        if self._bridge is None:
+            from .psyche_bridge import PsycheBridge
+            self._bridge = PsycheBridge(base_url=self._psyche_url, timeout=3.0)
+        return self._bridge
+
+    def pre_decide(self, agent: AgentState, session: Session) -> dict:
+        """Pure causal base + Psyche snapshot enrichment."""
+        ctx = super().pre_decide(agent, session)
+
+        snapshot = self.snapshots.get(agent.agent_id)
+        if not snapshot:
+            return ctx
+
+        # Map Psyche dimensions to context
+        drive_state: dict[str, float] = {}
+        emotional_context = ""
+
+        if hasattr(snapshot, "drives") and snapshot.drives:
+            drive_state = snapshot.drives
+            ctx["drive_state"] = drive_state
+
+        if hasattr(snapshot, "dominant_emotion") and snapshot.dominant_emotion:
+            emotional_context = f"Emotional state: {snapshot.dominant_emotion}"
+            if hasattr(snapshot, "autonomic"):
+                emotional_context += f" (autonomic: {snapshot.autonomic.dominant})"
+            # Psyche emotional context overrides the pure causal one
+            ctx["emotional_context"] = emotional_context
+
+        # Map Psyche cortisol → stress amplification (causal coupling).
+        # TODO: this hardcodes Psyche's schema — will be replaced by
+        # a substrate-agnostic overlay protocol when Psyche/Thronglets stabilize.
+        if hasattr(snapshot, "chemicals") and snapshot.chemicals:
+            cortisol = snapshot.chemicals.cortisol
+            if cortisol > 70:
+                agent.internal_state.stress = min(
+                    1.0,
+                    agent.internal_state.stress + (cortisol - 50) * 0.002,
+                )
+
+        return ctx
+
+    async def refresh(self, agent: AgentState) -> None:
+        """Fetch latest Psyche state for an agent. Called from hooks.before_turn."""
+        bridge = await self._get_bridge()
+        if not bridge:
+            return
+        try:
+            snapshot = await bridge.get_state()
+            self.prev_snapshots[agent.agent_id] = self.snapshots.get(agent.agent_id)
+            self.snapshots[agent.agent_id] = snapshot
+        except Exception as e:
+            logger.debug("Psyche refresh failed for %s: %s", agent.agent_id, e)
+
+    async def feedback(self, agent: AgentState, event_result: str) -> None:
+        """Feed agent action result to Psyche for emotional update."""
+        bridge = await self._get_bridge()
+        if not bridge:
+            return
+        try:
+            await bridge.process_output(text=event_result, user_id=agent.agent_id)
+        except Exception as e:
+            logger.debug("Psyche feedback failed for %s: %s", agent.agent_id, e)
+
+    def get_drive_state(self, agent_id: str) -> dict[str, float] | None:
+        snapshot = self.snapshots.get(agent_id)
+        return snapshot.drives if snapshot and hasattr(snapshot, "drives") and snapshot.drives else None
 
 
 class DefaultWorldPhysics:

@@ -132,7 +132,6 @@ class DefaultEngineHooks:
         snapshot_interval: int = 10,
         epoch_interval: int = 5,
         belief_interval: int = 10,
-        psyche_url: str | None = None,
         thronglets_url: str | None = None,
     ):
         from .policies import (
@@ -149,12 +148,7 @@ class DefaultEngineHooks:
         self.epoch_interval = epoch_interval
         self.belief_interval = belief_interval
         # Substrate connections (optional, fail-silent)
-        self._psyche_url = psyche_url
         self._thronglets_url = thronglets_url
-        self._psyche_bridge: Any = None  # lazy PsycheBridge
-        # Psyche drive snapshots
-        self._psyche_snapshots: dict[str, Any] = {}
-        self._prev_psyche_snapshots: dict[str, Any] = {}
         # Chapter continuity
         self._last_chapter: str = ""
         # Enrichment queue
@@ -163,8 +157,10 @@ class DefaultEngineHooks:
     # ── before_turn ───────────────────────────────────────
 
     async def before_turn(self, engine: Engine, agent: AgentState) -> list[Event]:
-        # Psyche: refresh emotional state before decisions
-        await self._psyche_refresh(agent)
+        # Psyche refresh is now handled by PsycheAgentPhysics (L1)
+        from .physics import PsycheAgentPhysics
+        if isinstance(engine.agent_physics, PsycheAgentPhysics):
+            await engine.agent_physics.refresh(agent)
 
         # Ensure agent has an active goal
         self._goal_mutation.ensure_active_goal(engine, agent)
@@ -217,16 +213,8 @@ class DefaultEngineHooks:
             if loc.description:
                 location_context[loc.name] = loc.description
 
-        # Psyche emotional context (from live wire or cached snapshot)
-        emotional_context = ""
-        drive_state: dict[str, float] = {}
-        snapshot = self._psyche_snapshots.get(agent.agent_id)
-        if snapshot:
-            drive_state = snapshot.drives if hasattr(snapshot, "drives") and snapshot.drives else {}
-            if hasattr(snapshot, "dominant_emotion") and snapshot.dominant_emotion:
-                emotional_context = f"Emotional state: {snapshot.dominant_emotion}"
-                if hasattr(snapshot, "autonomic"):
-                    emotional_context += f" (autonomic: {snapshot.autonomic.dominant})"
+        # Psyche emotional context is now injected by AgentPhysics.pre_decide (L1)
+        # Hooks only build the base context; agent_physics enriches it after.
 
         ctx = AgentContext(
             agent_id=agent.agent_id,
@@ -254,8 +242,6 @@ class DefaultEngineHooks:
             location_context=location_context,
             world_description=seed.description,
             ground_items=list(session.location_items.get(agent.location, [])),
-            emotional_context=emotional_context,
-            drive_state=drive_state,
         )
         return ctx
 
@@ -304,8 +290,10 @@ class DefaultEngineHooks:
         # Memory
         await create_memory_from_event(agent, event, engine.session)
 
-        # Substrate: Psyche feedback + Thronglets trace
-        await self._psyche_feedback(agent, event)
+        # Substrate: Psyche feedback (via L1 AgentPhysics) + Thronglets trace
+        from .physics import PsycheAgentPhysics
+        if isinstance(engine.agent_physics, PsycheAgentPhysics):
+            await engine.agent_physics.feedback(agent, event.result or "")
         await self._thronglets_trace(agent, event, engine.session)
 
     # ── after_tick ────────────────────────────────────────
@@ -524,49 +512,7 @@ class DefaultEngineHooks:
         return " | ".join(parts) if parts else "No meaningful change."
 
     # ── Substrate connections ────────────────────────────
-
-    def update_psyche_snapshot(self, agent_id: str, snapshot: Any) -> None:
-        self._prev_psyche_snapshots[agent_id] = self._psyche_snapshots.get(agent_id)
-        self._psyche_snapshots[agent_id] = snapshot
-
-    def get_drive_state(self, agent_id: str) -> dict[str, float] | None:
-        snapshot = self._psyche_snapshots.get(agent_id)
-        return snapshot.drives if snapshot and hasattr(snapshot, "drives") and snapshot.drives else None
-
-    async def _get_psyche_bridge(self):
-        """Lazy-init PsycheBridge. Returns None if not configured."""
-        if not self._psyche_url:
-            return None
-        if self._psyche_bridge is None:
-            from .psyche_bridge import PsycheBridge
-            self._psyche_bridge = PsycheBridge(
-                base_url=self._psyche_url, timeout=3.0,
-            )
-        return self._psyche_bridge
-
-    async def _psyche_refresh(self, agent: AgentState) -> None:
-        """Refresh Psyche state for an agent before their turn."""
-        bridge = await self._get_psyche_bridge()
-        if not bridge:
-            return
-        try:
-            snapshot = await bridge.get_state()
-            self.update_psyche_snapshot(agent.agent_id, snapshot)
-        except Exception as e:
-            logger.debug("Psyche refresh failed for %s: %s", agent.agent_id, e)
-
-    async def _psyche_feedback(self, agent: AgentState, event: Event) -> None:
-        """Send agent action to Psyche for emotional state update."""
-        bridge = await self._get_psyche_bridge()
-        if not bridge:
-            return
-        try:
-            await bridge.process_output(
-                text=event.result or "",
-                user_id=agent.agent_id,
-            )
-        except Exception as e:
-            logger.debug("Psyche feedback failed for %s: %s", agent.agent_id, e)
+    # Psyche is now in L1 (PsycheAgentPhysics). Only Thronglets remains here.
 
     async def _thronglets_trace(
         self, agent: AgentState, event: Event, session: Any,
@@ -608,10 +554,17 @@ class DefaultEngineHooks:
         engine._event_advances_goal = lambda event, goal: hooks._goal_mutation.event_advances(event, goal)
         engine._select_next_goal = lambda agent, drive_state=None: hooks._goal_mutation.select_next_goal(engine, agent, drive_state=drive_state)
 
-        # Psyche facades (used by DefaultGoalMutationPolicy)
-        engine._get_agent_drive_state = lambda agent_id: hooks.get_drive_state(agent_id)
-        engine._psyche_snapshots = hooks._psyche_snapshots
-        engine._prev_psyche_snapshots = hooks._prev_psyche_snapshots
+        # Psyche facades — now read from engine.agent_physics (L1)
+        from .physics import PsycheAgentPhysics
+        if isinstance(engine.agent_physics, PsycheAgentPhysics):
+            pap = engine.agent_physics
+            engine._get_agent_drive_state = lambda agent_id: pap.get_drive_state(agent_id)
+            engine._psyche_snapshots = pap.snapshots
+            engine._prev_psyche_snapshots = pap.prev_snapshots
+        else:
+            engine._get_agent_drive_state = lambda agent_id: None
+            engine._psyche_snapshots = {}
+            engine._prev_psyche_snapshots = {}
 
         # Replan facade (used by DefaultGoalMutationPolicy)
         engine._replan_goal = lambda agent, goal: _replan_goal_compat(engine, hooks, agent, goal)
@@ -630,5 +583,5 @@ async def _replan_goal_compat(engine, hooks, agent, goal):
         model=engine.model,
         api_key=engine.api_key,
         api_base=engine.api_base,
-        drive_state=hooks.get_drive_state(agent.agent_id),
+        drive_state=engine._get_agent_drive_state(agent.agent_id),
     )
