@@ -1218,7 +1218,10 @@ function HomeContent() {
         <div className="absolute inset-0 z-[1] pointer-events-none" style={{
           background: "radial-gradient(55% 34% at 50% 50%, transparent 10%, rgba(0,0,0,0.12) 56%, rgba(0,0,0,0.48) 100%), linear-gradient(to bottom, rgba(0,0,0,0.16), rgba(0,0,0,0.42))",
         }} />
-        <div className={`absolute inset-0 z-10 grid place-items-center transition-opacity duration-500 ${landingExit ? "opacity-0" : "opacity-100"}`}>
+        <div className={`absolute inset-0 z-10 flex flex-col items-center justify-center transition-opacity duration-500 ${landingExit ? "opacity-0" : "opacity-100"}`}>
+          <div className="text-micro text-t-dim tracking-widest opacity-0 animate-[fade-in_400ms_ease_200ms_both] mb-10">
+            <GlitchReveal text="// BABEL WORLD STATE MACHINE" duration={600} />
+          </div>
           <button
             type="button"
             className="h-12 px-8 text-micro font-medium tracking-widest border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform] opacity-0 animate-[fade-in_400ms_ease_800ms_both]"
@@ -1233,6 +1236,9 @@ function HomeContent() {
           >
             {t("landing_enter")}
           </button>
+          <div className="absolute bottom-8 text-micro text-t-dim/40 tracking-wider opacity-0 animate-[fade-in_300ms_ease_1400ms_both]">
+            {"// SEED + AI RUNTIME = EMERGENCE"}
+          </div>
         </div>
       </div>
     );
