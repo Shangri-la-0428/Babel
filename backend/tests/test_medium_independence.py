@@ -29,7 +29,7 @@ from babel.models import (
     Session,
     WorldSeed,
 )
-from babel.physics import DefaultWorldPhysics
+from babel.physics import DefaultAgentPhysics, DefaultWorldPhysics, NoAgentPhysics
 
 
 # ── Rule-based decision sources (zero LLM) ──────────────
@@ -315,6 +315,96 @@ class TestCustomDecisionSource(unittest.TestCase):
         # Alpha should have moved or spoken (depending on visibility)
         alpha_events = [e for e in events if e.agent_id == "a1"]
         self.assertTrue(len(alpha_events) > 0)
+
+
+class TestAgentPhysicsMediumIndependence(unittest.TestCase):
+    """AgentPhysics works in pure causal mode — zero LLM, zero text."""
+
+    def _run(self, coro):
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def test_null_agent_physics_no_effect(self):
+        """NoAgentPhysics + NullHooks + ScriptedSource = weightless agents."""
+        seed = _make_seed()
+        session = Session(world_seed=seed)
+        session.init_agents()
+        del session.agents["a2"]
+
+        engine = Engine(
+            session=session,
+            decision_source=ScriptedSource([
+                ActionOutput(type=ActionType.MOVE, target="forest"),
+            ]),
+            agent_physics=NoAgentPhysics(),
+            hooks=NullHooks(),
+        )
+
+        self._run(engine.tick())
+        # Agent has no internal state — weightless cursor
+        self.assertEqual(session.agents["a1"].internal_state, {})
+        self.assertEqual(session.agents["a1"].location, "forest")
+
+    def test_default_agent_physics_creates_internal_state(self):
+        """DefaultAgentPhysics gives agents mass — internal state evolves."""
+        seed = _make_seed()
+        session = Session(world_seed=seed)
+        session.init_agents()
+
+        engine = Engine(
+            session=session,
+            decision_source=ReactiveSource(),
+            agent_physics=DefaultAgentPhysics(),
+            hooks=NullHooks(),
+        )
+
+        for _ in range(5):
+            self._run(engine.tick())
+
+        # Both agents should now have internal state
+        for aid in session.agents:
+            agent = session.agents[aid]
+            self.assertIn("energy", agent.internal_state)
+            self.assertIn("stress", agent.internal_state)
+            self.assertIn("momentum", agent.internal_state)
+            # last_action proves the agent took actions through physics
+            self.assertNotEqual(agent.internal_state["last_action"], "")
+
+    def test_agent_physics_personality_differentiation(self):
+        """Different personalities → different internal state trajectories.
+        This is first-order emergence: same physics, different seeds → different behavior."""
+        seed = WorldSeed(
+            name="differentiation-test",
+            locations=[
+                LocationSeed(name="plaza", connections=["wild"]),
+                LocationSeed(name="wild", connections=["plaza"]),
+            ],
+            agents=[
+                AgentSeed(id="cautious", name="Cautious", personality="cautious and shy",
+                          location="plaza", goals=["stay safe"]),
+                AgentSeed(id="bold", name="Bold", personality="adventurous and bold",
+                          location="plaza", goals=["explore everything"]),
+            ],
+        )
+        session = Session(world_seed=seed)
+        session.init_agents()
+
+        ap = DefaultAgentPhysics()
+
+        # Simulate: both agents do the same actions (move + trade)
+        for _ in range(10):
+            for aid in list(session.agents):
+                agent = session.agents[aid]
+                ap.post_event(
+                    ActionOutput(type=ActionType.MOVE, target="wild"),
+                    agent, session,
+                )
+                ap.tick_effects(agent, session)
+
+        cautious_stress = session.agents["cautious"].internal_state["stress"]
+        bold_stress = session.agents["bold"].internal_state["stress"]
+
+        # Cautious agent stressed by moves, bold agent not
+        self.assertGreater(cautious_stress, bold_stress)
 
 
 if __name__ == "__main__":

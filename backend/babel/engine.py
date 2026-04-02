@@ -32,7 +32,7 @@ from .models import (
     SessionStatus,
     StateChanges,
 )
-from .physics import DefaultWorldPhysics, WorldPhysics
+from .physics import AgentPhysics, DefaultWorldPhysics, NoAgentPhysics, WorldPhysics
 from .validator import DefaultWorldAuthority, WorldAuthority
 
 logger = logging.getLogger(__name__)
@@ -45,10 +45,11 @@ MAX_RESOLVE_ATTEMPTS = 3
 class Engine:
     """World simulation engine. Pure causal kernel + pluggable hooks.
 
-    Three protocols define the causal laws:
+    Four protocols define the causal laws:
       - DecisionSource: how agents decide (LLM, rule-based, human, external SDK)
       - WorldAuthority: what actions are legal + how they mutate state
-      - WorldPhysics: engine-enforced consequences (conservation, entropy)
+      - WorldPhysics: engine-enforced world consequences (conservation, entropy)
+      - AgentPhysics: engine-enforced agent consequences (energy, stress, momentum)
 
     One hooks object handles everything else:
       - Perception enrichment (memory, goals, relations)
@@ -62,6 +63,7 @@ class Engine:
         decision_source: DecisionSource | None = None,
         world_authority: WorldAuthority | None = None,
         world_physics: WorldPhysics | None = None,
+        agent_physics: AgentPhysics | None = None,
         hooks: EngineHooks | None = None,
         *,
         model: str | None = None,
@@ -77,7 +79,7 @@ class Engine:
         self.on_event = on_event
         self.tick_delay = tick_delay
 
-        # Three causal protocols
+        # Four causal protocols
         self.decision_source: DecisionSource = decision_source or LLMDecisionSource(
             model=model, api_key=api_key, api_base=api_base,
         )
@@ -85,6 +87,7 @@ class Engine:
         self.world_physics: WorldPhysics = world_physics or DefaultWorldPhysics(
             config=session.world_seed.physics,
         )
+        self.agent_physics: AgentPhysics = agent_physics or NoAgentPhysics()
 
         # Everything non-causal
         self.hooks: EngineHooks = hooks or NullHooks()
@@ -135,8 +138,15 @@ class Engine:
         self._frozen_locations = None
         self.session.urgent_events.clear()
 
-        # Physics: per-tick effects (regeneration, etc.)
+        # Agent physics: per-tick effects (recovery, decay)
+        agent_tick_effects: list[str] = []
+        for aid in list(self.session.agent_ids):
+            agent = self.session.agents[aid]
+            agent_tick_effects.extend(self.agent_physics.tick_effects(agent, self.session))
+
+        # World physics: per-tick effects (regeneration, etc.)
         physics_effects = self.world_physics.tick_effects(self.session)
+        physics_effects.extend(agent_tick_effects)
         if physics_effects:
             physics_event = Event(
                 session_id=self.session.id,
@@ -222,6 +232,11 @@ class Engine:
                 if last_error and attempt > 0:
                     ctx = self._inject_error(ctx, last_error, attempt)
 
+                # Agent physics: enrich context with internal state
+                ap_ctx = self.agent_physics.pre_decide(agent, self.session)
+                if ap_ctx:
+                    ctx = ctx.model_copy(update=ap_ctx)
+
                 # Decide
                 action_output = await self.decision_source.decide(ctx)
 
@@ -239,6 +254,8 @@ class Engine:
                 # Apply + Physics (the causal moment)
                 summary = self.world_authority.apply(response, agent, self.session)
                 effects = self.world_physics.enforce(response.action, agent, self.session)
+                agent_effects = self.agent_physics.post_event(response.action, agent, self.session)
+                effects.extend(agent_effects)
                 if effects:
                     summary += " [" + "; ".join(effects) + "]"
 

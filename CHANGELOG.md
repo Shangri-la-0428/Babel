@@ -4,12 +4,27 @@ All notable changes to BABEL.
 
 ## [Unreleased]
 
+### AgentPhysics — Engine-Enforced Agent Internal State
+- New `AgentPhysics` protocol in `physics.py`: `pre_decide()`, `post_event()`, `tick_effects()`
+- `DefaultAgentPhysics` implements four laws mirroring WorldPhysics:
+  - **Conservation**: energy is finite, every action costs energy
+  - **Entropy**: acting against personality accumulates stress
+  - **Cost**: changing direction costs momentum (willpower)
+  - **Regeneration**: rest restores energy, social interaction reduces stress
+- `NoAgentPhysics`: null implementation (agents are weightless cursors, backward compatible)
+- `AgentState.internal_state: dict` — medium-agnostic internal state container
+- `AgentContext.internal_state: dict` — internal state visible to decision sources
+- Engine integration: 3 call points (pre_decide, post_event, tick_effects) in tick loop
+- Engine now has **four** causal protocols (was three): DecisionSource, WorldAuthority, WorldPhysics, AgentPhysics
+- Second-order emergence proven: behavior → state change → behavior change (50-tick test)
+- Personality differentiation proven: same actions, different stress trajectories
+- 39 new tests (33 unit + 3 medium independence + 3 second-order emergence)
+
 ### Product Shell Decomposition
 - `api.py` 2340 → 127 lines (thin shell: app setup, middleware, lifespan, WebSocket, router mounting)
-- New `state.py` (503 lines): shared engine cache, locks, WebSocket pool, serialization, world event helpers
-- New `routes/` package (7 routers, 2190 lines total): seeds, worlds, agents, oracle, assets, timeline, enrichment
+- New `state.py` (336 lines): shared engine cache, locks, WebSocket pool, serialization, world event helpers
+- New `routes/` package (7 routers): seeds, worlds, agents, oracle, assets, timeline, enrichment
 - All 55 endpoints preserved with identical API contracts
-- 498 tests passing
 
 ### Four-Phase Causal Deepening
 

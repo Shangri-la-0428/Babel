@@ -303,6 +303,7 @@ class AgentState(BaseModel):
     inventory: list[str] = Field(default_factory=list)
     status: AgentStatus = AgentStatus.IDLE
     role: AgentRole = AgentRole.MAIN
+    internal_state: dict[str, Any] = Field(default_factory=dict)
     active_goal: GoalState | None = None
     immediate_intent: str = ""
     immediate_approach: str = ""

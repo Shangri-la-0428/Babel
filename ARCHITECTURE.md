@@ -29,7 +29,7 @@ The architecture follows this belief:
 ┌─────────────────────────────────────────────────────────────────┐
 │  L3  PRODUCT SHELL                                              │
 │      Next.js 14 · Tailwind · WebSocket                          │
-│      FastAPI: api.py (127) + state.py (503) + 7 routers         │
+│      FastAPI: api.py (127) + state.py (336) + 7 routers         │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────────┐
@@ -45,40 +45,49 @@ The architecture follows this belief:
 └──────────────────────────┬──────────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────────┐
-│  L1  WORLD PHYSICS  (physics.py)                                │
-│      WorldPhysics protocol — engine-enforced causal laws        │
+│  L1  PHYSICS  (physics.py)                                      │
+│      WorldPhysics protocol — engine-enforced world laws         │
 │        conservation: trade transfers, never copies              │
 │        entropy: use_item destroys, never restores               │
 │        cost: move consumes resource (selection pressure)        │
 │        regeneration: locations spawn resources over time         │
-│      Declared per-seed via PhysicsConfig                        │
+│      AgentPhysics protocol — engine-enforced agent laws         │
+│        conservation: energy is finite, actions cost energy      │
+│        entropy: acting against personality accumulates stress   │
+│        cost: changing direction costs momentum (willpower)      │
+│        regeneration: rest restores energy, social reduces stress│
+│      Together: complete causal constraint set                   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────────┐
-│  L0  CAUSAL KERNEL  (engine.py — 351 lines, 0 LLM deps)        │
+│  L0  CAUSAL KERNEL  (engine.py — ~370 lines, 0 LLM deps)       │
 │      tick() → for each agent:                                   │
 │        hooks.before_turn()                                      │
 │        ctx = hooks.build_context()                              │
+│        ctx += agent_physics.pre_decide(agent)                   │
 │        action = decision_source.decide(ctx)                     │
 │        response = _propose(action)                              │
 │        errors = world_authority.validate(response)              │
 │        summary = world_authority.apply(response)                │
 │        effects = world_physics.enforce(action)                  │
+│        effects += agent_physics.post_event(action)              │
 │        event = _make_event(response, summary)                   │
 │        hooks.after_event(event)                                 │
+│      agent_physics.tick_effects(agent) per agent                │
 │      world_physics.tick_effects() → regeneration events         │
 │      hooks.after_tick(all_events)                               │
 │                                                                 │
-│      Three causal protocols:                                    │
+│      Four causal protocols:                                     │
 │        DecisionSource  — how agents decide                      │
 │        WorldAuthority  — what's legal + how it mutates state    │
-│        WorldPhysics    — engine-enforced consequences            │
-└──────┬──────────┬──────────┬───────────────────────────────────┘
-       │          │          │
-  ┌────┴────┐ ┌───┴────┐ ┌───┴─────┐
-  │Decision │ │World   │ │ World   │
-  │ Source  │ │Authority│ │ Physics │
-  └─────────┘ └────────┘ └─────────┘
+│        WorldPhysics    — engine-enforced world consequences     │
+│        AgentPhysics    — engine-enforced agent consequences     │
+└──────┬──────────┬──────────┬──────────┬───────────────────────┘
+       │          │          │          │
+  ┌────┴────┐ ┌───┴────┐ ┌───┴─────┐ ┌─┴────────┐
+  │Decision │ │World   │ │ World   │ │ Agent    │
+  │ Source  │ │Authority│ │ Physics │ │ Physics  │
+  └─────────┘ └────────┘ └─────────┘ └──────────┘
 ```
 
 ## Module Responsibilities
@@ -225,13 +234,14 @@ Key functions:
 - `consolidate_memories()` — Compress old episodic memories into semantic summaries
 - `extract_beliefs()` — Derive beliefs from relations and event patterns
 
-### engine.py — Pure Causal Kernel (334 lines)
+### engine.py — Pure Causal Kernel (~370 lines)
 The engine is a causal loop. Nothing else. It does not know about LLMs, text, memory, chapters, or any medium.
 
-Three causal protocols define the laws:
+Four causal protocols define the laws:
 - `DecisionSource` — how agents decide (LLM, rule-based, human, external SDK)
 - `WorldAuthority` — what actions are legal + how they mutate state
-- `WorldPhysics` — engine-enforced consequences (conservation, entropy)
+- `WorldPhysics` — engine-enforced world consequences (conservation, entropy)
+- `AgentPhysics` — engine-enforced agent consequences (energy, stress, momentum)
 
 One hooks object handles everything else:
 - `EngineHooks` — perception enrichment, post-event processing, post-tick processing
@@ -261,11 +271,11 @@ The product layer is decomposed into clean modules:
 | Module | Lines | Purpose |
 |--------|-------|---------|
 | `api.py` | 127 | Thin shell: app, middleware, lifespan, WebSocket, router mounting |
-| `state.py` | 503 | Shared state: engine cache, locks, WebSocket pool, serialization, helpers |
+| `state.py` | 336 | Shared state: engine cache, locks, WebSocket pool, serialization, helpers |
 | `routes/seeds.py` | 248 | Seed library CRUD (list, detail, update, delete) |
-| `routes/worlds.py` | 682 | World lifecycle (create, run, step, pause, inject, command) |
+| `routes/worlds.py` | 616 | World lifecycle (create, run, step, pause, inject, command) |
 | `routes/agents.py` | 244 | Human control + external SDK gateway |
-| `routes/oracle.py` | 218 | Oracle narrator + agent chat |
+| `routes/oracle.py` | 269 | Oracle narrator + agent chat + oracle draft |
 | `routes/assets.py` | 402 | Asset library + seed extraction (agent, item, location, event, world) |
 | `routes/timeline.py` | 217 | Timeline, replay, fork, report, memories |
 | `routes/enrichment.py` | 179 | Progressive entity detail enrichment |
@@ -397,6 +407,48 @@ class PhysicsConfig(BaseModel):
 
 Locations declare what they produce: `resources: ["herb", "wood"]`. Physics regeneration spawns from this list. Items appear as `session.location_items` (ground items), visible in agent context as `ground_items`.
 
+## Agent Physics — Engine-Enforced Agent Laws
+
+`babel/physics.py` — the `AgentPhysics` protocol gives agents "mass" — internal state that constrains and shapes behavior. WorldPhysics governs the world; AgentPhysics governs the agent. Together they form the complete causal constraint set.
+
+### Four Laws (mirroring WorldPhysics)
+
+| Law | Mechanism | Engine Effect |
+|-----|-----------|---------------|
+| **Conservation** | Energy is finite | Every action costs energy; exhaustion amplifies cost |
+| **Entropy** | Personality friction | Acting against personality accumulates stress |
+| **Cost** | Momentum resistance | Changing direction costs extra energy (willpower) |
+| **Regeneration** | Passive recovery | Rest restores energy; social actions reduce stress |
+
+### Protocol
+
+```python
+class AgentPhysics(Protocol):
+    def pre_decide(self, agent, session) -> dict: ...      # internal state → context
+    def post_event(self, action, agent, session) -> list[str]: ...  # action → state update
+    def tick_effects(self, agent, session) -> list[str]: ...  # per-tick decay/recovery
+```
+
+Implementations:
+- `DefaultAgentPhysics` — all four laws, personality-aware stress, second-order feedback
+- `NoAgentPhysics` — null implementation (agents are weightless cursors)
+
+### Internal State (AgentState.internal_state)
+
+Medium-agnostic dict with default fields:
+- `energy` (0.0-1.0) — fuel for action
+- `stress` (0.0-1.0) — friction from fighting nature
+- `momentum` (0.0-1.0) — tendency to repeat patterns
+- `last_action` — previous action type
+
+### Second-Order Emergence
+
+The feedback loop: **behavior → state change → behavior change → state change**.
+
+Example: a cautious agent forced to move repeatedly accumulates stress → stress above threshold triggers rest behavior → rest reduces stress → agent resumes exploring. Different personalities produce different trajectories from identical initial conditions.
+
+This is proven by `test_second_order_emergence.py`: 50 ticks, zero LLM, state-aware decision source.
+
 ## Extension Points
 
 | What | Where | How |
@@ -406,7 +458,8 @@ Locations declare what they produce: `resources: ["herb", "wood"]`. Physics rege
 | External agent | `decision.py` | Use `ExternalDecisionSource` (perceive/act) |
 | SDK client | `client.py` | Use `BabelAgent` context manager |
 | Hard world rules | `validator.py` | Implement `WorldAuthority` |
-| Causal physics | `physics.py` | Implement `WorldPhysics` (or use `NoPhysics`) |
+| World physics | `physics.py` | Implement `WorldPhysics` (or use `NoPhysics`) |
+| Agent physics | `physics.py` | Implement `AgentPhysics` (or use `NoAgentPhysics`) |
 | Context shaping | `decision.py` | Implement `DecisionContextPolicy` |
 | Model bridge | `decision.py` | Implement `DecisionModel` |
 | Action review | `decision.py` | Implement `ActionCritic` |
@@ -485,7 +538,7 @@ State flows through WebSocket: `connected → event → tick → state_update �
 
 ## Testing
 
-479 backend tests across 17 files:
+~540 backend tests across 19 files:
 
 | File | Coverage |
 |------|----------|
@@ -506,6 +559,8 @@ State flows through WebSocket: `connected → event → tick → state_update �
 | `test_external_decision.py` | ExternalDecisionSource protocol, Turn cycle, timeout, disconnect, fallback |
 | `test_external_e2e.py` | Full API integration: connect, perceive, act, disconnect, multi-tick |
 | `test_mvu.py` | MVU 100-tick proof: external agent, action variety, location traversal, emotional feedback |
+| `test_agent_physics.py` | AgentPhysics: 4 laws (energy, stress, momentum, recovery), protocol compliance, second-order effects |
+| `test_second_order_emergence.py` | 50-tick feedback loop proof: behavior→state→behavior, personality differentiation, control test |
 | `benchmark_scorecard.py` | 100-tick x 3 seeds benchmark (goal/relation/significance/entropy metrics) |
 
-Run: `cd backend && python -m pytest tests/ -v` (498 tests)
+Run: `cd backend && python -m pytest tests/ -v`
