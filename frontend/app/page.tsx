@@ -59,6 +59,9 @@ function HomeContent() {
   const [editing, setEditing] = useState(false);
   const [bootOverlay, setBootOverlay] = useState<{ worldName: string; targetUrl: string } | null>(null);
   const [booting, setBooting] = useState(false);
+  const [landed, setLanded] = useState(false);
+  const [landingExit, setLandingExit] = useState(false);
+  const ambientRef = useRef<import("@/components/AmbientGrid").AmbientGridHandle>(null);
   const assetTabIndicatorRef = useRef<HTMLSpanElement>(null);
   // Settings saved to localStorage by Settings component; home page only shows/hides the panel
   const noop = () => {};
@@ -1202,6 +1205,35 @@ function HomeContent() {
             </div>
         </div>
 
+      </div>
+    );
+  }
+
+  // ── Landing view ──
+  if (!landed) {
+    return (
+      <div className="fixed inset-0 z-50 bg-void overflow-hidden">
+        <AmbientGrid ref={ambientRef} density="dense" className="z-0 opacity-70" />
+        {/* Vignette overlay */}
+        <div className="absolute inset-0 z-[1] pointer-events-none" style={{
+          background: "radial-gradient(55% 34% at 50% 50%, transparent 10%, rgba(0,0,0,0.12) 56%, rgba(0,0,0,0.48) 100%), linear-gradient(to bottom, rgba(0,0,0,0.16), rgba(0,0,0,0.42))",
+        }} />
+        <div className={`absolute inset-0 z-10 grid place-items-center transition-opacity duration-500 ${landingExit ? "opacity-0" : "opacity-100"}`}>
+          <button
+            type="button"
+            className="h-12 px-8 text-micro font-medium tracking-widest border border-b-DEFAULT text-t-muted hover:border-primary hover:text-primary hover:shadow-[0_0_16px_var(--color-primary-glow-strong)] active:scale-[0.97] transition-[colors,box-shadow,transform] opacity-0 animate-[fade-in_400ms_ease_800ms_both]"
+            onPointerEnter={() => {
+              ambientRef.current?.inject(window.innerWidth / 2, window.innerHeight / 2, 12);
+            }}
+            onClick={() => {
+              ambientRef.current?.inject(window.innerWidth / 2, window.innerHeight / 2, 22);
+              setLandingExit(true);
+              setTimeout(() => setLanded(true), 500);
+            }}
+          >
+            {t("landing_enter")}
+          </button>
+        </div>
       </div>
     );
   }

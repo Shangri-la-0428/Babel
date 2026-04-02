@@ -336,6 +336,7 @@ const translations = {
 
   // Home page
   tagline: { cn: "种子 + AI 运行时 = 世界状态机", en: "Seed + AI Runtime = World State Machine" },
+  landing_enter: { cn: "INITIALIZE", en: "INITIALIZE" },
   world_count: { cn: "{0} 个世界就绪", en: "{0} worlds ready" },
   select_world: { cn: "选择世界进入", en: "Select a world to enter" },
 
