@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
 
-from .models import ActionOutput, ActionType, AgentInternalState
+from .models import ActionOutput, ActionType, AgentInternalState, FieldOverlay
 
 
 class AgentContext(BaseModel):
@@ -50,9 +50,11 @@ class AgentContext(BaseModel):
     ground_items: list[str] = Field(default_factory=list)
     # Agent internal state (from AgentPhysics: energy, stress, momentum)
     internal_state: AgentInternalState = Field(default_factory=AgentInternalState)
-    # Phase B: Psyche emotional context (optional, for LLM prompt enrichment)
+    # Substrate overlays (optional, for LLM prompt enrichment)
     emotional_context: str = ""
     drive_state: dict[str, float] = Field(default_factory=dict)
+    # Thronglets field overlay — information signals for decision weighting
+    field_overlay: FieldOverlay = Field(default_factory=FieldOverlay)
 
 
 @runtime_checkable
@@ -546,34 +548,57 @@ class PsycheAugmentedDecisionSource:
 
 
 def _build_emotional_context(snapshot: Any, policy: Any) -> str:
-    """Build a natural-language description of the agent's emotional state."""
+    """Build a natural-language description of the agent's emotional state.
+
+    Uses overlay signals when available (stable contract), falls back to
+    raw snapshot fields for backward compatibility with older Psyche versions.
+    """
     parts: list[str] = []
 
-    # Dominant emotion
-    if snapshot.dominant_emotion:
-        parts.append(f"You are feeling {snapshot.dominant_emotion}.")
+    # Prefer overlay if present in snapshot response
+    overlay = getattr(snapshot, "raw", {}).get("overlay", {})
+    if overlay:
+        arousal = overlay.get("arousal", 0.0)
+        valence = overlay.get("valence", 0.0)
+        agency = overlay.get("agency", 0.0)
+        vulnerability = overlay.get("vulnerability", 0.0)
 
-    # Autonomic state
-    dominant = snapshot.autonomic.dominant if snapshot else "ventral_vagal"
-    state_desc = {
-        "ventral_vagal": "You feel safe and socially open.",
-        "sympathetic": "You feel on edge, alert to danger. Your body wants to move or act.",
-        "dorsal_vagal": "You feel overwhelmed and shut down. Action feels impossible.",
-    }
-    parts.append(state_desc.get(dominant, ""))
+        if arousal > 0.5:
+            parts.append("You feel highly activated and alert.")
+        elif arousal < -0.5:
+            parts.append("You feel sluggish and withdrawn.")
+        if valence > 0.5:
+            parts.append("Things feel good — positive momentum.")
+        elif valence < -0.5:
+            parts.append("Something feels wrong — a negative undertone.")
+        if agency < -0.5:
+            parts.append("You feel powerless, constrained.")
+        if vulnerability > 0.5:
+            parts.append("You feel exposed and fragile.")
+    else:
+        # Fallback: read raw snapshot fields (pre-overlay Psyche)
+        if snapshot.dominant_emotion:
+            parts.append(f"You are feeling {snapshot.dominant_emotion}.")
 
-    # Key chemical signals
-    chem = snapshot.chemicals
-    if chem.cortisol > 70:
-        parts.append("Stress is high — you're anxious and hypervigilant.")
-    if chem.dopamine < 30:
-        parts.append("Motivation is low — nothing feels rewarding.")
-    if chem.oxytocin > 70:
-        parts.append("You feel a strong sense of trust and connection.")
-    elif chem.oxytocin < 30:
-        parts.append("You feel isolated and mistrustful.")
+        dominant = snapshot.autonomic.dominant if snapshot else "ventral_vagal"
+        state_desc = {
+            "ventral_vagal": "You feel safe and socially open.",
+            "sympathetic": "You feel on edge, alert to danger. Your body wants to move or act.",
+            "dorsal_vagal": "You feel overwhelmed and shut down. Action feels impossible.",
+        }
+        parts.append(state_desc.get(dominant, ""))
 
-    # Unsatisfied drives
+        chem = snapshot.chemicals
+        if chem.cortisol > 70:
+            parts.append("Stress is high — you're anxious and hypervigilant.")
+        if chem.dopamine < 30:
+            parts.append("Motivation is low — nothing feels rewarding.")
+        if chem.oxytocin > 70:
+            parts.append("You feel a strong sense of trust and connection.")
+        elif chem.oxytocin < 30:
+            parts.append("You feel isolated and mistrustful.")
+
+    # Unsatisfied drives (from snapshot, not overlay)
     if snapshot.drives:
         low = [d for d, v in snapshot.drives.items() if v < 40]
         if low:

@@ -135,6 +135,34 @@ class AgentInternalState(BaseModel):
     last_action: str = ""     # previous action type (for momentum calculation)
 
 
+class PsycheOverlay(BaseModel):
+    """Stable overlay from Psyche — modulates AgentPhysics constants.
+
+    These are Psyche's external contract. BABEL never reads Psyche internals.
+    Each signal modulates one physics constant:
+      arousal       → stress accumulation rate  (high activation = faster load)
+      valence       → recovery rate             (positive state = faster healing)
+      agency        → action cost               (high agency = cheaper actions)
+      vulnerability → stress damage threshold   (fragile = hurt earlier)
+    """
+    arousal: float = 0.0        # [-1, 1] high flow + low order = high activation
+    valence: float = 0.0        # [-1, 1] high order + high resonance = positive
+    agency: float = 0.0         # [-1, 1] high boundary + high flow = capable
+    vulnerability: float = 0.0  # [-1, 1] low boundary + low order = fragile
+
+
+class FieldOverlay(BaseModel):
+    """Stable overlay from Thronglets — influences decision context, not physics.
+
+    Information, not constraint. Agent can choose to ignore these signals.
+    Injected into AgentContext for decision weighting.
+    """
+    familiarity: float = 0.0  # [0, 1] field's recognition of current situation
+    consensus: float = 0.0    # [0, 1] field consistency (experiences point same way)
+    momentum: float = 0.0     # [-1, 1] field trend (freshness decay)
+    coupling: float = 0.0     # [0, 1] inter-capability correlation (Hebbian)
+
+
 class NarratorConfig(BaseModel):
     persona: str = ""                # custom persona e.g. "A weary bard"
     auto_commentary: bool = False    # auto-generate commentary

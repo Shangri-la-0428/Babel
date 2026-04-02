@@ -324,3 +324,117 @@ class TestProtocolCompliance:
     def test_psyche_is_agent_physics(self):
         from babel.physics import AgentPhysics, PsycheAgentPhysics
         assert isinstance(PsycheAgentPhysics(), AgentPhysics)
+
+
+# ── Overlay modulation ─────────────────────────────────
+
+class TestOverlayModulation:
+    """PsycheAgentPhysics: overlay signals modulate constants, not state."""
+
+    def _pap(self, agent_id: str = "alice", **overlay_kwargs):
+        from babel.physics import PsycheAgentPhysics
+        from babel.models import PsycheOverlay
+        pap = PsycheAgentPhysics()
+        pap.overlays[agent_id] = PsycheOverlay(**overlay_kwargs)
+        return pap
+
+    def test_zero_overlay_equals_default(self):
+        """Zero overlay = identical to DefaultAgentPhysics."""
+        pap = self._pap()
+        default = DefaultAgentPhysics()
+        agent_p = _agent()
+        agent_d = _agent()
+        session = _session()
+
+        pap.post_event(_action(ActionType.MOVE, target="market"), agent_p, session)
+        default.post_event(_action(ActionType.MOVE, target="market"), agent_d, session)
+        assert agent_p.internal_state.energy == agent_d.internal_state.energy
+        assert agent_p.internal_state.stress == agent_d.internal_state.stress
+
+        pap.tick_effects(agent_p, session)
+        default.tick_effects(agent_d, session)
+        assert agent_p.internal_state.energy == agent_d.internal_state.energy
+
+    def test_arousal_amplifies_stress(self):
+        """High arousal → stress accumulates faster."""
+        pap_high = self._pap(arousal=1.0)
+        pap_zero = self._pap(arousal=0.0)
+        agent_high = _agent()
+        agent_zero = _agent()
+        session = _session()
+
+        for _ in range(5):
+            pap_high.post_event(_action(ActionType.MOVE, target="market"), agent_high, session)
+            pap_zero.post_event(_action(ActionType.MOVE, target="market"), agent_zero, session)
+
+        assert agent_high.internal_state.stress > agent_zero.internal_state.stress
+
+    def test_negative_arousal_reduces_stress(self):
+        """Negative arousal → stress accumulates slower."""
+        pap_low = self._pap(arousal=-0.8)
+        pap_zero = self._pap(arousal=0.0)
+        agent_low = _agent()
+        agent_zero = _agent()
+        session = _session()
+
+        for _ in range(5):
+            pap_low.post_event(_action(ActionType.MOVE, target="market"), agent_low, session)
+            pap_zero.post_event(_action(ActionType.MOVE, target="market"), agent_zero, session)
+
+        assert agent_low.internal_state.stress < agent_zero.internal_state.stress
+
+    def test_valence_improves_recovery(self):
+        """Positive valence → faster energy recovery."""
+        pap_pos = self._pap(valence=1.0)
+        pap_neg = self._pap(valence=-1.0)
+        agent_pos = _agent()
+        agent_neg = _agent()
+        _set_state(agent_pos, energy=0.5)
+        _set_state(agent_neg, energy=0.5)
+        session = _session()
+
+        pap_pos.tick_effects(agent_pos, session)
+        pap_neg.tick_effects(agent_neg, session)
+
+        assert agent_pos.internal_state.energy > agent_neg.internal_state.energy
+
+    def test_agency_reduces_cost(self):
+        """High agency → actions cost less energy."""
+        pap_high = self._pap(agency=1.0)
+        pap_zero = self._pap(agency=0.0)
+        agent_high = _agent()
+        agent_zero = _agent()
+        session = _session()
+
+        pap_high.post_event(_action(ActionType.MOVE, target="market"), agent_high, session)
+        pap_zero.post_event(_action(ActionType.MOVE, target="market"), agent_zero, session)
+
+        assert agent_high.internal_state.energy > agent_zero.internal_state.energy
+
+    def test_vulnerability_lowers_damage_threshold(self):
+        """High vulnerability → stress drains energy at lower stress levels."""
+        pap_vuln = self._pap(vulnerability=1.0)
+        pap_zero = self._pap(vulnerability=0.0)
+        agent_vuln = _agent()
+        agent_zero = _agent()
+        _set_state(agent_vuln, energy=0.5, stress=0.65)
+        _set_state(agent_zero, energy=0.5, stress=0.65)
+        session = _session()
+
+        effects_vuln = pap_vuln.tick_effects(agent_vuln, session)
+        effects_zero = pap_zero.tick_effects(agent_zero, session)
+
+        # vulnerability=1 → threshold 0.6, stress 0.65 > 0.6 → drains
+        assert any("draining" in e for e in effects_vuln)
+        # vulnerability=0 → threshold 0.9, stress 0.65 < 0.9 → no drain
+        assert not any("draining" in e for e in effects_zero)
+
+    def test_overlay_models_exist(self):
+        from babel.models import PsycheOverlay, FieldOverlay
+        po = PsycheOverlay(arousal=0.5, valence=-0.3, agency=0.8, vulnerability=0.1)
+        fo = FieldOverlay(familiarity=0.7, consensus=0.5, momentum=-0.2, coupling=0.9)
+        assert po.arousal == 0.5
+        assert fo.coupling == 0.9
+        # Roundtrip
+        assert PsycheOverlay(**po.model_dump()) == po
+        assert FieldOverlay(**fo.model_dump()) == fo

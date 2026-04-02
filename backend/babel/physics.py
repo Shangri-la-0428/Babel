@@ -240,24 +240,41 @@ class DefaultAgentPhysics:
 
 
 class PsycheAgentPhysics(DefaultAgentPhysics):
-    """AgentPhysics powered by Psyche's four dimensions.
+    """AgentPhysics modulated by Psyche's overlay.
 
-    Extends DefaultAgentPhysics (pure causal) with Psyche-driven stress:
-    - pre_decide: fetch Psyche state → map dimensions to internal state
-    - post_event: feed event to Psyche for emotional update
-    - tick_effects: Psyche cortisol → stress, autonomic → recovery rate
+    Psyche provides 4 signals via PsycheOverlay. Each modulates one
+    physics constant — overlay never touches internal state directly.
 
-    When Psyche is unavailable, falls back to pure causal behavior.
-    This is the bridge that makes Psyche a causal constraint (L1),
-    not an optional decorator (L2).
+    arousal       → STRESS_RATIO multiplier   (activation = faster load buildup)
+    valence       → RECOVERY_PER_TICK mult.   (positive = faster healing)
+    agency        → ACTION_COST multiplier    (capable = cheaper actions)
+    vulnerability → stress damage threshold   (fragile = hurt at lower stress)
+
+    When overlay is zero-vector, behavior is identical to DefaultAgentPhysics.
+    When Psyche is unavailable, falls back to pure causal.
     """
+
+    # Coupling strengths — how much Psyche can influence each constant.
+    # These are the only free parameters in the bridge.
+    AROUSAL_COUPLING: float = 1.0    # arousal=1 → 2x stress rate
+    VALENCE_COUPLING: float = 0.5    # valence=1 → 1.5x recovery
+    AGENCY_COUPLING: float = 0.3     # agency=1 → 0.7x action cost
+    VULNERABILITY_COUPLING: float = 0.3  # vulnerability=1 → stress hurts at 0.6 not 0.9
 
     def __init__(self, psyche_url: str | None = None):
         self._psyche_url = psyche_url
         self._bridge: Any = None
-        # Per-agent Psyche snapshots (current + previous for drive shift detection)
+        # Per-agent overlays (current + previous for shift detection)
+        self.overlays: dict[str, Any] = {}
+        self.prev_overlays: dict[str, Any] = {}
+        # Full snapshots kept for decision sources (PsycheDecisionSource etc.)
         self.snapshots: dict[str, Any] = {}
         self.prev_snapshots: dict[str, Any] = {}
+
+    def _get_overlay(self, agent_id: str):
+        """Get cached overlay for agent, or default zero-vector."""
+        from .models import PsycheOverlay
+        return self.overlays.get(agent_id) or PsycheOverlay()
 
     async def _get_bridge(self):
         if not self._psyche_url:
@@ -268,52 +285,118 @@ class PsycheAgentPhysics(DefaultAgentPhysics):
         return self._bridge
 
     def pre_decide(self, agent: AgentState, session: Session) -> dict:
-        """Pure causal base + Psyche snapshot enrichment."""
+        """Pure causal base + overlay-derived emotional context."""
         ctx = super().pre_decide(agent, session)
 
+        overlay = self._get_overlay(agent.agent_id)
+
+        # Build emotional context from overlay signals
+        parts: list[str] = []
+        if overlay.arousal > 0.5:
+            parts.append("You feel highly activated and alert.")
+        elif overlay.arousal < -0.5:
+            parts.append("You feel sluggish and withdrawn.")
+        if overlay.valence > 0.5:
+            parts.append("Things feel good — positive momentum.")
+        elif overlay.valence < -0.5:
+            parts.append("Something feels wrong — negative undertone.")
+        if overlay.agency < -0.5:
+            parts.append("You feel powerless, constrained.")
+        if overlay.vulnerability > 0.5:
+            parts.append("You feel exposed and fragile.")
+
+        if parts:
+            ctx["emotional_context"] = " ".join(parts)
+
+        # Expose drive state from snapshot (for goal mutation, decision sources)
         snapshot = self.snapshots.get(agent.agent_id)
-        if not snapshot:
-            return ctx
-
-        # Map Psyche dimensions to context
-        drive_state: dict[str, float] = {}
-        emotional_context = ""
-
-        if hasattr(snapshot, "drives") and snapshot.drives:
-            drive_state = snapshot.drives
-            ctx["drive_state"] = drive_state
-
-        if hasattr(snapshot, "dominant_emotion") and snapshot.dominant_emotion:
-            emotional_context = f"Emotional state: {snapshot.dominant_emotion}"
-            if hasattr(snapshot, "autonomic"):
-                emotional_context += f" (autonomic: {snapshot.autonomic.dominant})"
-            # Psyche emotional context overrides the pure causal one
-            ctx["emotional_context"] = emotional_context
-
-        # Map Psyche cortisol → stress amplification (causal coupling).
-        # TODO: this hardcodes Psyche's schema — will be replaced by
-        # a substrate-agnostic overlay protocol when Psyche/Thronglets stabilize.
-        if hasattr(snapshot, "chemicals") and snapshot.chemicals:
-            cortisol = snapshot.chemicals.cortisol
-            if cortisol > 70:
-                agent.internal_state.stress = min(
-                    1.0,
-                    agent.internal_state.stress + (cortisol - 50) * 0.002,
-                )
+        if snapshot and hasattr(snapshot, "drives") and snapshot.drives:
+            ctx["drive_state"] = snapshot.drives
 
         return ctx
 
+    def post_event(
+        self,
+        action: ActionOutput,
+        agent: AgentState,
+        session: Session,
+    ) -> list[str]:
+        """Overlay-modulated post_event: agency reduces cost, arousal amplifies stress."""
+        s = agent.internal_state
+        effects: list[str] = []
+        action_type = action.type.value if hasattr(action.type, "value") else str(action.type)
+        overlay = self._get_overlay(agent.agent_id)
+
+        # Law 1: Conservation — energy cost, modulated by agency
+        cost = self.ACTION_COST.get(action_type, 0.05)
+        cost *= (1.0 - overlay.agency * self.AGENCY_COUPLING)
+        if s.energy < 0.2:
+            cost *= 1.5
+        s.energy = max(0.0, s.energy - cost)
+        if s.energy < 0.1:
+            effects.append(f"{agent.name} is exhausted")
+
+        # Law 1b: Stress as load — ratio modulated by arousal
+        if cost > 0:
+            effective_ratio = self.STRESS_RATIO * (1.0 + overlay.arousal * self.AROUSAL_COUPLING)
+            s.stress = min(1.0, s.stress + cost * max(0.0, effective_ratio))
+            if s.stress > 0.8:
+                effects.append(f"{agent.name} is under heavy load")
+
+        # Law 2: Inertia — unchanged by overlay
+        if s.last_action and s.last_action != action_type:
+            momentum_cost = s.momentum * self.MOMENTUM_SWITCH_RATIO
+            s.energy = max(0.0, s.energy - momentum_cost)
+            s.momentum = max(0.0, s.momentum - 0.3)
+        else:
+            s.momentum = min(1.0, s.momentum + self.MOMENTUM_BUILD)
+
+        s.last_action = action_type
+        return effects
+
+    def tick_effects(self, agent: AgentState, session: Session) -> list[str]:
+        """Overlay-modulated tick: valence improves recovery, vulnerability lowers damage threshold."""
+        s = agent.internal_state
+        effects: list[str] = []
+        overlay = self._get_overlay(agent.agent_id)
+
+        # Law 3: Recovery — modulated by valence
+        recovery = self.RECOVERY_PER_TICK * (1.0 + overlay.valence * self.VALENCE_COUPLING)
+        if s.stress > 0.5:
+            recovery *= 0.5
+        s.energy = min(1.0, s.energy + max(0.0, recovery))
+
+        # Stress decay
+        s.stress = max(0.0, s.stress - self.STRESS_DECAY)
+
+        # Momentum decay
+        s.momentum = max(0.0, s.momentum - self.MOMENTUM_DECAY)
+
+        # Second-order: stress drains energy — threshold lowered by vulnerability
+        threshold = 0.9 - overlay.vulnerability * self.VULNERABILITY_COUPLING
+        if s.stress > threshold:
+            s.energy = max(0.0, s.energy - 0.05)
+            effects.append(f"{agent.name}'s stress is draining energy")
+
+        return effects
+
     async def refresh(self, agent: AgentState) -> None:
-        """Fetch latest Psyche state for an agent. Called from hooks.before_turn."""
+        """Fetch latest Psyche overlay + snapshot. Called from hooks.before_turn."""
         bridge = await self._get_bridge()
         if not bridge:
             return
+        try:
+            overlay = await bridge.get_overlay()
+            self.prev_overlays[agent.agent_id] = self.overlays.get(agent.agent_id)
+            self.overlays[agent.agent_id] = overlay
+        except Exception as e:
+            logger.debug("Psyche overlay fetch failed for %s: %s", agent.agent_id, e)
         try:
             snapshot = await bridge.get_state()
             self.prev_snapshots[agent.agent_id] = self.snapshots.get(agent.agent_id)
             self.snapshots[agent.agent_id] = snapshot
         except Exception as e:
-            logger.debug("Psyche refresh failed for %s: %s", agent.agent_id, e)
+            logger.debug("Psyche snapshot fetch failed for %s: %s", agent.agent_id, e)
 
     async def feedback(self, agent: AgentState, event_result: str) -> None:
         """Feed agent action result to Psyche for emotional update."""

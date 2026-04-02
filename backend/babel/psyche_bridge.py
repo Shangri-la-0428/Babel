@@ -191,6 +191,40 @@ class PsycheBridge:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_overlay(self) -> "PsycheOverlay":
+        """Fetch Psyche overlay — the stable external contract.
+
+        Tries GET /overlay first (dedicated endpoint).
+        Falls back to extracting overlay from GET /state response.
+        """
+        from .models import PsycheOverlay
+
+        client = await self._get_client()
+        try:
+            resp = await client.get("/overlay")
+            resp.raise_for_status()
+            data = resp.json()
+            return PsycheOverlay(
+                arousal=data.get("arousal", 0.0),
+                valence=data.get("valence", 0.0),
+                agency=data.get("agency", 0.0),
+                vulnerability=data.get("vulnerability", 0.0),
+            )
+        except (httpx.HTTPStatusError, httpx.ConnectError):
+            # Fallback: extract overlay from /state if /overlay not implemented
+            pass
+
+        resp = await client.get("/state")
+        resp.raise_for_status()
+        data = resp.json()
+        overlay_data = data.get("overlay", {})
+        return PsycheOverlay(
+            arousal=overlay_data.get("arousal", 0.0),
+            valence=overlay_data.get("valence", 0.0),
+            agency=overlay_data.get("agency", 0.0),
+            vulnerability=overlay_data.get("vulnerability", 0.0),
+        )
+
     async def get_state(self) -> PsycheSnapshot:
         """Get full Psyche state snapshot."""
         client = await self._get_client()
