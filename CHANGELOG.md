@@ -4,6 +4,55 @@ All notable changes to BABEL.
 
 ## [Unreleased]
 
+### Four-Phase Causal Deepening
+
+**Phase 1: Accidental complexity elimination**
+- `policies.py`: 700 → 381 lines. Deleted 7 redundant protocols + 7 dead default implementations. Kept only 4 domain policies (social + goals)
+- `hooks.py`: 632 → 634 lines. Removed 30+ dead facade methods, 3 compat shims, 2 facade classes. Added substrate connections
+- `install_facades()` reduced to only goal mutation + psyche facades needed by surviving code
+
+**Phase 2: Physics completion — four causal laws**
+- **Move cost**: `PhysicsConfig.move_cost` — MOVE consumes a resource from inventory (selection pressure)
+- **Regeneration**: `PhysicsConfig.regeneration` — locations spawn resources from `LocationSeed.resources`
+- **Pickup**: OBSERVE at location with ground items picks up one (resource flow complete)
+- `WorldPhysics` protocol extended with `tick_effects(session)` for per-tick physics
+- Engine calls `tick_effects` after all agents act, emits `[PHYSICS]` events
+
+**Phase 3: Substrate connections (Psyche + Thronglets live wire)**
+- `DefaultEngineHooks` accepts optional `psyche_url` and `thronglets_url`
+- Before turn: refresh Psyche state → drives inform goal selection
+- After event: feed event to Psyche (emotional update) + record Thronglets trace
+- Build context: Psyche snapshot → `emotional_context` + `drive_state` in AgentContext
+- All connections are optional and fail-silent
+
+**Phase 4: Medium independence proof**
+- 9 tests proving engine runs with NullHooks + rule-based DecisionSource
+- Zero LLM dependencies, zero text generation, zero persistence
+- ScriptedSource, ReactiveSource: non-LLM decision sources
+- Multi-tick stability: 10 ticks with reactive agents, state evolves correctly
+- Physics works in pure mode: move cost + regeneration + pickup
+
+### Engine Separation — Pure Causal Kernel + Hooks
+
+**The engine is now medium-agnostic.** Separated into three files:
+
+- `engine.py` (351 lines) — Pure causal kernel: tick → perceive → decide → validate → apply → physics → event. Zero imports from memory, llm, prompts, significance, or db
+- `hooks.py` (634 lines) — `EngineHooks` protocol with 4 lifecycle callbacks. `NullHooks` for pure causal testing, `DefaultEngineHooks` for text worlds with optional Psyche/Thronglets substrate connections
+- `physics.py` (224 lines) — `WorldPhysics` protocol with 4 laws: conservation, entropy, cost, regeneration
+
+**Seed format simplified:**
+- `rules` → `lore` (honest naming — these are LLM soft guidelines, not engine rules)
+- Removed `ResourceSeed`, `ItemSeed` — items are strings, details in `glossary: dict[str, str]`
+- Added `PhysicsConfig` — real rules, engine-enforced: conservation, entropy, move_cost, regeneration
+- Added `LocationSeed.resources` — what each location produces
+
+**Three causal protocols** define the engine's laws:
+- `DecisionSource` — how agents decide
+- `WorldAuthority` — what's legal + state mutation
+- `WorldPhysics` — cross-agent consequences (conservation, entropy, cost, regeneration)
+
+**498 tests passing.**
+
 ### Snapshot-based Tick + Prompt Restructure (DNA+Time 自然演化)
 
 **Causal isolation** — agents now perceive a frozen world snapshot at tick start:

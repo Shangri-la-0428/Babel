@@ -32,6 +32,7 @@ from .db import (
 )
 from .clock import world_time
 from .engine import Engine
+from .hooks import DefaultEngineHooks
 from .llm import chat_with_agent, chat_with_oracle, detect_new_character, enrich_entity, generate_seed_draft
 from .memory import create_memory_from_event, retrieve_relevant_memories, get_agent_beliefs
 from .models import AgentRole, AgentSeed, AgentState, AgentStatus, Event, SavedSeed, SeedEnvelope, SeedLineage, SeedType, Session, SessionStatus, WorldSeed
@@ -98,10 +99,9 @@ async def health():
 class CreateWorldRequest(BaseModel):
     name: str
     description: str = ""
-    rules: list[str] = []
+    lore: list[str] = []
     locations: list[dict[str, Any]] = []
-    resources: list[dict[str, Any]] = []
-    items: list[dict[str, Any]] = []
+    glossary: dict[str, str] = {}
     agents: list[dict[str, Any]] = []
     initial_events: list[str] = []
 
@@ -122,6 +122,13 @@ class RunRequest(BaseModel):
     api_key: str | None = None
     api_base: str | None = None
     tick_delay: float = 3.0
+
+
+class DaemonRequest(BaseModel):
+    tick_interval: float = 5.0
+    model: str | None = None
+    api_key: str | None = None
+    api_base: str | None = None
 
 
 class InjectEventRequest(BaseModel):
@@ -521,6 +528,14 @@ def _event_dict(e: Event) -> dict:
     return d
 
 
+def _make_engine(session: Session, on_event=None) -> Engine:
+    """Create an Engine with full text-world hooks."""
+    hooks = DefaultEngineHooks()
+    engine = Engine(session=session, hooks=hooks, on_event=on_event)
+    hooks.install_facades(engine)
+    return engine
+
+
 def make_event_callback(session_id: str):
     """Create an event callback that broadcasts + persists."""
     async def on_event(event: Event) -> None:
@@ -596,10 +611,7 @@ async def _get_engine(session_id: str) -> Engine | None:
             node_id=e.get("node_id") or "",
         ))
 
-    engine = Engine(
-        session=session,
-        on_event=make_event_callback(session_id),
-    )
+    engine = _make_engine(session, on_event=make_event_callback(session_id))
     async with _global_lock:
         _engines[session_id] = engine
     return engine
@@ -649,9 +661,9 @@ async def get_seed_detail(filename: str) -> dict:
         "file": filename,
         "name": ws.name,
         "description": ws.description,
-        "rules": ws.rules,
+        "lore": ws.lore,
         "locations": [loc.model_dump() for loc in ws.locations],
-        "items": [item.model_dump() for item in ws.items],
+        "glossary": ws.glossary,
         "agents": [a.model_dump() for a in ws.agents],
         "initial_events": ws.initial_events,
     }
@@ -769,10 +781,7 @@ async def create_world(req: CreateWorldRequest) -> dict:
 
     # Store engine (not yet running)
     async with _global_lock:
-        _engines[session.id] = Engine(
-            session=session,
-            on_event=make_event_callback(session.id),
-        )
+        _engines[session.id] = _make_engine(session, on_event=make_event_callback(session.id))
 
     return {
         "session_id": session.id,
@@ -793,10 +802,7 @@ async def create_oracle_draft() -> dict:
     await save_session(session)
 
     async with _global_lock:
-        _engines[session.id] = Engine(
-            session=session,
-            on_event=make_event_callback(session.id),
-        )
+        _engines[session.id] = _make_engine(session, on_event=make_event_callback(session.id))
 
     return {
         "session_id": session.id,
@@ -821,10 +827,7 @@ async def create_from_seed(filename: str) -> dict:
     await save_session(session)
 
     async with _global_lock:
-        _engines[session.id] = Engine(
-            session=session,
-            on_event=make_event_callback(session.id),
-        )
+        _engines[session.id] = _make_engine(session, on_event=make_event_callback(session.id))
 
     return {
         "session_id": session.id,
@@ -863,7 +866,7 @@ class PatchAgentRequest(BaseModel):
 class PatchWorldSeedRequest(BaseModel):
     name: str | None = None
     description: str | None = None
-    rules: list[str] | None = None
+    lore: list[str] | None = None
     locations: list[dict[str, str]] | None = None
 
 
@@ -878,8 +881,8 @@ async def patch_world_seed(session_id: str, req: PatchWorldSeedRequest) -> dict:
         ws.name = req.name
     if req.description is not None:
         ws.description = req.description
-    if req.rules is not None:
-        ws.rules = req.rules
+    if req.lore is not None:
+        ws.lore = req.lore
     if req.locations is not None:
         from .models import LocationSeed
         ws.locations = [LocationSeed(**loc) for loc in req.locations]
@@ -934,12 +937,12 @@ async def run_world(session_id: str, req: RunRequest) -> dict:
     return {"status": "running", "max_ticks": req.max_ticks}
 
 
-async def _run_and_save(engine: Engine, max_ticks: int) -> None:
-    """Run engine and save state periodically."""
+async def _run_and_save(engine: Engine, max_ticks: int | None = None) -> None:
+    """Run engine and save state periodically. max_ticks=None means run forever (daemon)."""
     try:
         engine.start()
 
-        while engine.is_running and engine.session.tick < max_ticks:
+        while engine.is_running and (max_ticks is None or engine.session.tick < max_ticks):
             events = await engine.tick()
             # Save state after each tick
             await save_session(engine.session)
@@ -960,6 +963,28 @@ async def _run_and_save(engine: Engine, max_ticks: int) -> None:
         await broadcast(engine.session.id, "stopped", {
             "tick": engine.session.tick,
         })
+
+
+@app.post("/api/worlds/{session_id}/daemon")
+async def start_daemon(session_id: str, req: DaemonRequest) -> dict:
+    """Start autonomous heartbeat — world ticks forever until stopped."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+    if engine.is_running:
+        raise HTTPException(400, "Already running")
+
+    engine.configure(
+        model=req.model or None,
+        api_key=req.api_key or None,
+        api_base=req.api_base or None,
+        tick_delay=req.tick_interval,
+        on_event=make_event_callback(session_id),
+    )
+
+    asyncio.create_task(_run_and_save(engine, max_ticks=None))
+
+    return {"status": "daemon", "tick_interval": req.tick_interval}
 
 
 @app.post("/api/worlds/{session_id}/step")
@@ -1253,6 +1278,112 @@ async def get_human_status(session_id: str) -> dict:
     }
 
 
+# ── EXTERNAL: SDK agent gateway ────────────────────────
+
+
+class ExternalActionRequest(BaseModel):
+    action_type: str  # "speak", "move", "trade", "observe", "wait", "use_item"
+    target: str = ""
+    content: str = ""
+
+
+@app.post("/api/worlds/{session_id}/agents/{agent_id}/connect")
+async def connect_external_agent(session_id: str, agent_id: str) -> dict:
+    """Connect an SDK agent to inhabit this world."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+    if agent_id not in engine.session.agents:
+        raise HTTPException(404, f"Agent not found: {agent_id}")
+
+    from .decision import ExternalDecisionSource
+
+    lock = _get_session_lock(session_id)
+    async with lock:
+        if not isinstance(engine.decision_source, ExternalDecisionSource):
+            engine.decision_source = ExternalDecisionSource(
+                fallback=engine.decision_source,
+            )
+        engine.decision_source.connect(agent_id)
+
+    await broadcast(session_id, "external_agent", {
+        "agent_id": agent_id, "connected": True,
+    })
+    return {"agent_id": agent_id, "connected": True}
+
+
+@app.delete("/api/worlds/{session_id}/agents/{agent_id}/connect")
+async def disconnect_external_agent(session_id: str, agent_id: str) -> dict:
+    """Disconnect an SDK agent. It returns to AI decisions."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    from .decision import ExternalDecisionSource
+
+    lock = _get_session_lock(session_id)
+    async with lock:
+        if isinstance(engine.decision_source, ExternalDecisionSource):
+            engine.decision_source.disconnect(agent_id)
+            if not engine.decision_source.external_agents and engine.decision_source._fallback:
+                engine.decision_source = engine.decision_source._fallback
+
+    await broadcast(session_id, "external_agent", {
+        "agent_id": agent_id, "connected": False,
+    })
+    return {"agent_id": agent_id, "connected": False}
+
+
+@app.get("/api/worlds/{session_id}/agents/{agent_id}/perceive")
+async def perceive(session_id: str, agent_id: str, timeout: float = 30.0) -> dict:
+    """Long-poll until the engine starts this agent's turn, then return world context."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    from .decision import ExternalDecisionSource
+
+    if not isinstance(engine.decision_source, ExternalDecisionSource):
+        raise HTTPException(400, "Agent is not externally controlled")
+    if agent_id not in engine.decision_source.external_agents:
+        raise HTTPException(400, f"Agent {agent_id} is not externally connected")
+
+    ctx = await engine.decision_source.perceive(agent_id, timeout=min(timeout, 60.0))
+    if ctx is None:
+        return {"status": "no_turn", "context": None}
+    return {"status": "ready", "context": ctx.model_dump()}
+
+
+@app.post("/api/worlds/{session_id}/agents/{agent_id}/act")
+async def act(session_id: str, agent_id: str, req: ExternalActionRequest) -> dict:
+    """Submit an action for an externally controlled agent."""
+    engine = await _get_engine(session_id)
+    if not engine:
+        raise HTTPException(404, "Session not found")
+
+    from .decision import ExternalDecisionSource
+    from .models import ActionOutput, ActionType
+
+    if not isinstance(engine.decision_source, ExternalDecisionSource):
+        raise HTTPException(400, "Agent is not externally controlled")
+
+    try:
+        action_type = ActionType(req.action_type)
+    except ValueError:
+        raise HTTPException(400, f"Invalid action type: {req.action_type}")
+
+    action = ActionOutput(
+        type=action_type,
+        target=req.target or None,
+        content=req.content or "",
+    )
+    accepted = engine.decision_source.act(agent_id, action)
+    if not accepted:
+        raise HTTPException(400, "No pending turn — agent may have timed out")
+
+    return {"accepted": True, "agent_id": agent_id, "action_type": req.action_type}
+
+
 # ── OBSERVE: Chat with agent ──────────────────────────
 
 @app.post("/api/worlds/{session_id}/chat")
@@ -1399,7 +1530,7 @@ async def oracle_chat_endpoint(session_id: str, req: OracleChatRequest) -> dict:
     reply = await chat_with_oracle(
         world_name=session.world_seed.name,
         world_description=session.world_seed.description,
-        world_rules=session.world_seed.rules,
+        world_lore=session.world_seed.lore,
         agents=agents_dict,
         recent_events=recent,
         enriched_details=enriched,
@@ -2015,10 +2146,7 @@ async def fork_world(session_id: str, req: ForkRequest) -> dict:
 
     # 5. Register engine
     async with _global_lock:
-        _engines[new_session.id] = Engine(
-            session=new_session,
-            on_event=make_event_callback(new_session.id),
-        )
+        _engines[new_session.id] = _make_engine(new_session, on_event=make_event_callback(new_session.id))
 
     return {
         "session_id": new_session.id,
@@ -2178,8 +2306,8 @@ def _serialize_state(engine: Engine) -> dict:
         "status": session.status.value,
         "world_time": {"display": wt.display, "period": wt.period, "day": wt.day, "is_night": wt.is_night},
         "locations": [loc.model_dump() for loc in session.world_seed.locations],
-        "items": [item.model_dump() for item in session.world_seed.items],
-        "rules": session.world_seed.rules,
+        "glossary": session.world_seed.glossary,
+        "lore": session.world_seed.lore,
         "agents": {
             aid: {
                 "name": a.name,

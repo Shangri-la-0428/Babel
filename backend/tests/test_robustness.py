@@ -48,7 +48,7 @@ def _make_session(
         name="Test World",
         locations=loc_seeds,
         agents=agent_seeds,
-        rules=["No killing"],
+        lore=["No killing"],
     )
     session = Session(world_seed=ws, tick=5)
 

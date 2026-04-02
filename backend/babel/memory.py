@@ -681,7 +681,7 @@ async def generate_perturbation(
         recent = await get_relevant_events_for_perturbation(session)
         result = await generate_world_event(
             world_description=session.world_seed.description,
-            world_rules=session.world_seed.rules,
+            world_lore=session.world_seed.lore,
             locations=session.location_names,
             recent_events=recent,
             model=model,

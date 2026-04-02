@@ -10,7 +10,7 @@ async def test_generate_seed_draft_normalizes_common_provider_drift():
     raw_seed = {
         "name": "Aurora Bazaar",
         "description": "A floating market above a frozen sea.",
-        "rules": "Trust is traded like currency\nNo one owns the sky lanes",
+        "lore": "Trust is traded like currency\nNo one owns the sky lanes",
         "locations": [
             {
                 "name": "Sky Dock",
@@ -56,7 +56,7 @@ async def test_generate_seed_draft_normalizes_common_provider_drift():
     with patch("babel.llm._complete_json", new=AsyncMock(return_value=raw_seed)):
         seed = await generate_seed_draft("A market in the sky.")
 
-    assert seed["rules"] == ["Trust is traded like currency", "No one owns the sky lanes"]
+    assert seed["lore"] == ["Trust is traded like currency", "No one owns the sky lanes"]
     assert seed["locations"][0]["tags"] == ["trade", "transit"]
     assert seed["locations"][0]["connections"] == ["Ice Market"]
     assert seed["agents"][0]["goals"] == ["Keep the peace", "Protect the sky routes"]

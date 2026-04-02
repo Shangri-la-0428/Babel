@@ -122,7 +122,7 @@ def _normalize_seed_draft(raw: dict) -> dict:
         return raw
 
     normalized = dict(raw)
-    normalized["rules"] = _normalize_string_list(normalized.get("rules", []))
+    normalized["lore"] = _normalize_string_list(normalized.get("lore", normalized.get("rules", [])))
     normalized["initial_events"] = _normalize_string_list(normalized.get("initial_events", []))
 
     locations = []
@@ -207,7 +207,7 @@ async def _complete_json(
 
 
 async def get_agent_action(
-    world_rules: list[str],
+    world_lore: list[str],
     agent_name: str,
     agent_personality: str,
     agent_goals: list[str],
@@ -237,7 +237,7 @@ async def get_agent_action(
 ) -> LLMResponse:
     """Get a validated agent action from the LLM."""
     user_prompt = build_user_prompt(
-        world_rules=world_rules,
+        world_lore=world_lore,
         agent_name=agent_name,
         agent_personality=agent_personality,
         agent_goals=agent_goals,
@@ -321,7 +321,7 @@ async def chat_with_agent(
 
 async def generate_world_event(
     world_description: str,
-    world_rules: list[str],
+    world_lore: list[str],
     locations: list[str],
     recent_events: list[str],
     model: str | None = None,
@@ -331,7 +331,7 @@ async def generate_world_event(
     """Use LLM to generate a world event for perturbation."""
     user_prompt = build_perturbation_prompt(
         world_description=world_description,
-        world_rules=world_rules,
+        world_lore=world_lore,
         locations=locations,
         recent_events=recent_events,
     )
@@ -386,7 +386,7 @@ async def detect_new_character(
 async def chat_with_oracle(
     world_name: str,
     world_description: str,
-    world_rules: list[str],
+    world_lore: list[str],
     agents: dict,
     recent_events: list[str],
     enriched_details: dict,
@@ -403,7 +403,7 @@ async def chat_with_oracle(
     user_prompt = build_oracle_prompt(
         world_name=world_name,
         world_description=world_description,
-        world_rules=world_rules,
+        world_lore=world_lore,
         agents=agents,
         recent_events=recent_events,
         enriched_details=enriched_details,

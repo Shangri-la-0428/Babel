@@ -1,0 +1,60 @@
+name: "MVU: Oasis Trade"
+description: "Two settlements separated by desert. Water is scarce, ore is heavy, herbs heal. Trade or perish."
+
+time:
+  unit: "hour"
+  ticks_per_unit: 2
+  start: "06:00"
+  day_cycle: true
+  day_length: 24
+  periods:
+    - { name: "dawn", start: 5, end: 8 }
+    - { name: "morning", start: 8, end: 12 }
+    - { name: "afternoon", start: 12, end: 17 }
+    - { name: "dusk", start: 17, end: 20 }
+    - { name: "night", start: 20, end: 5 }
+
+lore:
+  - "Resources are finite. Water depletes when used. Ore is heavy — carrying more than 3 slows movement."
+  - "Trade requires both parties at the same location. Fair trades build trust; unfair trades build resentment."
+  - "Night travel is dangerous. Moving between settlements at night costs double and may lose an item."
+
+physics:
+  conservation: true
+  entropy: true
+
+glossary:
+  water: "Essential for survival. Found only at Wellspring. Can be traded for ore or herbs."
+  ore: "Raw metal from the mines. Found only at Ironhold. Heavy but valuable for tools."
+  herbs: "Wild medicinal plants. Found occasionally along Dustroad. Heal injuries and cure ailments."
+  waterskin: "Holds water for the journey. Essential for desert crossing."
+  pickaxe: "Used to mine ore at Ironhold."
+  herb pouch: "Gathered herbs for medicine."
+  ore chunk: "A piece of raw iron ore."
+
+locations:
+  - name: "Wellspring"
+    description: "A rocky oasis with a natural spring. Water is plentiful but ore is nonexistent."
+    connections: ["Dustroad"]
+  - name: "Ironhold"
+    description: "A mining camp built around an exposed ore vein. Dry — no water source."
+    connections: ["Dustroad"]
+  - name: "Dustroad"
+    description: "The exposed desert path between settlements. No resources, no shelter. Pass through quickly."
+    connections: ["Wellspring", "Ironhold"]
+
+agents:
+  - id: "kael"
+    name: "Kael"
+    description: "A weathered trader who knows every shortcut across the desert."
+    personality: "Pragmatic, risk-calculating, values fairness but drives hard bargains."
+    goals: ["Accumulate resources through trade", "Build trust with Mira", "Survive the desert"]
+    inventory: ["waterskin", "waterskin", "herb pouch"]
+    location: "Wellspring"
+  - id: "mira"
+    name: "Mira"
+    description: "A young miner with sharp eyes and a stubborn streak."
+    personality: "Bold, curious, suspicious of outsiders but loyal once trust is earned."
+    goals: ["Mine enough ore to trade for water", "Explore beyond Ironhold", "Find a reliable trade partner"]
+    inventory: ["pickaxe", "ore chunk", "ore chunk"]
+    location: "Ironhold"

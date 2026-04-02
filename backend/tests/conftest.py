@@ -9,7 +9,7 @@ import pytest
 def mock_generate_chapter():
     """Prevent real LLM calls for chapter generation across all tests."""
     with patch(
-        "babel.engine.generate_chapter",
+        "babel.llm.generate_chapter",
         new_callable=AsyncMock,
         return_value="[Test chapter]",
     ):

@@ -136,7 +136,7 @@ def _make_context(**overrides: Any) -> AgentContext:
         "reachable_locations": ["main_hall", "garden", "library"],
         "available_locations": ["main_hall", "garden", "library"],
         "recent_events": ["OtherAgent arrived at main_hall", "a door slammed"],
-        "world_rules": ["no weapons allowed"],
+        "world_lore": ["no weapons allowed"],
         "world_time": {"display": "2077-03-25 22:00", "period": "night"},
         "tick": 8,
     }

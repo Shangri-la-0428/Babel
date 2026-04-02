@@ -3,9 +3,11 @@
 [![Backend Tests](https://github.com/Shangri-la-0428/Babel/actions/workflows/backend.yml/badge.svg)](https://github.com/Shangri-la-0428/Babel/actions/workflows/backend.yml)
 [![Frontend Build](https://github.com/Shangri-la-0428/Babel/actions/workflows/frontend.yml/badge.svg)](https://github.com/Shangri-la-0428/Babel/actions/workflows/frontend.yml)
 
-AI 原生世界工作室。定义世界种子（规则、地点、角色），运行可持续演化、可干预、可分叉的活世界。
+Agent Spacetime — AI agent 的因果时空基底。种子定义物理规则，引擎执行因果，agent 在其中生存、行动、涌现。
 
-*AI-native world studio. Define a world seed with rules, locations, and agents — then run living worlds that can evolve, be directed, and branch over time.*
+*Agent Spacetime — a causal substrate where AI agents are embedded, not observing. Seeds define physics, the engine enforces causality, agents inhabit and emerge.*
+
+> **Seed（压缩规则）× Time（自主展开）× Agent（负熵结构）= 涌现智能**
 
 ## 安全说明 / Security
 
@@ -106,14 +108,36 @@ docker compose up --build
 
 | 系统 | 说明 |
 |------|------|
+| **世界内核协议** | DecisionSource 可插拔决策接口（LLM/Human/Psyche/External/Script）、结构化事件、语义记忆 |
+| **外部 Agent 网关** | `ExternalDecisionSource` — SDK agent 通过 perceive/act 协议嵌入世界，`_Turn` 原子同步 |
 | **世界权威层** | 关系模型、移动邻接校验、物品来源校验、同位置交互要求 |
 | **记忆系统 v2** | 信念提炼（规则驱动）、LLM 语义压缩、重要度评分（关系/自身/目标加权） |
 | **目标系统** | GoalState 生命周期（active → completed/stalled）、进度追踪、LLM 重规划 |
-| **世界内核协议** | DecisionSource 可插拔决策接口（LLM/Human/Psyche/Script）、结构化事件、语义记忆 |
 | **Psyche 情感引擎** | 虚拟内分泌系统（6 激素）、5 马斯洛驱力、自主神经门控、驱力-目标亲和力映射 |
 | **Oracle 创世助手** | 对话式世界创建，LLM 生成完整 WorldSeed，一键启动 |
 
-*Core Systems: World Authority (relations, topology, validation), Memory v2 (beliefs, LLM compression, importance scoring), Goal System (tracking, replanning), World Kernel Protocol (pluggable DecisionSource, structured events), Psyche Emotional Engine (virtual endocrine, drives, autonomic gating, drive-goal mapping), Oracle Creative (conversational world creation).*
+### 外部 Agent / External Agent Gateway
+
+SDK agent 通过 HTTP 协议嵌入 Babel 世界。引擎推送 `AgentContext`，agent 返回 `ActionOutput`。
+
+```python
+from babel.client import BabelAgent
+
+async with BabelAgent("http://localhost:8000", session_id, "kael") as agent:
+    async for world in agent:                    # perceive: 等待我的回合
+        if world.visible_agents:
+            await agent.act(agent.speak(...))     # act: 社交
+        else:
+            await agent.act(agent.move("market")) # act: 移动
+```
+
+*SDK agents inhabit Babel worlds via perceive/act. The engine blocks on each agent's turn; the agent pulls context, thinks, pushes action.*
+
+### 自主心跳 / Daemon Mode
+
+世界可以脱离浏览器自主运行。`POST /daemon` 启动无限 tick 循环。
+
+*Worlds tick autonomously. `POST /daemon` starts an infinite heartbeat. External agents connect and disconnect freely.*
 
 ### 反循环保护 / Anti-Loop Protection
 
@@ -131,6 +155,7 @@ docker compose up --build
 | POST | `/api/worlds/from-seed/{filename}` | 从 YAML 种子创建 / Create from seed |
 | POST | `/api/worlds/{session_id}/agents` | 添加角色 / Add agent to world |
 | POST | `/api/worlds/{session_id}/run` | 启动模拟 / Start simulation |
+| POST | `/api/worlds/{session_id}/daemon` | 自主心跳 / Start autonomous heartbeat |
 | POST | `/api/worlds/{session_id}/step` | 单步执行 / Single tick |
 | POST | `/api/worlds/{session_id}/pause` | 暂停 / Pause |
 | GET | `/api/worlds/{session_id}/state` | 获取当前状态 / Get state |
@@ -140,6 +165,10 @@ docker compose up --build
 | POST | `/api/worlds/{session_id}/release-control/{agent_id}` | 释放角色 / Release to AI |
 | POST | `/api/worlds/{session_id}/human-action` | 提交人类行动 / Submit human action |
 | GET | `/api/worlds/{session_id}/human-status` | 人类控制状态 / Human control status |
+| POST | `/api/worlds/{session_id}/agents/{agent_id}/connect` | 外部 agent 接入 / Connect SDK agent |
+| DELETE | `/api/worlds/{session_id}/agents/{agent_id}/connect` | 外部 agent 断开 / Disconnect SDK agent |
+| GET | `/api/worlds/{session_id}/agents/{agent_id}/perceive` | 感知世界（长轮询）/ Perceive world (long-poll) |
+| POST | `/api/worlds/{session_id}/agents/{agent_id}/act` | 提交行动 / Submit action |
 | POST | `/api/worlds/{session_id}/chat` | 与角色对话 / Chat with agent |
 | POST | `/api/worlds/{session_id}/oracle` | 与旁白对话 / Chat with narrator (`mode=narrate\|create`) |
 | GET | `/api/worlds/{session_id}/oracle/history` | 旁白对话历史 / Narrator history |
@@ -170,6 +199,7 @@ docker compose up --build
 {"type": "agent_added",   "data": {/* 新角色检测 */}}
 {"type": "waiting_for_human", "data": {/* 等待人类操作 */}}
 {"type": "human_control", "data": {"agent_id": "...", "controlled": true}}
+{"type": "external_agent", "data": {"agent_id": "...", "connected": true}}
 ```
 
 ## 种子格式 / Seed Format
@@ -177,34 +207,40 @@ docker compose up --build
 ```yaml
 name: "世界名称"
 description: "世界描述"
-rules:
-  - "规则一"
-  - "规则二"
+
+lore:                              # 叙事氛围（给 LLM 的软指导，不是引擎规则）
+  - "水是稀缺的"
+  - "夜间旅行很危险"
+
+physics:                           # 引擎强制执行的因果律
+  conservation: true               # 交易转移物品，不复制
+  entropy: true                    # 使用销毁物品（不可逆）
+
+glossary:                          # 物品/资源名 → 描述（扁平字典）
+  waterskin: "装水用的皮囊"
+  pickaxe: "用来挖矿的工具"
+
 locations:
   - name: "地点A"
     description: "描述"
-    connections: ["地点B"]     # 可达位置（双向）
-  - name: "地点B"
-    description: "描述"
-    connections: ["地点A"]
+    connections: ["地点B"]         # 可达位置（双向）
+
 agents:
   - id: "agent_1"
     name: "角色名"
-    description: "角色描述"
     personality: "性格特征"
     goals:
-      - "目标一"              # 第一个目标自动成为 active_goal
+      - "目标一"                  # 第一个目标自动成为 active_goal
     inventory:
       - "物品一"
     location: "地点A"
-initial_events:
-  - "刚刚发生了某事"
 ```
 
-内置 3 个种子世界 / 3 seeds included:
+内置种子世界 / Seeds included:
 - `cyber_bar.yaml` — 赛博酒吧 / Cyberpunk bar
 - `apocalypse.yaml` — 末日方舟（参考 2012）/ Post-apocalypse ark
 - `iron_throne.yaml` — 铁王座（参考冰与火之歌）/ Throne intrigue
+- `mvu.yaml` — 沙漠贸易经济（最小可行宇宙）/ Desert trade economy (MVU proof)
 
 ## LLM 配置 / LLM Configuration
 

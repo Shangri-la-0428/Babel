@@ -1,29 +1,30 @@
 # BABEL Strategy
 
-> Updated: 2026-03-31
+> Updated: 2026-04-02
+
+## Belief
+
+**Intelligence is not designed — it is forced by causality.**
+
+Given minimal rules and irreversible time, complexity — including intelligence — is inevitable emergence.
+
+| Condition | Why it forces intelligence |
+|-----------|--------------------------|
+| Scarcity (conservation) | Without scarcity, no need for planning |
+| Irreversibility (entropy) | Without irreversibility, no need for caution |
+| Consequences (causality) | Without consequences, no need for thinking |
+
+Babel doesn't design agent behavior. It designs worlds where behavior is the natural consequence of survival.
+
+> **Seed（compressed rules）× Physics（causal laws）× Time（irreversible）× Agent（negative entropy）= Emergence**
 
 ## Thesis
 
-BABEL should not compete on raw model intelligence alone.
+BABEL is **agent spacetime** — a causal substrate. Not a storytelling tool. Not a simulator. A substrate.
 
-The real opportunity is to become the system that gives intelligence a durable world to inhabit:
+The engine is a pure causal kernel (334 lines, zero LLM dependencies). It doesn't know what medium it runs in. Text worlds driven by LLMs are today's adapter. Tomorrow: VR, digital spacetime, four-dimensional manifolds. The engine stays the same.
 
-- persistent state
-- continuous characters
-- evolving relationships
-- branchable timelines
-- meaningful human intervention
-- reusable and publishable world assets
-
-In short:
-
-> **BABEL = AI-native World Studio + Live-World Operating System**
-
-One of the cleanest abstractions for this is:
-
-> **seed + time + intervention -> living form**
-
-That should be treated as a product principle, not just an implementation detail.
+> **Babel builds worlds. Psyche builds selves. Thronglets builds civilizations.**
 
 ## The Durable Problem
 

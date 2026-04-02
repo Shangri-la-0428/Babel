@@ -2,72 +2,82 @@
 
 ## Design Philosophy
 
-BABEL is a **modality-agnostic world model**. Text is the first interface, not the only one.
+BABEL is **agent spacetime** — a causal substrate where AI agents are embedded, not observing.
 
-Product-wise, BABEL should be treated as a **live-world operating system**, not a pile of simulator features.
+> **Seed（compressed rules）× Physics（causal laws）× Time（irreversible unfolding）× Agent（negative entropy）= Emergent Intelligence**
 
-That means the architecture should optimize for:
+### Core Belief
 
-- persistent world continuity over one-off outputs
-- reusable protocols over page-specific cases
-- clear instance/template boundaries
-- multiple projection layers over duplicated product logic
-- seed-based compression of domain concepts wherever possible
+**Intelligence is not designed — it is forced by causality.** Given minimal rules and irreversible time, complexity — including intelligence — is inevitable emergence. Not possible. Inevitable.
 
-The architecture follows three principles:
+The architecture follows this belief:
 
-1. **World logic has no I/O assumptions** — State machine + rules engine operate on pure data
-2. **Every policy is pluggable** — Decision-making, memory consolidation, and social dynamics can be swapped without touching the kernel
-3. **Structured data alongside human text** — Every event has both `result` (text) and `structured` (machine-readable), enabling any renderer
+1. **The engine is a pure causal kernel** — It knows nothing about LLMs, text, memory, or narrative. It only enforces: tick → perceive → decide → validate → apply → physics → event
+2. **The medium is a replaceable adapter** — Text worlds driven by LLMs are today's hooks. Tomorrow: VR, digital spacetime, four-dimensional manifolds. The engine stays the same
+3. **Output is state, not language** — The world model produces state changes. Narrative is an observer's projection
+4. **Don't design results, design conditions** — Never design agent behavior. Design the world's physics. Behavior emerges from survival under constraint
 
-And four long-term engineering constraints:
+### Engineering Principles
 
-4. **World continuity is a first-class invariant** — Characters, relations, intent, memory, and timeline state should survive across ticks and branches
-5. **Projection layers consume one canonical world** — Home, sim, create, assets, and future publish surfaces should be different views of the same domain model
-6. **Instances and templates remain distinct** — Runtime world entities are not the same thing as exported reusable assets
-7. **Do not solve strategy with feature accretion** — Prefer new protocols, policies, or domain capabilities over isolated UI controls
-
-And one simplifying abstraction:
-
-8. **Seeds are the canonical generative boundary** — Anything that can be created, evolved, branched, reused, or published should prefer a `seed + time + intervention` model over a new bespoke object type
+5. **World continuity is a first-class invariant** — Characters, relations, intent, memory, and timeline survive across ticks and branches
+6. **Seeds are the canonical generative boundary** — A seed is compressed rules. Runtime state is a seed after time has acted on it
+7. **Structured data alongside human text** — Every event has both `result` (text) and `structured` (machine-readable), enabling any renderer
 
 ## Layer Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        PRESENTATION                             │
-│   Next.js 14 · Tailwind · WebSocket                            │
-│   Components: EventFeed, AssetPanel, OracleDrawer, WorldRadar  │
+│  L3  PRODUCT SHELL                                              │
+│      Next.js 14 · Tailwind · WebSocket · FastAPI (api.py)       │
 └──────────────────────────┬──────────────────────────────────────┘
-                           │ REST + WebSocket
+                           │
 ┌──────────────────────────┴──────────────────────────────────────┐
-│                          API FACADE                             │
-│   FastAPI · api.py                                              │
-│   Routes, WebSocket hub, session lifecycle, serialization       │
-└──────────┬──────────────────────────────────────────────────────┘
-           │
-┌──────────┴──────────────────────────────────────────────────────┐
-│                       ENGINE (Orchestrator)                      │
-│   engine.py                                                     │
+│  L2  MEDIUM ADAPTER  (hooks.py — today: text worlds)            │
+│      EngineHooks protocol:                                      │
+│        before_turn()   — perturbation, goal init                │
+│        build_context() — memory, beliefs, relations → prompt    │
+│        after_event()   — memory, goals, relations, significance │
+│        after_tick()    — timeline, chapters, consolidation      │
 │                                                                 │
-│   tick() → for each agent:                                      │
-│     1. Build AgentContext (modality-agnostic world slice)        │
-│     1.5 pressure_policy.before_agent_turn()                      │
-│     2. decision_source.decide(ctx) → ActionOutput               │
-│     3. validate_action() → errors or pass                       │
-│     4. apply_action() → state mutation + provisional Event      │
-│     5. goal/social mutation finalize Event.significance         │
-│     6. create_memory_from_event()                               │
+│      DefaultEngineHooks = full text-world adapter               │
+│      NullHooks         = pure causal testing, zero decoration   │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────┴──────────────────────────────────────┐
+│  L1  WORLD PHYSICS  (physics.py)                                │
+│      WorldPhysics protocol — engine-enforced causal laws        │
+│        conservation: trade transfers, never copies              │
+│        entropy: use_item destroys, never restores               │
+│        cost: move consumes resource (selection pressure)        │
+│        regeneration: locations spawn resources over time         │
+│      Declared per-seed via PhysicsConfig                        │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────┴──────────────────────────────────────┐
+│  L0  CAUSAL KERNEL  (engine.py — 351 lines, 0 LLM deps)        │
+│      tick() → for each agent:                                   │
+│        hooks.before_turn()                                      │
+│        ctx = hooks.build_context()                              │
+│        action = decision_source.decide(ctx)                     │
+│        response = _propose(action)                              │
+│        errors = world_authority.validate(response)              │
+│        summary = world_authority.apply(response)                │
+│        effects = world_physics.enforce(action)                  │
+│        event = _make_event(response, summary)                   │
+│        hooks.after_event(event)                                 │
+│      world_physics.tick_effects() → regeneration events         │
+│      hooks.after_tick(all_events)                               │
 │                                                                 │
-│   post_tick() → timeline node, snapshot, memory consolidation   │
-└──────┬──────────┬───────────┬───────────┬────────────┬────────────┘
-       │          │           │           │            │
-  ┌────┴───┐ ┌───┴────┐ ┌────┴────┐ ┌────┴─────┐ ┌────┴──────┐
-  │Decision│ │Validator│ │ Memory  │ │Persistence│ │ Policies │
-  │ Source │ │        │ │         │ │           │ │ pressure /│
-  │        │ │        │ │         │ │           │ │ goals /   │
-  │        │ │        │ │         │ │           │ │ social    │
-  └────────┘ └────────┘ └─────────┘ └───────────┘ └───────────┘
+│      Three causal protocols:                                    │
+│        DecisionSource  — how agents decide                      │
+│        WorldAuthority  — what's legal + how it mutates state    │
+│        WorldPhysics    — engine-enforced consequences            │
+└──────┬──────────┬──────────┬───────────────────────────────────┘
+       │          │          │
+  ┌────┴────┐ ┌───┴────┐ ┌───┴─────┐
+  │Decision │ │World   │ │ World   │
+  │ Source  │ │Authority│ │ Physics │
+  └─────────┘ └────────┘ └─────────┘
 ```
 
 ## Module Responsibilities
@@ -106,13 +116,37 @@ This keeps the outer engine contract stable while making the inside of the brain
 
 ```
 DecisionSource (Protocol)
-  ├── LLMDecisionSource           — thin orchestrator for the default 3-stage brain
-  ├── HumanDecisionSource         — waits for human input via API (decorator pattern)
-  ├── ContextAwareDecisionSource  — context-driven actions for stability testing
-  ├── PsycheDecisionSource        — Psyche emotional engine (HTTP bridge + autonomic gating)
+  ├── LLMDecisionSource            — thin orchestrator for the default 3-stage brain
+  ├── ExternalDecisionSource       — SDK agent gateway (perceive/act via _Turn)
+  ├── HumanDecisionSource          — waits for human input via API (decorator pattern)
+  ├── ContextAwareDecisionSource   — context-driven actions for stability testing
+  ├── PsycheDecisionSource         — Psyche emotional engine (HTTP bridge + autonomic gating)
   ├── PsycheAugmentedDecisionSource — Psyche augments LLM (emotional context + autonomic gating)
-  ├── ScriptedDecisionSource      — deterministic testing
-  └── [your source here]          — other AI, RL agent, etc.
+  ├── ScriptedDecisionSource       — deterministic testing
+  └── [your source here]           — other AI, RL agent, etc.
+```
+
+### ExternalDecisionSource — Agent Gateway
+The `_Turn` abstraction: one decision cycle, context in, action out. Two asyncio primitives (Event + Future).
+
+```
+Engine.tick()
+  └─ decide(ctx)           ← blocks, creates _Turn
+                                  ↓
+SDK Agent:                  perceive()  ← long-polls until _Turn exists
+  brain decides...
+                            act(action) ← resolves _Turn.future
+                                  ↓
+  └─ returns ActionOutput   ← engine continues
+```
+
+### client.py — BabelAgent
+Async context manager + async iterator for SDK agents:
+
+```python
+async with BabelAgent(url, session_id, agent_id) as agent:
+    async for world in agent:   # perceive
+        await agent.act(...)    # act
 ```
 
 ```
@@ -124,36 +158,36 @@ LLMDecisionSource
 
 `AgentContext` is the modality-agnostic interface between world and brain. It contains everything an agent can perceive: visible agents, memories, beliefs, relations, reachable locations, goals, world rules, time.
 
-### policies.py — Pluggable World Dynamics
-This is the second extension layer after decision-making. Policies answer:
+### hooks.py — Medium Adapter (EngineHooks)
+The boundary between the timeless causal core and the current medium.
 
-- `pressure_policy`: what extra world pressure or perturbation appears before an agent acts
-- `perception_policy`: how memories, beliefs, recent events, and world state become `AgentContext`
-- `resolution_policy`: how invalid actions are repaired, retried, and finally downgraded
-- `proposal_policy`: how an `ActionOutput` becomes a concrete state-change proposal
-- `goal_projection_policy`: how active goal / intent continuity are projected into agent context
-- `goal_mutation_policy`: how goals are initialized, evaluated, progressed, and replanned
-- `social_projection_policy`: how relations are projected into prompts and agent context
-- `social_mutation_policy`: how interactions mutate the social ledger after actions resolve
-- `timeline_policy`: how a tick is summarized and when timeline nodes / snapshots are persisted
-- `memory_policy`: when consolidation and belief extraction run
-- `enrichment_policy`: how high-signal world details are passively enriched over time
+The `EngineHooks` protocol defines 4 lifecycle callbacks:
 
-Default implementations now hold most of the old engine-specific behavior. The engine orchestrates; policies decide the domain semantics.
+| Hook | When | What |
+|------|------|------|
+| `before_turn(engine, agent)` | Before each agent's turn | Perturbation, goal init |
+| `build_context(engine, agent)` | Perception phase | Memory, beliefs, relations → AgentContext |
+| `after_event(engine, agent, event, response)` | After valid action applied | Memory creation, goal/relation mutation, significance |
+| `after_tick(engine, tick_events)` | After all agents acted | Timeline, chapters, consolidation, enrichment |
 
-`goal_policy` and `social_policy` still exist as legacy combined adapters for compatibility, but the preferred extension points are the explicit read/write pairs.
+Implementations:
+- `NullHooks` — No-op. Engine runs as pure causal machine. Used for testing
+- `DefaultEngineHooks` — Full text-world adapter (memory, goals, relations, chapters, timeline, enrichment). Uses policy classes from `policies.py` internally
+
+**How to change the medium:**
+1. Implement `EngineHooks` (4 async methods)
+2. Pass to `Engine(session, hooks=your_hooks)`
 
 **How to add a new decision source:**
 1. Implement `async def decide(self, context: AgentContext) -> ActionOutput`
-2. Pass it to `Engine(session, decision_source=your_source)`
+2. Pass to `Engine(session, decision_source=your_source)`
 
-**How to customize the default LLM brain without replacing the whole source:**
-1. Implement `DecisionContextPolicy`, `DecisionModel`, or `ActionCritic`
-2. Pass them into `LLMDecisionSource(context_policy=..., decision_model=..., action_critic=...)`
+### policies.py — Domain Policies (Social + Goals)
+Used internally by `DefaultEngineHooks`. Not directly wired to the engine.
 
-**How to swap world dynamics:**
-1. Implement the relevant policy protocol in `policies.py`
-2. Pass it to `Engine(session, goal_projection_policy=..., goal_mutation_policy=..., social_projection_policy=..., social_mutation_policy=..., pressure_policy=..., perception_policy=..., resolution_policy=..., proposal_policy=...)`
+Four policy classes: `DefaultSocialProjectionPolicy`, `DefaultSocialMutationPolicy`, `DefaultGoalProjectionPolicy`, `DefaultGoalMutationPolicy`
+
+These are reusable domain logic that hooks compose internally. The 7 redundant policy classes (Pressure, Perception, Resolution, Proposal, Timeline, Memory, Enrichment) were eliminated — their behavior lives directly in hooks.py.
 
 ### validator.py — World Authority
 Hard world rules live here. The default authority still uses pure functions internally, but the engine now depends on the `WorldAuthority` protocol rather than direct helper calls.
@@ -190,13 +224,21 @@ Key functions:
 - `consolidate_memories()` — Compress old episodic memories into semantic summaries
 - `extract_beliefs()` — Derive beliefs from relations and event patterns
 
-### engine.py — Orchestrator
-Coordinates the tick loop. Key design decisions:
+### engine.py — Pure Causal Kernel (334 lines)
+The engine is a causal loop. Nothing else. It does not know about LLMs, text, memory, chapters, or any medium.
 
-- **Always uses DecisionSource** — No legacy direct-LLM path. `LLMDecisionSource` is the default.
-- **Configurable intervals** — `snapshot_interval`, `epoch_interval`, `belief_interval` per-engine
-- **Clean API surface** — `start()`, `pause()`, `stop()`, `configure()`, `inject_urgent_event()`
-- **Post-tick pipeline** — Timeline nodes, snapshots, memory consolidation, belief extraction, passive enrichment
+Three causal protocols define the laws:
+- `DecisionSource` — how agents decide (LLM, rule-based, human, external SDK)
+- `WorldAuthority` — what actions are legal + how they mutate state
+- `WorldPhysics` — engine-enforced consequences (conservation, entropy)
+
+One hooks object handles everything else:
+- `EngineHooks` — perception enrichment, post-event processing, post-tick processing
+
+Key design decisions:
+- **Zero LLM imports** — Engine has no dependency on llm.py, prompts.py, memory.py, or db.py
+- **Medium-agnostic** — Swap `hooks=DefaultEngineHooks()` for any other adapter
+- **Clean API** — `start()`, `pause()`, `stop()`, `configure()`, `inject_urgent_event()`
 
 ### llm.py — LLM Integration
 litellm wrapper for all LLM calls. Isolated from world logic.
@@ -291,22 +333,68 @@ AgentSeed.goals[0] → GoalState(status="active", progress=0.0)
         → replan_goal() (LLM, drive-aware) or _select_next_goal() (fallback)
 ```
 
+## World Physics — Engine-Enforced Causal Laws
+
+`babel/physics.py` — the `WorldPhysics` protocol enforces causal constraints that create selection pressure. Per-action enforcement runs AFTER `WorldAuthority.apply()`. Per-tick effects (regeneration) run after all agents act.
+
+```
+Per action:  validate → apply(state_changes) → physics.enforce(action) → event
+Per tick:    all agents done → physics.tick_effects() → hooks.after_tick()
+```
+
+### Four Laws
+
+| Law | Action | Engine Effect | Status |
+|-----|--------|---------------|--------|
+| **Conservation** | TRADE | Remove item from actor, add to target | ✓ Proven |
+| **Irreversibility** | USE_ITEM | Destroy item from inventory | ✓ Proven |
+| **Cost** | MOVE | Consume resource from inventory (selection pressure) | ✓ Proven |
+| **Regeneration** | per-tick | Locations spawn resources from seed definition | ✓ Proven |
+
+OBSERVE at a location with ground items → physics picks up one item (resource flow: regeneration → ground → observe → inventory → use/trade → consumed).
+
+### Protocol
+
+```python
+class WorldPhysics(Protocol):
+    def enforce(self, action, agent, session) -> list[str]: ...
+    def tick_effects(self, session) -> list[str]: ...
+```
+
+Implementations:
+- `DefaultWorldPhysics` — all four laws, controlled per-seed via PhysicsConfig
+- `NoPhysics` — null implementation for backward compatibility
+
+### PhysicsConfig (declared in seed)
+
+```python
+class PhysicsConfig(BaseModel):
+    conservation: bool = True           # trade transfers, never copies
+    entropy: bool = True                # use_item destroys
+    move_cost: str | None = None        # resource consumed on MOVE
+    regeneration: bool = False          # locations spawn resources
+    regeneration_interval: int = 5      # ticks between spawns
+```
+
+### LocationSeed.resources
+
+Locations declare what they produce: `resources: ["herb", "wood"]`. Physics regeneration spawns from this list. Items appear as `session.location_items` (ground items), visible in agent context as `ground_items`.
+
 ## Extension Points
 
 | What | Where | How |
 |------|-------|-----|
+| **Entire medium** | `hooks.py` | Implement `EngineHooks` (4 methods) — replaces text world with any medium |
 | Agent brain | `decision.py` | Implement `DecisionSource` protocol |
+| External agent | `decision.py` | Use `ExternalDecisionSource` (perceive/act) |
+| SDK client | `client.py` | Use `BabelAgent` context manager |
+| Hard world rules | `validator.py` | Implement `WorldAuthority` |
+| Causal physics | `physics.py` | Implement `WorldPhysics` (or use `NoPhysics`) |
 | Context shaping | `decision.py` | Implement `DecisionContextPolicy` |
 | Model bridge | `decision.py` | Implement `DecisionModel` |
 | Action review | `decision.py` | Implement `ActionCritic` |
-| Hard world rules | `validator.py` | Implement `WorldAuthority` |
 | Action types | `models.py` + `validator.py` | Add to `ActionType` enum + validation rules |
-| Memory retrieval | `memory.py` | Replace `_score_memory()` or `retrieve_relevant_memories()` |
-| Memory consolidation | `memory.py` | Replace `consolidate_memories()` |
-| Social dynamics | `policies.py` | Implement `SocialPolicy` |
-| Goal advancement | `policies.py` | Implement `GoalPolicy` |
 | Time model | `clock.py` | Modify `world_time()` |
-| Presentation | `prompts.py` | Replace with non-text adapter |
 | Persistence | `db.py` | Swap SQLite for another backend |
 
 ## Frontend Architecture
@@ -380,7 +468,7 @@ State flows through WebSocket: `connected → event → tick → state_update �
 
 ## Testing
 
-442 backend tests across 14 files:
+479 backend tests across 17 files:
 
 | File | Coverage |
 |------|----------|
@@ -398,6 +486,9 @@ State flows through WebSocket: `connected → event → tick → state_update �
 | `test_drive_mapping.py` | Drive-goal affinity inference, drive-weighted scoring, goal selection |
 | `test_report.py` | World report generator: structure, counts, axes, milestones, agent arcs, social highlights |
 | `test_fork.py` | Fork endpoint: snapshot reconstruction, seed lineage, relation copy, error cases |
+| `test_external_decision.py` | ExternalDecisionSource protocol, Turn cycle, timeout, disconnect, fallback |
+| `test_external_e2e.py` | Full API integration: connect, perceive, act, disconnect, multi-tick |
+| `test_mvu.py` | MVU 100-tick proof: external agent, action variety, location traversal, emotional feedback |
 | `benchmark_scorecard.py` | 100-tick x 3 seeds benchmark (goal/relation/significance/entropy metrics) |
 
-Run: `cd backend && python -m pytest tests/ -v` (442 tests)
+Run: `cd backend && python -m pytest tests/ -v` (498 tests)

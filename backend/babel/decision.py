@@ -7,6 +7,7 @@ from an AgentContext can drive agents (LLM, human, script, other AI).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Protocol, runtime_checkable
 
@@ -34,7 +35,7 @@ class AgentContext(BaseModel):
     reachable_locations: list[str] = Field(default_factory=list)
     available_locations: list[str] = Field(default_factory=list)
     recent_events: list[str] = Field(default_factory=list)
-    world_rules: list[str] = Field(default_factory=list)
+    world_lore: list[str] = Field(default_factory=list)
     world_time: dict[str, Any] = Field(default_factory=dict)
     active_goal: dict[str, Any] | None = None
     ongoing_intent: dict[str, str] | None = None
@@ -45,6 +46,8 @@ class AgentContext(BaseModel):
     world_description: str = ""
     item_context: dict[str, str] = Field(default_factory=dict)
     location_context: dict[str, str] = Field(default_factory=dict)
+    # Physics: items on the ground at this location (from regeneration)
+    ground_items: list[str] = Field(default_factory=list)
     # Phase B: Psyche emotional context (optional, for LLM prompt enrichment)
     emotional_context: str = ""
     drive_state: dict[str, float] = Field(default_factory=dict)
@@ -84,7 +87,7 @@ class LLMDecisionModel:
             [m["content"] for m in context.memories] if context.memories else []
         )
         response = await get_agent_action(
-            world_rules=context.world_rules,
+            world_lore=context.world_lore,
             agent_name=context.agent_name,
             agent_personality=context.agent_personality,
             agent_goals=context.agent_goals,
@@ -193,13 +196,11 @@ class HumanDecisionSource:
         timeout: float = 120.0,
         on_waiting: Any | None = None,
     ):
-        import asyncio as _asyncio
-        self._asyncio = _asyncio
         self._fallback = fallback
         self._timeout = timeout
         self._on_waiting = on_waiting  # async callback(agent_id, context)
         self._human_agents: set[str] = set()
-        self._pending: dict[str, _asyncio.Future[ActionOutput]] = {}
+        self._pending: dict[str, asyncio.Future[ActionOutput]] = {}
         self._pending_contexts: dict[str, AgentContext] = {}
 
     @property
@@ -213,10 +214,9 @@ class HumanDecisionSource:
     def release_control(self, agent_id: str) -> None:
         """Release human control of an agent."""
         self._human_agents.discard(agent_id)
-        # Cancel any pending wait
-        future = self._pending.pop(agent_id, None)
-        if future and not future.done():
-            future.cancel()
+        fut = self._pending.pop(agent_id, None)
+        if fut and not fut.done():
+            fut.cancel()
         self._pending_contexts.pop(agent_id, None)
 
     def is_waiting(self, agent_id: str) -> bool:
@@ -249,9 +249,8 @@ class HumanDecisionSource:
             return ActionOutput(type=ActionType.WAIT, content="no decision source")
 
         # Human-controlled: wait for input
-        loop = self._asyncio.get_running_loop()
-        future: self._asyncio.Future[ActionOutput] = loop.create_future()
-        self._pending[agent_id] = future
+        fut: asyncio.Future[ActionOutput] = asyncio.get_running_loop().create_future()
+        self._pending[agent_id] = fut
         self._pending_contexts[agent_id] = context
 
         # Notify that we're waiting (so frontend can show action picker)
@@ -262,8 +261,8 @@ class HumanDecisionSource:
                 logger.debug("on_waiting callback failed for agent %s: %s", agent_id, e)
 
         try:
-            return await self._asyncio.wait_for(future, timeout=self._timeout)
-        except (self._asyncio.TimeoutError, self._asyncio.CancelledError):
+            return await asyncio.wait_for(fut, timeout=self._timeout)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
             return ActionOutput(type=ActionType.WAIT, content="awaiting human input")
         finally:
             self._pending.pop(agent_id, None)
@@ -749,3 +748,103 @@ class ScriptedDecisionSource:
                 )
 
         return action
+
+
+# ── External Agent Gateway ─────────────────────────────
+
+
+class _Turn:
+    """One decision cycle: context in, action out."""
+
+    __slots__ = ("context", "action")
+
+    def __init__(self, context: AgentContext):
+        self.context = context
+        self.action: asyncio.Future[ActionOutput] = asyncio.get_running_loop().create_future()
+
+
+class ExternalDecisionSource:
+    """Gateway for SDK agents to inhabit a Babel world.
+
+    The engine pushes AgentContext via decide().
+    The external agent pulls it via perceive(), thinks, and pushes back via act().
+
+    One Turn per agent per tick. That's the whole protocol.
+    """
+
+    def __init__(
+        self,
+        fallback: DecisionSource | None = None,
+        timeout: float = 60.0,
+    ):
+        self._fallback = fallback
+        self._timeout = timeout
+        self._agents: set[str] = set()
+        self._turns: dict[str, _Turn] = {}
+        self._turn_ready: dict[str, asyncio.Event] = {}
+
+    @property
+    def external_agents(self) -> set[str]:
+        return self._agents.copy()
+
+    def connect(self, agent_id: str) -> None:
+        """Mark an agent as externally controlled."""
+        self._agents.add(agent_id)
+
+    def disconnect(self, agent_id: str) -> None:
+        """Release external control. Cancels any pending turn."""
+        self._agents.discard(agent_id)
+        turn = self._turns.pop(agent_id, None)
+        if turn and not turn.action.done():
+            turn.action.cancel()
+        evt = self._turn_ready.pop(agent_id, None)
+        if evt:
+            evt.set()
+
+    async def decide(self, context: AgentContext) -> ActionOutput:
+        """Called by engine. Pushes context, blocks until external agent responds."""
+        aid = context.agent_id
+        if aid not in self._agents:
+            if self._fallback:
+                return await self._fallback.decide(context)
+            return ActionOutput(type=ActionType.WAIT, content="no decision source")
+
+        turn = _Turn(context)
+        self._turns[aid] = turn
+
+        # Unblock anyone waiting in perceive()
+        evt = self._turn_ready.pop(aid, None)
+        if evt:
+            evt.set()
+
+        try:
+            return await asyncio.wait_for(turn.action, timeout=self._timeout)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            return ActionOutput(type=ActionType.WAIT, content="external agent timeout")
+        finally:
+            self._turns.pop(aid, None)
+
+    async def perceive(self, agent_id: str, timeout: float = 30.0) -> AgentContext | None:
+        """Called by API. Long-polls until the engine starts this agent's turn."""
+        turn = self._turns.get(agent_id)
+        if turn:
+            return turn.context
+
+        evt = asyncio.Event()
+        self._turn_ready[agent_id] = evt
+        try:
+            await asyncio.wait_for(evt.wait(), timeout=timeout)
+            turn = self._turns.get(agent_id)
+            return turn.context if turn else None
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self._turn_ready.pop(agent_id, None)
+
+    def act(self, agent_id: str, action: ActionOutput) -> bool:
+        """Called by API. Resolves the pending turn."""
+        turn = self._turns.get(agent_id)
+        if turn and not turn.action.done():
+            turn.action.set_result(action)
+            return True
+        return False

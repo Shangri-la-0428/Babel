@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from babel.engine import DEFAULT_BELIEF_INTERVAL
+DEFAULT_BELIEF_INTERVAL = 10  # mirrors DefaultEngineHooks default
 from babel.memory import (
     _compute_importance,
     extract_beliefs,

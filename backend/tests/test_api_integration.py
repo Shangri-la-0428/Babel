@@ -35,7 +35,7 @@ from httpx import ASGITransport, AsyncClient
 MINIMAL_SEED = {
     "name": "Test World",
     "description": "A small world for integration tests",
-    "rules": ["No violence"],
+    "lore": ["No violence"],
     "locations": [
         {"name": "Town Square", "description": "Open area"},
         {"name": "Tavern", "description": "Cozy inn"},
@@ -259,21 +259,15 @@ async def test_saved_world_seed_detail_and_create_from_seed(client):
 
 
 @pytest.mark.asyncio
-async def test_world_items_roundtrip_through_seed_and_state(client):
-    seed_with_items = {
+async def test_world_glossary_roundtrip_through_seed_and_state(client):
+    seed_with_glossary = {
         **MINIMAL_SEED,
-        "items": [
-            {
-                "name": "Command Terminal",
-                "description": "An old field command terminal.",
-                "origin": "Recovered from a wrecked shuttle",
-                "properties": ["portable", "encrypted"],
-                "significance": "It contains the last evacuation orders.",
-            }
-        ],
+        "glossary": {
+            "Command Terminal": "An old field command terminal recovered from a wrecked shuttle.",
+        },
     }
 
-    create_resp = await client.post("/api/worlds", json=seed_with_items)
+    create_resp = await client.post("/api/worlds", json=seed_with_glossary)
     assert create_resp.status_code == 200
     payload = create_resp.json()
     seed_file = payload["seed_file"]
@@ -282,16 +276,16 @@ async def test_world_items_roundtrip_through_seed_and_state(client):
     detail_resp = await client.get(f"/api/seeds/{seed_file}")
     assert detail_resp.status_code == 200
     detail = detail_resp.json()
-    assert detail["items"] == seed_with_items["items"]
+    assert detail["glossary"] == seed_with_glossary["glossary"]
 
     state_resp = await client.get(f"/api/worlds/{session_id}/state")
     assert state_resp.status_code == 200
     state = state_resp.json()
-    assert state["items"] == seed_with_items["items"]
+    assert state["glossary"] == seed_with_glossary["glossary"]
 
 
 @pytest.mark.asyncio
-async def test_patch_saved_world_seed_updates_items_in_place(client):
+async def test_patch_saved_world_seed_updates_glossary(client):
     create_resp = await client.post("/api/worlds", json=MINIMAL_SEED)
     assert create_resp.status_code == 200
     seed_file = create_resp.json()["seed_file"]
@@ -299,15 +293,9 @@ async def test_patch_saved_world_seed_updates_items_in_place(client):
     updated_seed = {
         **MINIMAL_SEED,
         "name": "Test World Revised",
-        "items": [
-            {
-                "name": "Rhodes Badge",
-                "description": "A worn operator badge",
-                "origin": "Issued after the last mission",
-                "properties": ["metal", "inscribed"],
-                "significance": "Marks surviving members of the squad",
-            }
-        ],
+        "glossary": {
+            "Rhodes Badge": "A worn operator badge issued after the last mission.",
+        },
     }
     patch_resp = await client.patch(f"/api/seeds/{seed_file}", json=updated_seed)
     assert patch_resp.status_code == 200
@@ -317,7 +305,7 @@ async def test_patch_saved_world_seed_updates_items_in_place(client):
     assert detail_resp.status_code == 200
     detail = detail_resp.json()
     assert detail["name"] == "Test World Revised"
-    assert detail["items"] == updated_seed["items"]
+    assert detail["glossary"] == updated_seed["glossary"]
 
 
 @pytest.mark.asyncio
@@ -1292,8 +1280,8 @@ async def test_world_state_has_locations(client):
 async def test_world_state_has_rules(client):
     sid = await _create_world(client)
     state = (await client.get(f"/api/worlds/{sid}/state")).json()
-    assert "rules" in state
-    assert "No violence" in state["rules"]
+    assert "lore" in state
+    assert "No violence" in state["lore"]
 
 
 @pytest.mark.asyncio

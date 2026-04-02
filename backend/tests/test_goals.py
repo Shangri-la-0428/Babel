@@ -4,6 +4,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from babel.hooks import DefaultEngineHooks
 from babel.models import (
     ActionType,
     AgentSeed,
@@ -18,11 +19,20 @@ from babel.models import (
 )
 
 
+def _make_engine_with_hooks(session, **kwargs):
+    """Create Engine with DefaultEngineHooks + facades installed."""
+    from babel.engine import Engine
+    hooks = DefaultEngineHooks()
+    engine = Engine(session, hooks=hooks, **kwargs)
+    hooks.install_facades(engine)
+    return engine
+
+
 def _make_session() -> Session:
     ws = WorldSeed(
         name="test",
         description="A test world",
-        rules=["rule1"],
+        lore=["rule1"],
         locations=[
             LocationSeed(name="plaza", connections=["market"]),
             LocationSeed(name="market", connections=["plaza"]),
@@ -141,9 +151,8 @@ class TestEventAdvancesGoal(unittest.TestCase):
     """Test the Engine._event_advances_goal method."""
 
     def setUp(self):
-        from babel.engine import Engine
         self.session = _make_session()
-        self.engine = Engine(self.session)
+        self.engine = _make_engine_with_hooks(self.session)
 
     def test_keyword_match_in_result(self):
         goal = GoalState(text="find the artifact")
@@ -214,9 +223,8 @@ class TestEventAdvancesGoal(unittest.TestCase):
 
 class TestSelectNextGoal(unittest.TestCase):
     def setUp(self):
-        from babel.engine import Engine
         self.session = _make_session()
-        self.engine = Engine(self.session)
+        self.engine = _make_engine_with_hooks(self.session)
 
     def test_selects_next_in_list(self):
         agent = self.session.agents["a1"]
@@ -254,9 +262,8 @@ class TestSelectNextGoal(unittest.TestCase):
 
 class TestUpdateGoals(unittest.TestCase):
     def setUp(self):
-        from babel.engine import Engine
         self.session = _make_session()
-        self.engine = Engine(self.session)
+        self.engine = _make_engine_with_hooks(self.session)
 
     def test_progress_increases_on_advancing_event(self):
         agent = self.session.agents["a1"]
@@ -291,8 +298,8 @@ class TestUpdateGoals(unittest.TestCase):
         self.assertEqual(agent.active_goal.text, "protect the village")
         self.assertEqual(agent.active_goal.status, "active")
 
-    @patch("babel.engine.retrieve_relevant_memories", new_callable=AsyncMock, return_value=[])
-    @patch("babel.engine.replan_goal", new_callable=AsyncMock)
+    @patch("babel.memory.retrieve_relevant_memories", new_callable=AsyncMock, return_value=[])
+    @patch("babel.llm.replan_goal", new_callable=AsyncMock)
     def test_stall_triggers_replan(self, mock_replan, _mock_mem):
         mock_replan.return_value = {
             "text": "search the eastern cave for clues",
@@ -315,8 +322,8 @@ class TestUpdateGoals(unittest.TestCase):
         self.assertEqual(agent.active_goal.next_step, "question the sentry at the cave mouth")
         self.assertEqual(agent.active_goal.status, "active")
 
-    @patch("babel.engine.retrieve_relevant_memories", new_callable=AsyncMock, return_value=[])
-    @patch("babel.engine.replan_goal", new_callable=AsyncMock)
+    @patch("babel.memory.retrieve_relevant_memories", new_callable=AsyncMock, return_value=[])
+    @patch("babel.llm.replan_goal", new_callable=AsyncMock)
     def test_stall_replan_failure_selects_next(self, mock_replan, _mock_mem):
         mock_replan.side_effect = Exception("LLM error")
         agent = self.session.agents["a1"]
@@ -371,7 +378,7 @@ class TestGoalPromptIntegration(unittest.TestCase):
         from babel.prompts import build_user_prompt
 
         prompt = build_user_prompt(
-            world_rules=["rule1"],
+            world_lore=["rule1"],
             agent_name="Alice",
             agent_personality="brave",
             agent_goals=["find artifact", "protect village"],
@@ -407,7 +414,7 @@ class TestGoalPromptIntegration(unittest.TestCase):
         from babel.prompts import build_user_prompt
 
         prompt = build_user_prompt(
-            world_rules=["rule1"],
+            world_lore=["rule1"],
             agent_name="Alice",
             agent_personality="brave",
             agent_goals=["find artifact"],
@@ -432,7 +439,7 @@ class TestGoalPromptIntegration(unittest.TestCase):
         from babel.prompts import build_user_prompt
 
         prompt = build_user_prompt(
-            world_rules=["rule1"],
+            world_lore=["rule1"],
             agent_name="Alice",
             agent_personality="brave",
             agent_goals=["find artifact"],
@@ -453,7 +460,7 @@ class TestGoalPromptIntegration(unittest.TestCase):
         from babel.prompts import build_user_prompt
 
         prompt = build_user_prompt(
-            world_rules=["rule1"],
+            world_lore=["rule1"],
             agent_name="Alice",
             agent_personality="brave",
             agent_goals=["find artifact"],
@@ -492,14 +499,19 @@ class TestEngineInitGoal(unittest.TestCase):
         self.assertEqual(alice.active_goal.text, "find the artifact")
 
     @patch("babel.memory.save_memory", new_callable=AsyncMock)
-    @patch("babel.engine.retrieve_relevant_memories", new_callable=AsyncMock)
-    @patch("babel.engine.get_relevant_events", new_callable=AsyncMock)
-    @patch("babel.engine.get_agent_beliefs", new_callable=AsyncMock)
+    @patch("babel.memory.retrieve_relevant_memories", new_callable=AsyncMock)
+    @patch("babel.memory.get_relevant_events", new_callable=AsyncMock)
+    @patch("babel.memory.get_agent_beliefs", new_callable=AsyncMock)
+    @patch("babel.db.save_timeline_node", new_callable=AsyncMock)
+    @patch("babel.db.get_last_node_id", new_callable=AsyncMock, return_value=None)
+    @patch("babel.db.save_snapshot", new_callable=AsyncMock)
+    @patch("babel.db.load_entity_details", new_callable=AsyncMock, return_value=None)
+    @patch("babel.db.save_entity_details", new_callable=AsyncMock)
+    @patch("babel.db.load_events_filtered", new_callable=AsyncMock, return_value=[])
+    @patch("babel.db.load_events", new_callable=AsyncMock, return_value=[])
     def test_resolve_initializes_missing_active_goal(
-        self, mock_beliefs, mock_events, mock_memories,
-        mock_save_memory,
+        self, *mocks,
     ):
-        from babel.engine import Engine
         from babel.decision import ScriptedDecisionSource
         from babel.models import ActionOutput
 
@@ -508,18 +520,13 @@ class TestEngineInitGoal(unittest.TestCase):
         src = ScriptedDecisionSource(actions=[
             ActionOutput(type=ActionType.WAIT, content="waiting"),
         ])
-        engine = Engine(session, decision_source=src)
+        engine = _make_engine_with_hooks(session, decision_source=src)
         alice = session.agents["a1"]
         alice.active_goal = None  # simulate loaded session without goal
 
-        mock_memories.return_value = []
-        mock_events.return_value = []
-        mock_beliefs.return_value = []
-
-        asyncio.get_event_loop().run_until_complete(
-            engine._resolve_agent_action(alice)
-        )
-        # active_goal should have been initialized
+        # tick() calls before_turn (which ensures active_goal) then _resolve
+        asyncio.get_event_loop().run_until_complete(engine.tick())
+        # active_goal should have been initialized by before_turn hook
         self.assertIsNotNone(alice.active_goal)
         self.assertEqual(alice.active_goal.text, "find the artifact")
 

@@ -90,25 +90,26 @@ async def _run_seed(seed_file: str) -> dict:
         patch("babel.memory.delete_memories", new_callable=AsyncMock),
         patch("babel.memory.update_memory_access", new_callable=AsyncMock),
         patch("babel.memory.load_events_filtered", new_callable=AsyncMock, return_value=[]),
-        patch("babel.engine.save_timeline_node", new_callable=AsyncMock),
-        patch("babel.engine.save_snapshot", new_callable=AsyncMock),
-        patch("babel.engine.get_last_node_id", new_callable=AsyncMock, return_value=None),
-        patch("babel.engine.load_entity_details", new_callable=AsyncMock, return_value=None),
-        patch("babel.engine.save_entity_details", new_callable=AsyncMock),
-        patch("babel.engine.load_events", new_callable=AsyncMock, return_value=[]),
-        patch("babel.engine.load_events_filtered", new_callable=AsyncMock, return_value=[]),
+        patch("babel.db.save_timeline_node", new_callable=AsyncMock),
+        patch("babel.db.save_snapshot", new_callable=AsyncMock),
+        patch("babel.db.get_last_node_id", new_callable=AsyncMock, return_value=None),
+        patch("babel.db.load_entity_details", new_callable=AsyncMock, return_value=None),
+        patch("babel.db.save_entity_details", new_callable=AsyncMock),
+        patch("babel.db.load_events", new_callable=AsyncMock, return_value=[]),
+        patch("babel.db.load_events_filtered", new_callable=AsyncMock, return_value=[]),
     ]
 
     for p in patches:
         p.start()
 
+    from babel.hooks import DefaultEngineHooks
+    hooks = DefaultEngineHooks(snapshot_interval=5, epoch_interval=3, belief_interval=5)
     engine = Engine(
         session=session,
         decision_source=src,
-        snapshot_interval=5,
-        epoch_interval=3,
-        belief_interval=5,
+        hooks=hooks,
     )
+    hooks.install_facades(engine)
 
     for _ in range(TICKS):
         events = await engine.tick()

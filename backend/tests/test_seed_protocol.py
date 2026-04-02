@@ -17,7 +17,7 @@ def _world_seed() -> WorldSeed:
     return WorldSeed(
         name="Clockwork Port",
         description="A harbor where time leaks into machinery.",
-        rules=["Every promise has a cost."],
+        lore=["Every promise has a cost."],
         locations=[LocationSeed(name="Docks", description="Salt, brass, and fog.")],
         agents=[
             AgentSeed(

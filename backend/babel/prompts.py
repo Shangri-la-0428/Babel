@@ -66,7 +66,7 @@ React to the above. Keep your response in the SAME language as the world descrip
 
 
 def build_user_prompt(
-    world_rules: list[str],
+    world_lore: list[str],
     agent_name: str,
     agent_personality: str,
     agent_goals: list[str],
@@ -91,7 +91,7 @@ def build_user_prompt(
     location_context: dict[str, str] | None = None,
     world_description: str = "",
 ) -> str:
-    rules_text = "\n".join(f"- {r}" for r in world_rules)
+    lore_text = "\n".join(f"- {r}" for r in world_lore)
     goals_text = "\n".join(f"- {g}" for g in agent_goals)
 
     # Enrich inventory with item descriptions from seed
@@ -272,8 +272,8 @@ Inventory: {", ".join(agent_inventory) if agent_inventory else "(empty)"}"""
     urgent = _build_urgent_section(urgent_events)
 
     return f"""\
-{world_desc_section}[Rules]
-{rules_text}
+{world_desc_section}[World Lore]
+{lore_text}
 
 {identity_block}
 
@@ -435,11 +435,11 @@ Rules:
 
 def build_perturbation_prompt(
     world_description: str,
-    world_rules: list[str],
+    world_lore: list[str],
     locations: list[str],
     recent_events: list[str],
 ) -> str:
-    rules_text = "\n".join(f"- {r}" for r in world_rules) if world_rules else "(no rules)"
+    lore_text = "\n".join(f"- {r}" for r in world_lore) if world_lore else "(no lore)"
     locs_text = ", ".join(locations) if locations else "(no locations)"
     events_text = "(nothing has happened yet)"
     if recent_events:
@@ -449,8 +449,8 @@ def build_perturbation_prompt(
 [World]
 {world_description}
 
-[World Rules]
-{rules_text}
+[World Lore]
+{lore_text}
 
 [Locations]
 {locs_text}
@@ -567,7 +567,7 @@ Rules:
 def build_oracle_prompt(
     world_name: str,
     world_description: str,
-    world_rules: list[str],
+    world_lore: list[str],
     agents: dict[str, Any],
     recent_events: list[str],
     enriched_details: dict[str, dict],
@@ -578,7 +578,7 @@ def build_oracle_prompt(
     preferred_language: str = "",
 ) -> str:
     """Build the user prompt for the Oracle narrator."""
-    rules_text = "\n".join(f"- {r}" for r in world_rules) if world_rules else "(no rules)"
+    lore_text = "\n".join(f"- {r}" for r in world_lore) if world_lore else "(no lore)"
 
     # Agent states — full omniscient view
     agent_lines = []
@@ -637,8 +637,8 @@ Name: {world_name}
 {world_description}
 {time_line}
 
-[World Rules]
-{rules_text}
+[World Lore]
+{lore_text}
 
 [All Agents — Omniscient View]
 {agents_text}
@@ -673,7 +673,8 @@ Rules:
 - locations MUST have bidirectional connections (if A connects to B, B connects to A).
 - Each agent needs: id (lowercase_snake_case), name, description, personality, goals (1-3), inventory, location.
 - Agent locations MUST reference valid location names.
-- rules should be 3-6 world-governing rules that the simulation engine enforces.
+- lore should be 3-6 world flavor guidelines (narrative atmosphere, not engine-enforced rules).
+- glossary maps item/resource names to descriptions (flat dict, not a list of objects).
 - initial_events should be 1-3 scene-setting events that kick off the narrative.
 - The world should feel alive, with built-in tension and asymmetric agent goals.
 
@@ -681,13 +682,11 @@ WorldSeed JSON schema:
 {
   "name": "World name (concise)",
   "description": "2-4 sentence world description",
-  "rules": ["rule1", "rule2", ...],
+  "lore": ["guideline1", "guideline2", ...],
   "locations": [
     {"name": "Location Name", "description": "Brief desc", "tags": [], "connections": ["Other Location"]}
   ],
-  "resources": [
-    {"name": "Resource Name", "description": "Brief desc"}
-  ],
+  "glossary": {"item_name": "description", "resource_name": "description"},
   "agents": [
     {
       "id": "snake_case_id",
@@ -830,8 +829,8 @@ Intents:
   params: {"agent_id": "id", "message": "what to say"}
 - patch_agent: Modify an agent's attributes (name, personality, goals).
   params: {"agent_id": "id", "name": str|null, "personality": str|null, "goals": list|null}
-- patch_world: Modify the world seed (name, description, rules).
-  params: {"name": str|null, "description": str|null, "rules": list|null}
+- patch_world: Modify the world seed (name, description, lore).
+  params: {"name": str|null, "description": str|null, "lore": list|null}
 - fork: Branch a new world from a specific tick.
   params: {"tick": int}
 - control: Simulation control (pause, run, step).

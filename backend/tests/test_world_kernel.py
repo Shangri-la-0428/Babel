@@ -76,7 +76,7 @@ def _make_session() -> Session:
     ws = WorldSeed(
         name="test",
         description="A test world",
-        rules=["rule1", "rule2"],
+        lore=["rule1", "rule2"],
         locations=[
             LocationSeed(name="plaza", connections=["market", "dock"]),
             LocationSeed(name="market", connections=["plaza"]),
@@ -160,7 +160,7 @@ class TestAgentContext(unittest.TestCase):
             reachable_locations=["market"],
             available_locations=["plaza", "market"],
             recent_events=["[Tick 4] Bob waited"],
-            world_rules=["no killing"],
+            world_lore=["no killing"],
             world_time={"display": "Day 1, 10:00", "period": "morning"},
             active_goal={"text": "find artifact", "progress": 0.3},
             tick=10,
@@ -499,81 +499,14 @@ class TestEngineDecisionSource(unittest.TestCase):
         engine = Engine(session, decision_source=src)
         assert engine.decision_source is src
 
-    def test_engine_accepts_custom_policies(self):
+    def test_engine_accepts_custom_hooks(self):
         from babel.engine import Engine
-
-        class NoopPressure:
-            async def before_agent_turn(self, engine, agent):
-                return []
-
-        class NoopSocial:
-            def build_relation_context(self, session, agent):
-                return []
-
-            def apply(self, engine, agent, response, errors):
-                return None
-
-        class NoopGoal:
-            def build_goal_context(self, agent):
-                return {
-                    "active_goal": None,
-                    "ongoing_intent": None,
-                    "last_outcome": agent.last_outcome,
-                }
-
-            def ensure_active_goal(self, engine, agent):
-                return None
-
-            def sync_plan_from_intent(self, agent, intent):
-                return None
-
-            def record_blocker(self, agent, blocker):
-                return None
-
-            async def update(self, engine, agent, event):
-                return None
-
-            def event_advances(self, event, goal):
-                return False
-
-            def select_next_goal(self, engine, agent, drive_state=None):
-                return None
-
-            def check_drive_shift(self, engine, agent):
-                return None
-
-        class NoopTimeline:
-            async def after_tick(self, engine, tick_events):
-                return None
-
-        class NoopMemory:
-            async def after_tick(self, engine, tick_events):
-                return None
-
-        class NoopEnrichment:
-            async def after_tick(self, engine, tick_events):
-                return None
+        from babel.hooks import NullHooks
 
         session = _make_session()
-        engine = Engine(
-            session,
-            pressure_policy=NoopPressure(),
-            social_projection_policy=NoopSocial(),
-            social_mutation_policy=NoopSocial(),
-            goal_projection_policy=NoopGoal(),
-            goal_mutation_policy=NoopGoal(),
-            timeline_policy=NoopTimeline(),
-            memory_policy=NoopMemory(),
-            enrichment_policy=NoopEnrichment(),
-        )
-        assert engine.pressure_policy.__class__.__name__ == "NoopPressure"
-        assert engine.social_projection_policy.__class__.__name__ == "NoopSocial"
-        assert engine.social_mutation_policy.__class__.__name__ == "NoopSocial"
-        assert engine.goal_projection_policy.__class__.__name__ == "NoopGoal"
-        assert engine.goal_mutation_policy.__class__.__name__ == "NoopGoal"
-        assert engine.timeline_policy.__class__.__name__ == "NoopTimeline"
-        assert engine.memory_policy.__class__.__name__ == "NoopMemory"
-        assert engine.enrichment_policy.__class__.__name__ == "NoopEnrichment"
+        hooks = NullHooks()
+        engine = Engine(session, hooks=hooks)
+        assert engine.hooks is hooks
 
     def test_engine_default_uses_llm_decision_source(self):
         from babel.engine import Engine
@@ -581,96 +514,52 @@ class TestEngineDecisionSource(unittest.TestCase):
         engine = Engine(session)
         assert isinstance(engine.decision_source, LLMDecisionSource)
 
-    def test_engine_accepts_split_social_policies(self):
+    def test_engine_accepts_default_hooks_with_facades(self):
         from babel.engine import Engine
-
-        class ProjectionOnly:
-            def build_relation_context(self, session, agent):
-                del session, agent
-                return [{"name": "Bob", "type": "watchful"}]
-
-        class MutationOnly:
-            def apply(self, engine, agent, response, errors):
-                del engine, agent, response, errors
-                return None
+        from babel.hooks import DefaultEngineHooks
 
         session = _make_session()
-        engine = Engine(
-            session,
-            social_projection_policy=ProjectionOnly(),
-            social_mutation_policy=MutationOnly(),
-        )
-        ctx = engine._build_context(session.agents["a1"])
-        assert ctx.relations[0]["type"] == "watchful"
-
-    def test_engine_accepts_split_goal_policies(self):
-        from babel.engine import Engine
-
-        class ProjectionOnly:
-            def build_goal_context(self, agent):
-                del agent
-                return {
-                    "active_goal": {"text": "split projection"},
-                    "ongoing_intent": {"objective": "move first"},
-                    "last_outcome": "projection owned",
-                }
-
-        class MutationOnly:
-            def ensure_active_goal(self, engine, agent):
-                return None
-
-            def sync_plan_from_intent(self, agent, intent):
-                return None
-
-            def record_blocker(self, agent, blocker):
-                return None
-
-            async def update(self, engine, agent, event):
-                return None
-
-            def event_advances(self, event, goal):
-                return False
-
-            def select_next_goal(self, engine, agent, drive_state=None):
-                return None
-
-            def check_drive_shift(self, engine, agent):
-                return None
-
-        session = _make_session()
-        engine = Engine(
-            session,
-            goal_projection_policy=ProjectionOnly(),
-            goal_mutation_policy=MutationOnly(),
-        )
-        ctx = engine._build_context(session.agents["a1"])
-        assert ctx.active_goal["text"] == "split projection"
-        assert ctx.ongoing_intent["objective"] == "move first"
-        assert ctx.last_outcome == "projection owned"
+        hooks = DefaultEngineHooks()
+        engine = Engine(session, hooks=hooks)
+        hooks.install_facades(engine)
+        # Facades should be installed
+        assert hasattr(engine, "_update_goals")
+        assert hasattr(engine, "_event_advances_goal")
+        assert hasattr(engine, "_select_next_goal")
 
 
 class TestPolicyResolvers(unittest.TestCase):
-    def test_engine_build_context(self):
+    @patch("babel.memory.retrieve_relevant_memories", new_callable=AsyncMock, return_value=[])
+    @patch("babel.memory.get_relevant_events", new_callable=AsyncMock, return_value=[])
+    @patch("babel.memory.get_agent_beliefs", new_callable=AsyncMock, return_value=[])
+    def test_hooks_build_context(self, mock_beliefs, mock_events, mock_memories):
         from babel.engine import Engine
+        from babel.hooks import DefaultEngineHooks
+
         session = _make_session()
-        engine = Engine(session)
+        hooks = DefaultEngineHooks()
+        engine = Engine(session, hooks=hooks)
         agent = session.agents["a1"]
         agent.immediate_intent = "gain Bob's confidence"
         agent.immediate_approach = "act helpful before asking questions"
         agent.immediate_next_step = "speak to Bob calmly"
         agent.last_outcome = "Alice saw Bob hiding a package."
-        ctx = engine._build_context(agent)
+        ctx = asyncio.get_event_loop().run_until_complete(hooks.build_context(engine, agent))
         assert ctx.agent_id == "a1"
         assert ctx.agent_name == "Alice"
         assert ctx.agent_location == "plaza"
         assert "market" in ctx.reachable_locations
         assert len(ctx.available_locations) == 3
-        assert len(ctx.world_rules) == 2
+        assert len(ctx.world_lore) == 2
         assert ctx.ongoing_intent["objective"] == "gain Bob's confidence"
         assert ctx.last_outcome == "Alice saw Bob hiding a package."
 
-    def test_engine_build_context_respects_goal_policy_projection(self):
+    @patch("babel.memory.retrieve_relevant_memories", new_callable=AsyncMock, return_value=[])
+    @patch("babel.memory.get_relevant_events", new_callable=AsyncMock, return_value=[])
+    @patch("babel.memory.get_agent_beliefs", new_callable=AsyncMock, return_value=[])
+    def test_hooks_build_context_respects_goal_projection(self, mock_beliefs, mock_events, mock_memories):
         from babel.engine import Engine
+        from babel.hooks import DefaultEngineHooks
 
         class CustomGoalProjection:
             def build_goal_context(self, agent):
@@ -684,40 +573,21 @@ class TestPolicyResolvers(unittest.TestCase):
                     "last_outcome": "Bob noticed a tail.",
                 }
 
-            def ensure_active_goal(self, engine, agent):
-                return None
-
-            def sync_plan_from_intent(self, agent, intent):
-                return None
-
-            def record_blocker(self, agent, blocker):
-                return None
-
-            async def update(self, engine, agent, event):
-                return None
-
-            def event_advances(self, event, goal):
-                return False
-
-            def select_next_goal(self, engine, agent, drive_state=None):
-                return None
-
-            def check_drive_shift(self, engine, agent):
-                return None
-
         session = _make_session()
-        custom = CustomGoalProjection()
-        engine = Engine(session, goal_projection_policy=custom, goal_mutation_policy=custom)
+        hooks = DefaultEngineHooks()
+        hooks._goal_projection = CustomGoalProjection()
+        engine = Engine(session, hooks=hooks)
         agent = session.agents["a1"]
-        ctx = engine._build_context(agent)
+        ctx = asyncio.get_event_loop().run_until_complete(hooks.build_context(engine, agent))
 
         assert ctx.active_goal["text"] == "shadow Bob"
         assert ctx.ongoing_intent["objective"] == "corner Bob privately"
         assert ctx.last_outcome == "Bob noticed a tail."
 
-    @patch("babel.engine.create_memory_from_event", new_callable=AsyncMock)
+    @patch("babel.memory.create_memory_from_event", new_callable=AsyncMock)
     def test_engine_syncs_goal_plan_from_intent(self, mock_create_memory):
         from babel.engine import Engine
+        from babel.hooks import DefaultEngineHooks
 
         class IntentSource:
             async def decide(self, context):
@@ -733,20 +603,35 @@ class TestPolicyResolvers(unittest.TestCase):
                 )
 
         session = _make_session()
-        engine = Engine(session, decision_source=IntentSource())
+        hooks = DefaultEngineHooks()
+        engine = Engine(session, decision_source=IntentSource(), hooks=hooks)
+        hooks.install_facades(engine)
         agent = session.agents["a1"]
-        engine._running = True
 
-        event = asyncio.get_event_loop().run_until_complete(engine._resolve_agent_action(agent))
+        event = asyncio.get_event_loop().run_until_complete(engine._resolve(agent))
         assert event.action_type == "observe"
         assert agent.active_goal is not None
         assert agent.active_goal.strategy == "offer useful insight before asking questions"
         assert agent.active_goal.next_step == "watch how Bob reacts to the mention of the dock"
         assert agent.immediate_intent == "win Bob's trust"
 
-    @patch("babel.engine.create_memory_from_event", new_callable=AsyncMock)
+    @patch("babel.memory.create_memory_from_event", new_callable=AsyncMock)
     def test_engine_finalizes_event_significance_after_goal_mutation(self, mock_create_memory):
         from babel.engine import Engine
+        from babel.hooks import DefaultEngineHooks
+        from babel.policies import DefaultGoalMutationPolicy
+
+        class GoalMutationOnly(DefaultGoalMutationPolicy):
+            def ensure_active_goal(self, engine, agent):
+                if not agent.active_goal:
+                    agent.active_goal = GoalState(text="investigate the smuggling route")
+
+            async def update(self, engine, agent, event):
+                assert event.result
+                if not agent.active_goal:
+                    agent.active_goal = GoalState(text="investigate the smuggling route")
+                agent.active_goal.progress = 0.3
+                agent.active_goal.last_progress_reason = event.result
 
         class IntentSource:
             async def decide(self, context):
@@ -761,50 +646,18 @@ class TestPolicyResolvers(unittest.TestCase):
                     },
                 )
 
-        class GoalMutationOnly:
-            def ensure_active_goal(self, engine, agent):
-                del engine
-                if not agent.active_goal:
-                    agent.active_goal = GoalState(text="investigate the smuggling route")
-
-            def sync_plan_from_intent(self, agent, intent):
-                del agent, intent
-                return None
-
-            def record_blocker(self, agent, blocker):
-                del agent, blocker
-                return None
-
-            async def update(self, engine, agent, event):
-                del engine
-                assert event.result
-                if not agent.active_goal:
-                    agent.active_goal = GoalState(text="investigate the smuggling route")
-                agent.active_goal.progress = 0.3
-                agent.active_goal.last_progress_reason = event.result
-
-            def event_advances(self, event, goal):
-                del event, goal
-                return True
-
-            def select_next_goal(self, engine, agent, drive_state=None):
-                del engine, agent, drive_state
-                return None
-
-            def check_drive_shift(self, engine, agent):
-                del engine, agent
-                return None
-
         session = _make_session()
+        hooks = DefaultEngineHooks()
+        hooks._goal_mutation = GoalMutationOnly()
         engine = Engine(
             session,
             decision_source=IntentSource(),
-            goal_mutation_policy=GoalMutationOnly(),
+            hooks=hooks,
         )
+        hooks.install_facades(engine)
         agent = session.agents["a1"]
-        engine._running = True
 
-        event = asyncio.get_event_loop().run_until_complete(engine._resolve_agent_action(agent))
+        event = asyncio.get_event_loop().run_until_complete(engine._resolve(agent))
         assert event.significance.primary == "goal"
         assert event.significance.delta["goal_progress"] == pytest.approx(0.3, abs=0.001)
         assert event.importance == pytest.approx(event.significance.score, abs=0.001)
@@ -820,13 +673,13 @@ class TestScriptedTenTicks(unittest.TestCase):
     @patch("babel.memory.query_memories", new_callable=AsyncMock)
     @patch("babel.memory.update_memory_access", new_callable=AsyncMock)
     @patch("babel.memory.load_events_filtered", new_callable=AsyncMock)
-    @patch("babel.engine.save_timeline_node", new_callable=AsyncMock)
-    @patch("babel.engine.get_last_node_id", new_callable=AsyncMock)
-    @patch("babel.engine.save_snapshot", new_callable=AsyncMock)
-    @patch("babel.engine.load_entity_details", new_callable=AsyncMock)
-    @patch("babel.engine.save_entity_details", new_callable=AsyncMock)
-    @patch("babel.engine.load_events_filtered", new_callable=AsyncMock)
-    @patch("babel.engine.load_events", new_callable=AsyncMock)
+    @patch("babel.db.save_timeline_node", new_callable=AsyncMock)
+    @patch("babel.db.get_last_node_id", new_callable=AsyncMock)
+    @patch("babel.db.save_snapshot", new_callable=AsyncMock)
+    @patch("babel.db.load_entity_details", new_callable=AsyncMock)
+    @patch("babel.db.save_entity_details", new_callable=AsyncMock)
+    @patch("babel.db.load_events_filtered", new_callable=AsyncMock)
+    @patch("babel.db.load_events", new_callable=AsyncMock)
     def test_ten_ticks_no_llm(
         self,
         mock_load_events,
@@ -850,6 +703,7 @@ class TestScriptedTenTicks(unittest.TestCase):
         mock_load_details.return_value = None
 
         from babel.engine import Engine
+        from babel.hooks import DefaultEngineHooks
 
         session = _make_session()
         # Use observe + wait cycle — always valid
@@ -858,7 +712,9 @@ class TestScriptedTenTicks(unittest.TestCase):
             ActionOutput(type=ActionType.WAIT, content="waiting"),
         ]
         src = ScriptedDecisionSource(actions=actions)
-        engine = Engine(session, decision_source=src)
+        hooks = DefaultEngineHooks()
+        engine = Engine(session, decision_source=src, hooks=hooks)
+        hooks.install_facades(engine)
 
         # Run 10 ticks
         all_events = []
@@ -922,7 +778,7 @@ class TestGenerateSeedDraft(unittest.TestCase):
         mock_json.return_value = {
             "name": "Lost Colony",
             "description": "A colony on a distant planet",
-            "rules": ["survival is key"],
+            "lore": ["survival is key"],
             "locations": [
                 {"name": "Base Camp", "description": "The main camp", "tags": [], "connections": ["Forest"]},
                 {"name": "Forest", "description": "Dense woods", "tags": [], "connections": ["Base Camp"]},
@@ -992,7 +848,7 @@ class TestGenerateSeedDraft(unittest.TestCase):
         data = {
             "name": "Test World",
             "description": "A test",
-            "rules": ["be nice"],
+            "lore": ["be nice"],
             "locations": [
                 {"name": "Town", "description": "A town", "connections": ["Forest"]},
                 {"name": "Forest", "description": "Woods", "connections": ["Town"]},

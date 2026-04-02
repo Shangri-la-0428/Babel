@@ -51,10 +51,8 @@ def _make_snapshot(session_id: str = "parent-1", tick: int = 25) -> dict:
         "world_seed": {
             "name": "Fork Test",
             "description": "Parent world",
-            "rules": [],
+            "lore": [],
             "locations": [],
-            "resources": [],
-            "items": [],
             "agents": [
                 {"id": "alice", "name": "Alice", "description": "", "personality": "brave",
                  "goals": ["survive"], "inventory": [], "location": "Bar"},

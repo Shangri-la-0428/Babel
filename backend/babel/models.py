@@ -90,19 +90,7 @@ class LocationSeed(BaseModel):
     description: str = ""
     tags: list[str] = Field(default_factory=list)
     connections: list[str] = Field(default_factory=list)  # adjacent location names
-
-
-class ResourceSeed(BaseModel):
-    name: str
-    description: str = ""
-
-
-class ItemSeed(BaseModel):
-    name: str
-    description: str = ""
-    origin: str = ""
-    properties: list[str] = Field(default_factory=list)
-    significance: str = ""
+    resources: list[str] = Field(default_factory=list)    # items this location produces
 
 
 class AgentSeed(BaseModel):
@@ -125,6 +113,15 @@ class TimeConfig(BaseModel):
     # periods example: [{"name": "night", "start": 22, "end": 6}, ...]
 
 
+class PhysicsConfig(BaseModel):
+    """Engine-enforced causal laws. Declared in seed, enforced by engine."""
+    conservation: bool = True     # trade transfers items, never duplicates
+    entropy: bool = True          # use_item destroys the item
+    move_cost: str | None = None  # resource consumed when moving (None = free)
+    regeneration: bool = False    # locations spawn resources from their resource list
+    regeneration_interval: int = 5  # ticks between resource spawns
+
+
 class NarratorConfig(BaseModel):
     persona: str = ""                # custom persona e.g. "A weary bard"
     auto_commentary: bool = False    # auto-generate commentary
@@ -134,12 +131,12 @@ class NarratorConfig(BaseModel):
 class WorldSeed(BaseModel):
     name: str
     description: str = ""
-    rules: list[str] = Field(default_factory=list)
+    lore: list[str] = Field(default_factory=list)
     locations: list[LocationSeed] = Field(default_factory=list)
-    resources: list[ResourceSeed] = Field(default_factory=list)
-    items: list[ItemSeed] = Field(default_factory=list)
+    glossary: dict[str, str] = Field(default_factory=dict)
     agents: list[AgentSeed] = Field(default_factory=list)
     initial_events: list[str] = Field(default_factory=list)
+    physics: PhysicsConfig = Field(default_factory=PhysicsConfig)
     time: TimeConfig = Field(default_factory=TimeConfig)
     narrator: NarratorConfig = Field(default_factory=NarratorConfig)
 
@@ -360,6 +357,8 @@ class Session(BaseModel):
     urgent_events: list[str] = Field(default_factory=list)
     # Structured agent-to-agent relationships
     relations: list[Relation] = Field(default_factory=list)
+    # Items on the ground at each location (physics: regeneration)
+    location_items: dict[str, list[str]] = Field(default_factory=dict)
 
     def init_agents(self) -> None:
         for seed in self.world_seed.agents:

@@ -1,72 +1,32 @@
-"""BABEL — Pluggable simulation policies.
+"""BABEL — Domain policies for social ledger and goal lifecycle.
 
 These policies hold the default domain logic for:
-- pressure / perturbation handling
-- invalid-action repair / retry semantics
-- action proposal assembly before world validation
-- context / perception assembly before a brain sees the world
 - social ledger updates and relation projection
 - goal lifecycle and progress evaluation
 
-Engine orchestrates. Policies decide *how* these subsystems behave.
+The engine is a pure causal kernel. Hooks are the medium adapter.
+Policies are reusable domain logic that hooks compose internally.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol
 
-from .clock import world_time
-from .memory import get_visible_agents
-from .decision import AgentContext
 from .models import (
-    ActionOutput,
     ActionType,
     AgentState,
     Event,
     GoalState,
     IntentState,
     LLMResponse,
-    SeedLineage,
-    StateChanges,
-    TimelineNode,
-    WorldSnapshot,
 )
-from .significance import event_is_significant, event_score, finalize_event_significance
 
 if TYPE_CHECKING:
     from .engine import Engine
-    from .models import LLMResponse, Session
+    from .models import Session
 
 
-class PressurePolicy(Protocol):
-    async def before_agent_turn(self, engine: Engine, agent: AgentState) -> list[Event]: ...
-
-
-class PerceptionPolicy(Protocol):
-    async def build_context(self, engine: Engine, agent: AgentState) -> AgentContext: ...
-
-
-class ResolutionPolicy(Protocol):
-    def max_attempts(self, engine: Engine, agent: AgentState) -> int: ...
-    def repair_context(
-        self,
-        engine: Engine,
-        agent: AgentState,
-        context: AgentContext,
-        last_error: str,
-        attempt: int,
-    ) -> AgentContext: ...
-    def invalid_result(self, engine: Engine, agent: AgentState, error: str) -> str: ...
-
-
-class ProposalPolicy(Protocol):
-    def build_response(
-        self,
-        engine: Engine,
-        agent: AgentState,
-        action: ActionOutput,
-    ) -> LLMResponse: ...
-
+# ── Protocols ────────────────────────────────────────────
 
 class SocialProjectionPolicy(Protocol):
     def build_relation_context(self, session: Session, agent: AgentState) -> list[dict[str, Any]]: ...
@@ -95,287 +55,7 @@ class GoalMutationPolicy(Protocol):
     def check_drive_shift(self, engine: Engine, agent: AgentState) -> None: ...
 
 
-class TimelinePolicy(Protocol):
-    async def after_tick(self, engine: Engine, tick_events: list[Event]) -> None: ...
-
-
-class MemoryPolicy(Protocol):
-    async def after_tick(self, engine: Engine, tick_events: list[Event]) -> None: ...
-
-
-class EnrichmentPolicy(Protocol):
-    async def after_tick(self, engine: Engine, tick_events: list[Event]) -> None: ...
-
-
-class DefaultPressurePolicy:
-    async def before_agent_turn(self, engine: Engine, agent: AgentState) -> list[Event]:
-        if not await engine._detect_repetition(agent):
-            return []
-
-        perturbation = await engine._generate_perturbation()
-        world_event = Event(
-            session_id=engine.session.id,
-            tick=engine.session.tick,
-            agent_id=None,
-            agent_name=None,
-            action_type="world_event",
-            action={"content": perturbation},
-            result=f"[WORLD] {perturbation}",
-            location=agent.location,
-        )
-        finalize_event_significance(world_event)
-        engine._append_event(world_event)
-        await engine._emit(world_event)
-        await engine._remember_event(agent, world_event, f"[WORLD] {perturbation}")
-        return [world_event]
-
-
-def _build_agent_context(engine: Engine, agent: AgentState, **overrides) -> AgentContext:
-    frozen_locations = getattr(engine, "_frozen_locations", None)
-    visible = get_visible_agents(agent, engine.session, frozen_locations=frozen_locations)
-    reachable = engine.session.location_connections(agent.location)
-    agent_relations = engine.social_projection_policy.build_relation_context(engine.session, agent)
-    wt = world_time(engine.session.tick, engine.session.world_seed.time)
-    goal_context = engine.goal_projection_policy.build_goal_context(agent)
-
-    # Extract item/location descriptions from seed for richer LLM context
-    seed = engine.session.world_seed
-    item_context: dict[str, str] = {}
-    for item in seed.items:
-        if item.description:
-            item_context[item.name] = item.description
-    for res in seed.resources:
-        if res.description:
-            item_context[res.name] = res.description
-    location_context: dict[str, str] = {}
-    for loc in seed.locations:
-        if loc.description:
-            location_context[loc.name] = loc.description
-
-    context = AgentContext(
-        agent_id=agent.agent_id,
-        agent_name=agent.name,
-        agent_personality=agent.personality,
-        agent_description=agent.description,
-        agent_goals=agent.goals,
-        agent_location=agent.location,
-        agent_inventory=list(agent.inventory),
-        visible_agents=visible,
-        relations=agent_relations,
-        reachable_locations=reachable,
-        available_locations=engine.session.location_names,
-        world_rules=engine.session.world_seed.rules,
-        world_time={"display": wt.display, "period": wt.period},
-        active_goal=goal_context.get("active_goal"),
-        ongoing_intent=goal_context.get("ongoing_intent"),
-        last_outcome=goal_context.get("last_outcome", agent.last_outcome),
-        urgent_events=engine.session.urgent_events or None,
-        tick=engine.session.tick,
-        item_context=item_context,
-        location_context=location_context,
-        world_description=engine.session.world_seed.description,
-    )
-
-    for key, value in overrides.items():
-        if hasattr(context, key):
-            setattr(context, key, value)
-
-    return context
-
-
-class DefaultPerceptionPolicy:
-    async def build_context(self, engine: Engine, agent: AgentState) -> AgentContext:
-        memories = await engine._retrieve_relevant_memories(agent)
-        recent_events = await engine._get_relevant_events(agent)
-        beliefs = await engine._get_agent_beliefs(agent.agent_id)
-        return _build_agent_context(
-            engine,
-            agent,
-            memories=memories,
-            beliefs=beliefs,
-            recent_events=list(recent_events),
-        )
-
-
-class DefaultResolutionPolicy:
-    def max_attempts(self, engine: Engine, agent: AgentState) -> int:
-        del engine, agent
-        return 2
-
-    def repair_context(
-        self,
-        engine: Engine,
-        agent: AgentState,
-        context: AgentContext,
-        last_error: str,
-        attempt: int,
-    ) -> AgentContext:
-        del engine, agent
-        if not last_error:
-            return context
-        retry_note = (
-            f"[SYSTEM] Previous action was invalid: {last_error}. "
-            f"Try again with a legal action. Attempt {attempt + 1}."
-        )
-        return context.model_copy(update={
-            "recent_events": [*context.recent_events, retry_note],
-        })
-
-    def invalid_result(self, engine: Engine, agent: AgentState, error: str) -> str:
-        del engine, agent
-        return f"Action invalid: {error}"
-
-
-class DefaultProposalPolicy:
-    def build_response(
-        self,
-        engine: Engine,
-        agent: AgentState,
-        action: ActionOutput,
-    ) -> LLMResponse:
-        del engine, agent
-        state_changes = StateChanges()
-        if action.type == ActionType.MOVE and action.target:
-            state_changes.location = action.target
-        return LLMResponse(
-            thinking="(decision source)",
-            intent=action.intent or {},
-            action=action,
-            state_changes=state_changes,
-        )
-
-
-class DefaultTimelinePolicy:
-    async def after_tick(self, engine: Engine, tick_events: list[Event]) -> None:
-        parent_id = await engine._get_last_node_id()
-        has_significant = any(event_is_significant(event) for event in tick_events)
-        node = TimelineNode(
-            session_id=engine.session.id,
-            tick=engine.session.tick,
-            parent_id=parent_id,
-            branch_id=engine.session.seed_lineage.branch_id or "main",
-            summary=self.summarize_tick(tick_events),
-            event_count=len(tick_events),
-            agent_locations={
-                agent_id: agent.location
-                for agent_id, agent in engine.session.agents.items()
-            },
-            significant=has_significant,
-            lineage=SeedLineage.runtime(
-                root_name=engine.session.seed_lineage.root_name or engine.session.world_seed.name,
-                source_seed_ref=engine.session.seed_lineage.source_seed_ref,
-                session_id=engine.session.id,
-                tick=engine.session.tick,
-                branch_id=engine.session.seed_lineage.branch_id or "main",
-            ),
-        )
-
-        for event in tick_events:
-            event.node_id = node.id
-
-        await engine._save_timeline_node(node)
-
-        if engine.session.tick % engine.snapshot_interval == 0 or has_significant:
-            snapshot = WorldSnapshot(
-                session_id=engine.session.id,
-                node_id=node.id,
-                tick=engine.session.tick,
-                world_seed_json=engine.session.world_seed.model_dump_json(),
-                agent_states_json=engine._dump_agent_states_json(),
-                lineage=SeedLineage.runtime(
-                    root_name=engine.session.world_seed.name,
-                    session_id=engine.session.id,
-                    tick=engine.session.tick,
-                    branch_id=node.branch_id,
-                    node_id=node.id,
-                ),
-            )
-            snapshot.lineage.snapshot_id = snapshot.id
-            await engine._save_snapshot(snapshot)
-
-    @staticmethod
-    def summarize_tick(events: list[Event]) -> str:
-        if not events:
-            return ""
-        ranked = sorted(
-            events,
-            key=lambda event: (event_score(event), bool(event.significance.durable), event.tick),
-            reverse=True,
-        )
-        picked = ranked[:3]
-        parts = [event.result.strip() for event in picked if event.result.strip()]
-        return " | ".join(parts) if parts else "No meaningful change."
-
-
-class DefaultMemoryPolicy:
-    async def after_tick(self, engine: Engine, tick_events: list[Event]) -> None:
-        del tick_events
-        session = engine.session
-        if session.tick % engine.epoch_interval == 0:
-            for agent_id in session.agent_ids:
-                await engine._consolidate_memories(agent_id)
-
-        if session.tick % engine.belief_interval == 0:
-            for agent_id in session.agent_ids:
-                await engine._extract_beliefs(agent_id)
-
-
-class DefaultEnrichmentPolicy:
-    async def after_tick(self, engine: Engine, tick_events: list[Event]) -> None:
-        session = engine.session
-
-        for event in tick_events:
-            if event_score(event) < 0.7:
-                continue
-            if event.agent_id and event.agent_id in session.agents:
-                pair = ("agent", event.agent_id)
-                if pair not in engine._enrichment_queue:
-                    engine._enrichment_queue.append(pair)
-            if event.location:
-                pair = ("location", event.location)
-                if pair not in engine._enrichment_queue:
-                    engine._enrichment_queue.append(pair)
-
-        if not engine._enrichment_queue:
-            return
-
-        entity_type, entity_id = engine._enrichment_queue.pop(0)
-        existing = await engine._load_entity_details(entity_type, entity_id)
-        current_details = existing["details"] if existing else {}
-
-        if existing and existing.get("last_updated_tick", 0) > session.tick - 5:
-            return
-
-        relevant_event_strings: list[str] = []
-        if entity_type == "agent":
-            events = await engine._load_events_filtered(agent_id=entity_id, limit=15)
-            relevant_event_strings = [event.get("result", "") for event in events if event.get("result")]
-        else:
-            all_events = await engine._load_events(limit=100)
-            search_term = entity_id.lower()
-            for event in all_events:
-                result_text = (event.get("result") or "").lower()
-                if search_term in result_text:
-                    relevant_event_strings.append(event.get("result", ""))
-            relevant_event_strings = relevant_event_strings[:15]
-
-        if not relevant_event_strings:
-            return
-
-        enriched = await engine._enrich_entity(
-            entity_type=entity_type,
-            entity_id=entity_id,
-            current_details=current_details,
-            relevant_events=relevant_event_strings,
-        )
-        if enriched and enriched != current_details:
-            await engine._save_entity_details(
-                entity_type=entity_type,
-                entity_id=entity_id,
-                details=enriched,
-                tick=session.tick,
-            )
-
+# ── Default implementations ─────────────────────────────
 
 class DefaultSocialProjectionPolicy:
     def build_relation_context(self, session: Session, agent: AgentState) -> list[dict[str, Any]]:
@@ -555,7 +235,6 @@ class DefaultGoalMutationPolicy:
 
         core_goal_text = goal.text.strip()
         goal_text = self._relevant_goal_text(goal)
-        # Check both result and action content for goal alignment
         action_content = str(event.action.get("content", "") or "").lower()
         search_text = f"{event.result.lower()} {action_content}"
         core_terms = self._extract_goal_terms(core_goal_text)
@@ -629,7 +308,6 @@ class DefaultGoalMutationPolicy:
             try:
                 goal_plan = await engine._replan_goal(agent, goal)
                 new_text = goal_plan.get("text", goal.text)
-                # Preserve progress if the core goal hasn't changed
                 preserved_progress = goal.progress if new_text == goal.text else max(goal.progress * 0.5, 0.0)
                 agent.active_goal = GoalState(
                     text=new_text,
@@ -701,5 +379,3 @@ class DefaultGoalMutationPolicy:
         new_goal = self.select_next_goal(engine, agent, drive_state=current.drives)
         if new_goal and new_goal.text != agent.active_goal.text:
             agent.active_goal = new_goal
-
-

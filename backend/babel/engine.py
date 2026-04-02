@@ -1,119 +1,74 @@
-"""BABEL — Core simulation engine."""
+"""BABEL — Causal kernel.
+
+The engine is a pure causal loop:
+  tick → perceive → decide → validate → apply → physics → event
+
+It does not know about LLMs, text, memory, chapters, or any specific medium.
+All medium-specific behavior lives in EngineHooks.
+
+The output is state change. Not language. Not narrative. State.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import random
 from typing import Any, Callable
 
-logger = logging.getLogger(__name__)
-
 from pydantic import ValidationError
 
-from .db import (
-    get_last_node_id, save_snapshot, save_timeline_node,
-    load_entity_details, save_entity_details, load_events,
-    load_events_filtered,
-)
-from .llm import enrich_entity, generate_chapter, replan_goal
-from .memory import (
-    consolidate_memories,
-    create_memory_from_event,
-    detect_repetition,
-    extract_beliefs,
-    generate_perturbation,
-    get_agent_beliefs,
-    get_relevant_events,
-    retrieve_relevant_memories,
-)
+from .decision import AgentContext, DecisionSource, LLMDecisionSource
+from .hooks import EngineHooks, NullHooks
 from .models import (
+    ActionOutput,
     ActionType,
     AgentRole,
     AgentState,
     AgentStatus,
     Event,
-    GoalState,
-    IntentState,
+    LLMResponse,
     Session,
     SessionStatus,
-    TimelineNode,
-    WorldSnapshot,
+    StateChanges,
 )
-from .decision import AgentContext, DecisionSource, LLMDecisionSource
-from .policies import (
-    DefaultEnrichmentPolicy,
-    DefaultMemoryPolicy,
-    DefaultPerceptionPolicy,
-    DefaultPressurePolicy,
-    DefaultProposalPolicy,
-    DefaultResolutionPolicy,
-    DefaultTimelinePolicy,
-    EnrichmentPolicy,
-    GoalMutationPolicy,
-    DefaultGoalMutationPolicy,
-    DefaultGoalProjectionPolicy,
-    DefaultSocialMutationPolicy,
-    DefaultSocialProjectionPolicy,
-    GoalMutationPolicy,
-    GoalProjectionPolicy,
-    MemoryPolicy,
-    PerceptionPolicy,
-    PressurePolicy,
-    ProposalPolicy,
-    ResolutionPolicy,
-    SocialMutationPolicy,
-    SocialProjectionPolicy,
-    TimelinePolicy,
-    _build_agent_context,
-)
-from .significance import finalize_event_significance
+from .physics import DefaultWorldPhysics, WorldPhysics
 from .validator import DefaultWorldAuthority, WorldAuthority
 
-# Max events kept in session.events in-memory
+logger = logging.getLogger(__name__)
+
 EVENT_WINDOW = 30
-
-# Type for event callback (used by API/WebSocket to push events)
 EventCallback = Callable[[Event], Any]
-
-# Default intervals (can be overridden per-engine)
-DEFAULT_SNAPSHOT_INTERVAL = 10
-DEFAULT_EPOCH_INTERVAL = 5
-DEFAULT_BELIEF_INTERVAL = 10
+MAX_RESOLVE_ATTEMPTS = 3
 
 
 class Engine:
-    """World simulation engine. Drives the tick loop.
+    """World simulation engine. Pure causal kernel + pluggable hooks.
 
-    All agent decisions go through the DecisionSource protocol.
-    Defaults to LLMDecisionSource if none is provided.
+    Three protocols define the causal laws:
+      - DecisionSource: how agents decide (LLM, rule-based, human, external SDK)
+      - WorldAuthority: what actions are legal + how they mutate state
+      - WorldPhysics: engine-enforced consequences (conservation, entropy)
+
+    One hooks object handles everything else:
+      - Perception enrichment (memory, goals, relations)
+      - Post-event processing (memory creation, goal tracking, significance)
+      - Post-tick processing (timeline, chapters, consolidation)
     """
 
     def __init__(
         self,
         session: Session,
+        decision_source: DecisionSource | None = None,
+        world_authority: WorldAuthority | None = None,
+        world_physics: WorldPhysics | None = None,
+        hooks: EngineHooks | None = None,
+        *,
         model: str | None = None,
         api_key: str | None = None,
         api_base: str | None = None,
         on_event: EventCallback | None = None,
         tick_delay: float = 2.0,
-        decision_source: DecisionSource | None = None,
-        pressure_policy: PressurePolicy | None = None,
-        perception_policy: PerceptionPolicy | None = None,
-        resolution_policy: ResolutionPolicy | None = None,
-        proposal_policy: ProposalPolicy | None = None,
-        social_projection_policy: SocialProjectionPolicy | None = None,
-        social_mutation_policy: SocialMutationPolicy | None = None,
-        goal_projection_policy: GoalProjectionPolicy | None = None,
-        goal_mutation_policy: GoalMutationPolicy | None = None,
-        timeline_policy: TimelinePolicy | None = None,
-        memory_policy: MemoryPolicy | None = None,
-        enrichment_policy: EnrichmentPolicy | None = None,
-        world_authority: WorldAuthority | None = None,
-        snapshot_interval: int = DEFAULT_SNAPSHOT_INTERVAL,
-        epoch_interval: int = DEFAULT_EPOCH_INTERVAL,
-        belief_interval: int = DEFAULT_BELIEF_INTERVAL,
     ):
         self.session = session
         self.model = model
@@ -121,104 +76,91 @@ class Engine:
         self.api_base = api_base
         self.on_event = on_event
         self.tick_delay = tick_delay
-        # Always have a decision source — LLM is the default, not a special case
+
+        # Three causal protocols
         self.decision_source: DecisionSource = decision_source or LLMDecisionSource(
             model=model, api_key=api_key, api_base=api_base,
         )
-        self.pressure_policy: PressurePolicy = pressure_policy or DefaultPressurePolicy()
-        self.perception_policy: PerceptionPolicy = perception_policy or DefaultPerceptionPolicy()
-        self.resolution_policy: ResolutionPolicy = resolution_policy or DefaultResolutionPolicy()
-        self.proposal_policy: ProposalPolicy = proposal_policy or DefaultProposalPolicy()
-        self.social_projection_policy = social_projection_policy or DefaultSocialProjectionPolicy()
-        self.social_mutation_policy = social_mutation_policy or DefaultSocialMutationPolicy()
-        self.goal_projection_policy = goal_projection_policy or DefaultGoalProjectionPolicy()
-        self.goal_mutation_policy = goal_mutation_policy or DefaultGoalMutationPolicy()
-        self.timeline_policy: TimelinePolicy = timeline_policy or DefaultTimelinePolicy()
-        self.memory_policy: MemoryPolicy = memory_policy or DefaultMemoryPolicy()
-        self.enrichment_policy: EnrichmentPolicy = enrichment_policy or DefaultEnrichmentPolicy()
         self.world_authority: WorldAuthority = world_authority or DefaultWorldAuthority()
+        self.world_physics: WorldPhysics = world_physics or DefaultWorldPhysics(
+            config=session.world_seed.physics,
+        )
+
+        # Everything non-causal
+        self.hooks: EngineHooks = hooks or NullHooks()
+
         self._running = False
-        self._frozen_locations: dict[str, str] | None = None  # tick-start snapshot
-        self._enrichment_queue: list[tuple[str, str]] = []  # (entity_type, entity_id)
-        # Configurable intervals
-        self.snapshot_interval = snapshot_interval
-        self.epoch_interval = epoch_interval
-        self.belief_interval = belief_interval
-        # Phase B: per-agent Psyche snapshots for drive tracking
-        self._psyche_snapshots: dict[str, Any] = {}      # agent_id → current PsycheSnapshot
-        self._prev_psyche_snapshots: dict[str, Any] = {}  # agent_id → previous tick's snapshot
-        self._last_chapter: str = ""  # Previous chapter text for continuity
+        self._frozen_locations: dict[str, str] | None = None
+
+    # ── Tick loop ─────────────────────────────────────────
 
     async def tick(self) -> list[Event]:
-        """Execute one tick of the simulation.
-
-        Uses snapshot-based perception: all agents see agent locations as
-        they were at tick start, preventing causal contamination where
-        agent B's decision is distorted by agent A's mid-tick movement.
-        """
+        """One tick of the simulation. Pure causality + hook calls."""
         self.session.tick += 1
         tick_events: list[Event] = []
 
-        # Get alive agents in random order
         alive_ids = list(self.session.agent_ids)
         if not alive_ids:
             return tick_events
         random.shuffle(alive_ids)
 
-        # Track if we were running at tick start (for mid-tick pause)
         was_running = self._running
 
-        # ── Snapshot: freeze agent locations at tick start ──
-        # Each agent will perceive others at their tick-start positions,
-        # even if earlier agents already moved this tick.
+        # Freeze locations at tick start (prevents causal contamination)
         self._frozen_locations = {
-            aid: self.session.agents[aid].location
-            for aid in alive_ids
+            aid: self.session.agents[aid].location for aid in alive_ids
         }
 
         for agent_id in alive_ids:
             agent = self.session.agents[agent_id]
 
-            # Supporting agents skip ~30% of ticks to reduce noise
             if agent.role == AgentRole.SUPPORTING and random.random() > 0.7:
                 agent.status = AgentStatus.IDLE
                 continue
 
-            # Respect mid-tick pause (only if engine was running and user paused)
             if was_running and not self._running:
                 break
 
             agent.status = AgentStatus.ACTING
 
-            tick_events.extend(await self.pressure_policy.before_agent_turn(self, agent))
+            # Hook: before turn (perturbation, goal setup, etc.)
+            tick_events.extend(await self.hooks.before_turn(self, agent))
 
-            # Get action from LLM (perception uses frozen locations)
-            event = await self._resolve_agent_action(agent)
+            # Causal core: perceive → decide → validate → apply → physics → event
+            event = await self._resolve(agent)
             tick_events.append(event)
 
             agent.status = AgentStatus.IDLE
 
-        # Clear frozen snapshot
         self._frozen_locations = None
-
-        # Clear urgent events after all agents have processed them
         self.session.urgent_events.clear()
 
-        # ── Generate novel chapters (one per location group) ──
-        chapter_events = await self._generate_chapter(tick_events)
-        tick_events.extend(chapter_events)
+        # Physics: per-tick effects (regeneration, etc.)
+        physics_effects = self.world_physics.tick_effects(self.session)
+        if physics_effects:
+            physics_event = Event(
+                session_id=self.session.id,
+                tick=self.session.tick,
+                agent_id=None,
+                agent_name=None,
+                action_type="world_event",
+                action={"type": "physics", "content": "; ".join(physics_effects)},
+                result="[PHYSICS] " + "; ".join(physics_effects),
+                location="",
+            )
+            self._append_event(physics_event)
+            await self._emit(physics_event)
+            tick_events.append(physics_event)
 
-        # ── Post-tick: timeline node + snapshot + consolidation ──
-        await self._post_tick(tick_events)
+        # Hook: after tick (timeline, chapters, consolidation, etc.)
+        await self.hooks.after_tick(self, tick_events)
 
         return tick_events
 
     async def step(self) -> list[Event]:
-        """Execute a single tick (for manual stepping)."""
         return await self.tick()
 
     def start(self) -> None:
-        """Mark engine as running. Called before the tick loop."""
         self.session.status = SessionStatus.RUNNING
         self._running = True
 
@@ -242,7 +184,6 @@ class Engine:
         tick_delay: float | None = None,
         on_event: EventCallback | None = None,
     ) -> None:
-        """Update engine configuration. Propagates LLM config to decision source."""
         if model is not None:
             self.model = model
         if api_key is not None:
@@ -253,288 +194,130 @@ class Engine:
             self.tick_delay = tick_delay
         if on_event is not None:
             self.on_event = on_event
-        # Sync LLM config to decision source if it's the default LLM type
         if isinstance(self.decision_source, LLMDecisionSource):
             self.decision_source.model = self.model
             self.decision_source.api_key = self.api_key
             self.decision_source.api_base = self.api_base
 
     def inject_urgent_event(self, content: str) -> None:
-        """Queue an urgent event for agents to react to on next tick."""
         self.session.urgent_events.append(content)
 
-    def _append_event(self, event: Event) -> None:
-        """Append event to session and enforce rolling window."""
-        self.session.events.append(event)
-        if len(self.session.events) > EVENT_WINDOW:
-            self.session.events = self.session.events[-EVENT_WINDOW:]
+    # ── Causal core ───────────────────────────────────────
 
-    async def _remember_event(self, agent: AgentState, event: Event, memory_text: str | None = None) -> None:
-        await create_memory_from_event(agent, event, self.session)
-
-    async def _detect_repetition(self, agent: AgentState) -> bool:
-        return await detect_repetition(agent, self.session)
-
-    async def _generate_perturbation(self) -> str:
-        return await generate_perturbation(
-            self.session,
-            model=self.model,
-            api_key=self.api_key,
-            api_base=self.api_base,
-        )
-
-    async def _generate_chapter(self, tick_events: list[Event]) -> list[Event]:
-        """Generate novel chapters after a tick.
-
-        Groups agents by location.  Co-located agents share ONE chapter
-        (one POV, others woven in as supporting cast).  Agents in separate
-        locations each get their own chapter — parallel storylines.
-        """
-        agent_events = [e for e in tick_events if e.agent_id]
-        if not agent_events:
-            return []
-
-        alive_ids = list(self.session.agent_ids)
-        if not alive_ids:
-            return []
-
-        # ── Group alive agents by location ──
-        loc_groups: dict[str, list[str]] = {}
-        for aid in alive_ids:
-            agent = self.session.agents[aid]
-            loc_groups.setdefault(agent.location, []).append(aid)
-
-        # ── Pick one POV per location group ──
-        # Rotate which agent is POV within each group across ticks
-        pov_picks: list[tuple[str, list[str]]] = []  # (pov_id, group_ids)
-        for loc, group in loc_groups.items():
-            pov_id = group[self.session.tick % len(group)]
-            pov_picks.append((pov_id, group))
-
-        # ── Get world time display ──
-        world_time_display = ""
-        if hasattr(self, "_get_world_time"):
-            wt = self._get_world_time()
-            world_time_display = wt.get("display", "") if wt else ""
-
-        # ── Generate one chapter per location group ──
-        chapters: list[Event] = []
-        for pov_id, group_ids in pov_picks:
-            pov = self.session.agents[pov_id]
-
-            # Filter events relevant to this location group
-            group_set = set(group_ids)
-            local_events = [
-                e for e in tick_events
-                if e.result and (
-                    e.agent_id in group_set
-                    or e.location == pov.location
-                    or not e.agent_id  # world events
-                )
-            ]
-            if not local_events:
-                continue
-
-            event_summaries = [e.result for e in local_events]
-
-            try:
-                chapter_text = await generate_chapter(
-                    pov_name=pov.name,
-                    pov_personality=pov.personality,
-                    pov_location=pov.location,
-                    pov_goals=pov.goals,
-                    pov_inventory=list(pov.inventory),
-                    tick_events=event_summaries,
-                    previous_chapter=getattr(self, "_last_chapter", ""),
-                    world_description=self.session.world_seed.description,
-                    world_time_display=world_time_display,
-                    model=self.model,
-                    api_key=self.api_key,
-                    api_base=self.api_base,
-                )
-            except Exception:
-                logger.warning("Chapter generation failed for tick %d pov %s",
-                               self.session.tick, pov.name, exc_info=True)
-                continue
-
-            self._last_chapter = chapter_text
-
-            event = Event(
-                session_id=self.session.id,
-                tick=self.session.tick,
-                agent_id=pov_id,
-                agent_name=pov.name,
-                action_type="chapter",
-                action={"type": "chapter", "pov": pov_id, "location": pov.location},
-                result=chapter_text,
-                location=pov.location,
-                involved_agents=group_ids,
-            )
-            self._append_event(event)
-            asyncio.create_task(self._emit_safe(event))
-            chapters.append(event)
-
-        return chapters
-
-    async def _replan_goal(self, agent: AgentState, goal: GoalState) -> dict:
-        # Use structured memory instead of legacy sliding window
-        memories = await retrieve_relevant_memories(agent, self.session, limit=5)
-        memory_strings = [m["content"] for m in memories]
-        return await replan_goal(
-            agent_name=agent.name,
-            agent_personality=agent.personality,
-            current_goals=agent.goals,
-            stalled_goal=goal.text,
-            agent_memory=memory_strings,
-            model=self.model,
-            api_key=self.api_key,
-            api_base=self.api_base,
-            drive_state=self._get_agent_drive_state(agent.agent_id),
-        )
-
-    async def _retrieve_relevant_memories(self, agent: AgentState) -> list[dict[str, Any]]:
-        return await retrieve_relevant_memories(agent, self.session)
-
-    async def _get_relevant_events(self, agent: AgentState) -> list[str]:
-        return await get_relevant_events(agent, self.session)
-
-    async def _get_agent_beliefs(self, agent_id: str, limit: int = 5) -> list[str]:
-        return await get_agent_beliefs(self.session.id, agent_id, limit=limit)
-
-    def _build_context(self, agent: AgentState, **overrides) -> AgentContext:
-        """Compatibility shim for tests and older callers.
-
-        Canonical context assembly now lives in policies._build_agent_context().
-        """
-        return _build_agent_context(self, agent, **overrides)
-
-    async def _resolve_agent_action(self, agent: AgentState) -> Event:
-        """Resolve agent action via DecisionSource protocol."""
+    async def _resolve(self, agent: AgentState) -> Event:
+        """Resolve one agent's action. The causal core."""
         try:
-            return await self._resolve_agent_action_inner(agent)
+            return await self._resolve_inner(agent)
         except Exception as e:
-            logger.warning("Agent action resolve failed for %s: %s", agent.agent_id, e)
-            return await self._make_wait_event(agent, f"Resolve error: {e}")
+            logger.warning("Resolve failed for %s: %s", agent.agent_id, e)
+            return self._make_wait_event(agent, f"Resolve error: {e}")
 
-    async def _resolve_agent_action_inner(self, agent: AgentState) -> Event:
-        """Inner implementation — any unhandled exception falls back to WAIT."""
-        self.goal_mutation_policy.ensure_active_goal(self, agent)
-
-        max_attempts = self.resolution_policy.max_attempts(self, agent)
+    async def _resolve_inner(self, agent: AgentState) -> Event:
         last_error = ""
 
-        for attempt in range(max_attempts):
+        for attempt in range(MAX_RESOLVE_ATTEMPTS):
             try:
-                # ── Single path: always through DecisionSource ──
-                ctx = await self.perception_policy.build_context(self, agent)
-                ctx = self.resolution_policy.repair_context(
-                    self, agent, ctx, last_error, attempt,
-                )
+                # Perceive (hook builds full context)
+                ctx = await self.hooks.build_context(self, agent)
+                if last_error and attempt > 0:
+                    ctx = self._inject_error(ctx, last_error, attempt)
+
+                # Decide
                 action_output = await self.decision_source.decide(ctx)
-                response = self.proposal_policy.build_response(
-                    self, agent, action_output,
-                )
+
+                # Propose (wrap into LLMResponse with state_changes)
+                response = self._propose(agent, action_output)
 
                 # Validate
                 errors = self.world_authority.validate(response, agent, self.session)
                 if errors:
                     last_error = "; ".join(errors)
-                    if attempt < max_attempts - 1:
+                    if attempt < MAX_RESOLVE_ATTEMPTS - 1:
                         continue
-                    self.goal_mutation_policy.record_blocker(agent, last_error)
-                    return await self._make_wait_event(
-                        agent,
-                        self.resolution_policy.invalid_result(self, agent, last_error),
-                    )
+                    return self._make_wait_event(agent, f"Invalid: {last_error}")
 
-                # Valid — apply and record
-                goal_before = agent.active_goal.model_copy(deep=True) if agent.active_goal else None
-                target_id = response.action.target if response.action.target in self.session.agents else None
-                relation_before = None
-                if target_id:
-                    rel = self.session.get_relation(agent.agent_id, target_id)
-                    relation_before = rel.model_copy(deep=True) if rel else None
-
+                # Apply + Physics (the causal moment)
                 summary = self.world_authority.apply(response, agent, self.session)
-                at = response.action.type.value
+                effects = self.world_physics.enforce(response.action, agent, self.session)
+                if effects:
+                    summary += " [" + "; ".join(effects) + "]"
 
-                # Get structured data from validator
-                structured = getattr(response, "_structured", {})
-                if response.intent.has_content():
-                    structured = {
-                        **structured,
-                        "decision": response.intent.model_dump(),
-                    }
-
-                event = Event(
-                    session_id=self.session.id,
-                    tick=self.session.tick,
-                    agent_id=agent.agent_id,
-                    agent_name=agent.name,
-                    action_type=at,
-                    action=response.action.model_dump(),
-                    result=summary,
-                    structured=structured,
-                    location=agent.location,
-                    involved_agents=[agent.agent_id],
-                )
-                # Add target agent to involved list
-                if target_id:
-                    event.involved_agents.append(target_id)
-
-                # Persist short-horizon continuity so the agent does not "forget" every tick.
-                self.goal_mutation_policy.sync_plan_from_intent(agent, response.intent)
-                agent.immediate_intent = (
-                    response.intent.objective.strip()
-                    or (agent.active_goal.text if agent.active_goal else "")
-                )
-                agent.immediate_approach = response.intent.approach.strip()
-                agent.immediate_next_step = response.intent.next_step.strip()
-                agent.last_outcome = summary
-
-                # ── Auto-update relations after social interactions ──
-                self.social_mutation_policy.apply(self, agent, response, errors=[])
-
-                # ── Update goal progress ──
-                await self.goal_mutation_policy.update(self, agent, event)
-
-                relation_after = None
-                if target_id:
-                    rel = self.session.get_relation(agent.agent_id, target_id)
-                    relation_after = rel.model_copy(deep=True) if rel else None
-                goal_after = agent.active_goal.model_copy(deep=True) if agent.active_goal else None
-                finalize_event_significance(
-                    event,
-                    goal_before=goal_before,
-                    goal_after=goal_after,
-                    relation_before=relation_before,
-                    relation_after=relation_after,
-                )
-
+                # Record
+                event = self._make_event(agent, response, summary)
                 self._append_event(event)
-                await self._remember_event(agent, event, summary)
                 await self._emit(event)
+
+                # Hook: after event (memory, goals, relations, significance)
+                await self.hooks.after_event(self, agent, event, response)
 
                 return event
 
             except (ValidationError, ValueError, KeyError) as e:
                 last_error = str(e)
-                if attempt < max_attempts - 1:
+                if attempt < MAX_RESOLVE_ATTEMPTS - 1:
                     continue
-                return await self._make_wait_event(agent, f"LLM error: {last_error}")
+                return self._make_wait_event(agent, f"Error: {last_error}")
 
             except Exception as e:
-                logger.warning("Unexpected error during agent action for %s: %s", agent.agent_id, e)
+                logger.warning("Unexpected error for %s: %s", agent.agent_id, e)
                 err_str = str(e)
                 if "AuthenticationError" in err_str or "API key" in err_str:
-                    return await self._make_wait_event(agent, "API Key 无效或未配置，请在 Settings 中检查")
-                return await self._make_wait_event(agent, f"Unexpected error: {e}")
+                    return self._make_wait_event(agent, "API Key invalid")
+                return self._make_wait_event(agent, f"Unexpected: {e}")
 
-        return await self._make_wait_event(agent, "Max retries exceeded")
+        return self._make_wait_event(agent, "Max retries exceeded")
 
-    async def _make_wait_event(self, agent: AgentState, reason: str) -> Event:
-        """Create a fallback wait event when action resolution fails."""
-        summary = f"{agent.name} waited (system: {reason})"
+    # ── Pure helpers (no side effects beyond state) ───────
+
+    @staticmethod
+    def _propose(agent: AgentState, action: ActionOutput) -> LLMResponse:
+        """Wrap an ActionOutput into LLMResponse with appropriate state_changes."""
+        state_changes = StateChanges()
+        if action.type == ActionType.MOVE and action.target:
+            state_changes.location = action.target
+        return LLMResponse(
+            thinking="(decision source)",
+            intent=action.intent or {},
+            action=action,
+            state_changes=state_changes,
+        )
+
+    def _inject_error(self, ctx: AgentContext, error: str, attempt: int) -> AgentContext:
+        """Add error feedback to context for retry."""
+        repair = (
+            f"\n\n[SYSTEM] Your previous action was INVALID (attempt {attempt}/{MAX_RESOLVE_ATTEMPTS}): "
+            f"{error}\nPlease choose a different, valid action."
+        )
+        patched = ctx.model_copy()
+        patched.recent_events = list(ctx.recent_events) + [repair]
+        return patched
+
+    def _make_event(self, agent: AgentState, response: LLMResponse, summary: str) -> Event:
+        """Build an Event from a validated response."""
+        structured = getattr(response, "_structured", {})
+        if response.intent.has_content():
+            structured = {**structured, "decision": response.intent.model_dump()}
+
+        target_id = response.action.target
+        involved = [agent.agent_id]
+        if target_id and target_id in self.session.agents:
+            involved.append(target_id)
+
+        return Event(
+            session_id=self.session.id,
+            tick=self.session.tick,
+            agent_id=agent.agent_id,
+            agent_name=agent.name,
+            action_type=response.action.type.value,
+            action=response.action.model_dump(),
+            result=summary,
+            structured=structured,
+            location=agent.location,
+            involved_agents=involved,
+        )
+
+    def _make_wait_event(self, agent: AgentState, reason: str) -> Event:
+        """Fallback event when resolution fails."""
         event = Event(
             session_id=self.session.id,
             tick=self.session.tick,
@@ -542,123 +325,18 @@ class Engine:
             agent_name=agent.name,
             action_type=ActionType.WAIT.value,
             action={"type": "wait", "content": reason},
-            result=summary,
+            result=f"{agent.name} waited (system: {reason})",
             location=agent.location,
             involved_agents=[agent.agent_id],
         )
-        finalize_event_significance(event)
         self._append_event(event)
-        await self._remember_event(agent, event, summary)
         asyncio.create_task(self._emit_safe(event))
         return event
 
-    async def _post_tick(self, tick_events: list[Event]) -> None:
-        """Run post-tick policies."""
-        await self.timeline_policy.after_tick(self, tick_events)
-        await self.memory_policy.after_tick(self, tick_events)
-        await self.enrichment_policy.after_tick(self, tick_events)
-
-    async def _update_goals(self, agent: AgentState, event: Event) -> None:
-        """Facade for goal_mutation_policy (used by tests)."""
-        await self.goal_mutation_policy.update(self, agent, event)
-
-    def _event_advances_goal(self, event: Event, goal: GoalState) -> bool:
-        """Facade for goal_mutation_policy (used by tests)."""
-        return self.goal_mutation_policy.event_advances(event, goal)
-
-    def _select_next_goal(
-        self, agent: AgentState, drive_state: dict[str, float] | None = None,
-    ) -> GoalState | None:
-        """Facade for goal_mutation_policy (used by tests)."""
-        return self.goal_mutation_policy.select_next_goal(self, agent, drive_state=drive_state)
-
-    def _get_agent_drive_state(self, agent_id: str) -> dict[str, float] | None:
-        """Get current Psyche drive state for an agent, if available."""
-        snapshot = self._psyche_snapshots.get(agent_id)
-        return snapshot.drives if snapshot and snapshot.drives else None
-
-    def update_psyche_snapshot(self, agent_id: str, snapshot: Any) -> None:
-        """Update Psyche snapshot for an agent (called by decision source)."""
-        self._prev_psyche_snapshots[agent_id] = self._psyche_snapshots.get(agent_id)
-        self._psyche_snapshots[agent_id] = snapshot
-
-    async def _get_last_node_id(self) -> str | None:
-        return await get_last_node_id(self.session.id)
-
-    async def _save_timeline_node(self, node: TimelineNode) -> None:
-        await save_timeline_node(node)
-
-    async def _save_snapshot(self, snapshot: WorldSnapshot) -> None:
-        await save_snapshot(snapshot)
-
-    def _dump_agent_states_json(self) -> str:
-        return json.dumps(
-            {agent_id: agent.model_dump() for agent_id, agent in self.session.agents.items()},
-            ensure_ascii=False,
-        )
-
-    async def _consolidate_memories(self, agent_id: str) -> None:
-        await consolidate_memories(
-            self.session,
-            agent_id,
-            model=self.model,
-            api_key=self.api_key,
-            api_base=self.api_base,
-        )
-
-    async def _extract_beliefs(self, agent_id: str) -> None:
-        try:
-            await extract_beliefs(agent_id, self.session)
-        except Exception as e:
-            logger.debug("Belief extraction failed for agent %s: %s", agent_id, e)
-
-    async def _load_entity_details(self, entity_type: str, entity_id: str) -> dict | None:
-        return await load_entity_details(self.session.id, entity_type, entity_id)
-
-    async def _save_entity_details(
-        self,
-        *,
-        entity_type: str,
-        entity_id: str,
-        details: dict,
-        tick: int,
-    ) -> None:
-        await save_entity_details(
-            session_id=self.session.id,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            details=details,
-            tick=tick,
-        )
-
-    async def _load_events(self, limit: int = 100) -> list[dict]:
-        return await load_events(self.session.id, limit=limit)
-
-    async def _load_events_filtered(self, *, agent_id: str, limit: int = 15) -> list[dict]:
-        return await load_events_filtered(
-            session_id=self.session.id,
-            agent_id=agent_id,
-            limit=limit,
-        )
-
-    async def _enrich_entity(
-        self,
-        *,
-        entity_type: str,
-        entity_id: str,
-        current_details: dict,
-        relevant_events: list[str],
-    ) -> dict:
-        return await enrich_entity(
-            entity_type=entity_type,
-            entity_name=entity_id,
-            current_details=current_details,
-            relevant_events=relevant_events,
-            world_desc=self.session.world_seed.description,
-            model=self.model,
-            api_key=self.api_key,
-            api_base=self.api_base,
-        )
+    def _append_event(self, event: Event) -> None:
+        self.session.events.append(event)
+        if len(self.session.events) > EVENT_WINDOW:
+            self.session.events = self.session.events[-EVENT_WINDOW:]
 
     async def _emit(self, event: Event) -> None:
         if self.on_event:

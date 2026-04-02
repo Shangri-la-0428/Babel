@@ -165,7 +165,7 @@ async def _handle_oracle(*, params, session_id, engine, model, api_key, api_base
     reply = await chat_with_oracle(
         world_name=session.world_seed.name,
         world_description=session.world_seed.description,
-        world_rules=session.world_seed.rules,
+        world_lore=session.world_seed.lore,
         agents=agents_dict,
         recent_events=recent,
         enriched_details=enriched,
@@ -242,8 +242,8 @@ async def _handle_patch_world(*, params, session_id, engine, **kw) -> dict:
         ws.name = params["name"]
     if params.get("description") is not None:
         ws.description = params["description"]
-    if params.get("rules") is not None:
-        ws.rules = params["rules"]
+    if params.get("lore") is not None:
+        ws.lore = params["lore"]
 
     await save_session(engine.session)
     return {"ok": True, "data": {"world_name": ws.name}}

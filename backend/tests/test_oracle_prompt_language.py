@@ -10,7 +10,7 @@ def test_oracle_prompt_prefers_simplified_chinese():
     prompt = build_oracle_prompt(
         world_name="测试世界",
         world_description="一个测试世界。",
-        world_rules=["规则一"],
+        world_lore=["规则一"],
         agents={},
         recent_events=[],
         enriched_details={},

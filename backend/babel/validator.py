@@ -365,19 +365,6 @@ def validate_seed(seed) -> list[str]:
             errors.append(f"Duplicate agent ID: '{agent.id}'")
         seen_ids.add(agent.id)
 
-    # Auto-deduplicate items by name (keep first occurrence, skip unnamed)
-    seen_items: set[str] = set()
-    deduped_items = []
-    for item in getattr(seed, "items", []) or []:
-        normalized = item.name.strip()
-        if not normalized:
-            continue
-        if normalized not in seen_items:
-            seen_items.add(normalized)
-            deduped_items.append(item)
-    if hasattr(seed, "items"):
-        seed.items = deduped_items
-
     # Auto-fix agent locations: if location doesn't exist, assign first location
     first_loc = loc_names[0] if loc_names else ""
     for agent in seed.agents:

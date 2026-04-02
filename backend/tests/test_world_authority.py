@@ -49,7 +49,7 @@ def _make_session(
         name="Test World",
         locations=loc_seeds,
         agents=agent_seeds,
-        rules=["No killing"],
+        lore=["No killing"],
     )
     session = Session(world_seed=ws, tick=10)
 
@@ -450,7 +450,7 @@ class TestPromptRelations:
         from babel.prompts import build_user_prompt
 
         prompt = build_user_prompt(
-            world_rules=["no killing"],
+            world_lore=["no killing"],
             agent_name="Alice",
             agent_personality="brave",
             agent_goals=["survive"],
@@ -476,7 +476,7 @@ class TestPromptRelations:
         from babel.prompts import build_user_prompt
 
         prompt = build_user_prompt(
-            world_rules=[],
+            world_lore=[],
             agent_name="Alice",
             agent_personality="",
             agent_goals=[],
