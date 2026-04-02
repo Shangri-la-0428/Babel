@@ -42,7 +42,6 @@ import SeekBar from "@/components/SeekBar";
 import { ErrorBanner, GlitchReveal } from "@/components/ui";
 
 const ParticleField = dynamic(() => import("@/components/ParticleField"), { ssr: false });
-const WorldRadar = dynamic(() => import("@/components/WorldRadar"), { ssr: false });
 const WorldShader = dynamic(() => import("@/components/WorldShader"), { ssr: false });
 const SeedPreview = lazy(() => import("@/components/SeedPreview"));
 const WorldReport = lazy(() => import("@/components/WorldReport"));
@@ -68,7 +67,6 @@ function SimContent() {
   const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [seedPreview, setSeedPreview] = useState<SavedSeedData | null>(null);
   const [controlledAgents, setControlledAgents] = useState<Set<string>>(new Set());
-  const [radarCollapsed, setRadarCollapsed] = useState(false);
   const [highlightsOnly, setHighlightsOnly] = useState(false);
   const [viewMode, setViewMode] = useState<"timeline" | "chronicle">("chronicle");
   const [reportOpen, setReportOpen] = useState(false);
@@ -469,27 +467,6 @@ function SimContent() {
     [displayEvents]
   );
 
-  // Radar: derive latest event location from agent state
-  const latestEventLocation = useMemo(() => {
-    if (!displayEvents.length || !displayState?.agents) return "";
-    const last = displayEvents[displayEvents.length - 1];
-    if (last.agent_id && displayState.agents[last.agent_id]) {
-      return displayState.agents[last.agent_id].location;
-    }
-    return "";
-  }, [displayEvents, displayState?.agents]);
-
-
-  // Radar: agent list for Canvas visualization
-  const radarAgents = useMemo(() => {
-    if (!displayState?.agents) return [];
-    return Object.entries(displayState.agents).map(([id, a]) => ({
-      id,
-      name: a.name,
-      location: a.location,
-      status: a.status,
-    }));
-  }, [displayState?.agents]);
 
   if (!sessionId) {
     return (
@@ -637,37 +614,6 @@ function SimContent() {
       <main className="flex-1 grid grid-cols-[1fr_var(--sidebar-width)] min-w-[1024px] overflow-hidden">
         {/* Event Feed */}
         <section className="flex flex-col border-r border-b-DEFAULT overflow-hidden" aria-label="Event feed">
-          {/* World Radar — Direction A */}
-          {state && (state.locations?.length ?? 0) > 0 && (
-            <div className="border-b border-b-DEFAULT shrink-0 bg-void relative">
-              <button
-                type="button"
-                onClick={() => setRadarCollapsed((p) => !p)}
-                className="absolute top-1.5 left-4 text-micro text-t-dim tracking-widest z-10 hover:text-t-muted transition-colors"
-                aria-expanded={!radarCollapsed}
-                aria-controls="world-radar-panel"
-              >
-                TACTICAL {radarCollapsed ? "▸" : "▾"}
-              </button>
-              <div
-                id="world-radar-panel"
-                className="accordion-grid"
-                data-open={!radarCollapsed}
-              >
-                <div className="accordion-inner" style={{ height: radarCollapsed ? 0 : 152 }}>
-                  <WorldRadar
-                    locations={state.locations}
-                    agents={radarAgents}
-                    isRunning={status === "running"}
-                    latestEventLocation={latestEventLocation}
-                    tick={tick}
-                  />
-                </div>
-              </div>
-              {/* Reserve space for toggle button when collapsed */}
-              {radarCollapsed && <div className="h-7" />}
-            </div>
-          )}
           <div className="px-4 py-3 border-b border-b-DEFAULT bg-surface-1 flex justify-between items-center shrink-0">
             <span className="flex items-center gap-2">
               <button
